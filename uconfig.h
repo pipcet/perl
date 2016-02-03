@@ -2334,6 +2334,12 @@
  */
 /*#define HAS_SIGINFO_SI_VALUE	/ **/
 
+/* HAS_SIGINFO_SI_FD:
+ *	This symbol, if defined, indicates that siginfo_t has the
+ *	si_fd member
+ */
+/*#define HAS_SIGINFO_SI_FD	/ **/
+
 /* HAS_SIGSETJMP:
  *	This variable indicates to the C program that the sigsetjmp()
  *	routine is available to save the calling process's registers
@@ -5224,6 +5230,6 @@
 #endif
 
 /* Generated from:
- * 0459b706f70bb18d7481b187553e0719406d2c7d5c354c3a309332dfd8e66197 config_h.SH
- * 9382cd0e3b112993f14cfefe78ebe24b4b09df9d9dd199226ca7ba5e6b90f21a uconfig.sh
+ * afdcdacebd7a9e86ec03886d3e792fc0a1a2f1465ae7a12ddd353363b864b5dd config_h.SH
+ * b204e1014d0830db4f960bc85e90de509bc072f84c6728b54a396696f258faaf uconfig.sh
  * ex: set ro: */

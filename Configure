@@ -792,6 +792,7 @@ d_siginfo_si_addr=''
 d_siginfo_si_status=''
 d_siginfo_si_band=''
 d_siginfo_si_value=''
+d_siginfo_si_fd=''
 d_signbit=''
 d_sigprocmask=''
 d_sigsetjmp=''
@@ -22754,6 +22755,10 @@ case "$d_sigaction" in
 	set d_siginfo_si_value siginfo_t "union sigval" si_value $d_sigaction signal.h
 	eval $hasfield_t;
 
+	echo "Checking if your siginfo_t has si_fd field...">&4
+	set d_siginfo_si_fd siginfo_t int si_fd $d_sigaction signal.h
+	eval $hasfield_t;
+
 	;;
 esac
 
@@ -24590,6 +24595,7 @@ d_siginfo_si_addr='$d_siginfo_si_addr'
 d_siginfo_si_status='$d_siginfo_si_status'
 d_siginfo_si_band='$d_siginfo_si_band'
 d_siginfo_si_value='$d_siginfo_si_value'
+d_siginfo_si_fd='$d_siginfo_si_fd'
 d_signbit='$d_signbit'
 d_sigprocmask='$d_sigprocmask'
 d_sigsetjmp='$d_sigsetjmp'
