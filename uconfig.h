@@ -4135,9 +4135,20 @@
  *	This symbol, if defined, indicates that the uselocale routine is
  *	available to set the current locale for the calling thread.
  */
+/* HAS_DUPLOCALE:
+ *	This symbol, if defined, indicates that the duplocale routine is
+ *	available to duplicate a locale object.
+ */
 /*#define	HAS_NEWLOCALE	/ **/
 /*#define	HAS_FREELOCALE	/ **/
 /*#define	HAS_USELOCALE	/ **/
+/*#define	HAS_DUPLOCALE	/ **/
+
+ /* I_XLOCALE:
+ *	This symbol, if defined, indicates to the C program that it should
+ *	include <xlocale.h> to get uselocale() and it's friends
+ */
+/*#define	I_XLOCALE		/ **/
 
 /* HAS_NEXTAFTER:
  *	This symbol, if defined, indicates that the nextafter routine is
@@ -5248,6 +5259,6 @@
 #endif
 
 /* Generated from:
- * dc6a0dd949dd1c707248914e2fdada06beb0e6193be5e94cb1423c6f050e65c3 config_h.SH
- * fc611849cb5b1e14ec1687b255dac15414cc5e2e11b192d94e08136cfe277f75 uconfig.sh
+ * 5895915b3b1baccd3af28dd52d95bcb966dea0153b1c40e1bc091cf5abbf2beb config_h.SH
+ * 792ab6fbb2852977d6cc54403ab8c2422dfb2b48ef6ec3f54741e57519f07cec uconfig.sh
  * ex: set ro: */

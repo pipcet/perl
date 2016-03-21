@@ -714,6 +714,11 @@ d_dup2 (d_dup2.U):
 	This variable conditionally defines HAS_DUP2 if dup2() is
 	available to duplicate file descriptors.
 
+d_duplocale (d_newlocale.U):
+	This variable conditionally defines the HAS_DUPLOCALE symbol, which
+	indicates to the C program that the duplocale() routine is available
+	to duplicate a locale object.
+
 d_eaccess (d_eaccess.U):
 	This variable conditionally defines the HAS_EACCESS symbol, which
 	indicates to the C program that the eaccess() routine is available.
@@ -3697,6 +3702,10 @@ i_varhdr (i_varhdr.U):
 i_vfork (i_vfork.U):
 	This variable conditionally defines the I_VFORK symbol, and indicates
 	whether a C program should include vfork.h.
+
+i_xlocale (newlocale.U):
+	This symbol, if defined, indicates to the C program that it should
+	include <xlocale.h> to get uselocale() and it's friends
 
 ignore_versioned_solibs (libs.U):
 	This variable should be non-empty if non-versioned shared
