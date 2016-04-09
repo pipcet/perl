@@ -1273,15 +1273,52 @@ Perl_init_i18nl10n(pTHX_ int printwarn)
  */
 
 char *
-Perl_mem_collxfrm(pTHX_ const char *s, STRLEN len, STRLEN *xlen)
+Perl_mem_collxfrm(pTHX_ const char *input_string,
+                         STRLEN len,
+                         STRLEN *xlen
+                   )
 {
+    char * s = (char *) input_string;
+    STRLEN s_strlen = strlen(input_string);
     char *xbuf;
-    STRLEN xAlloc, xin, xout; /* xalloc is a reserved word in VC */
+    STRLEN xAlloc, xout; /* xalloc is a reserved word in VC */
 
     PERL_ARGS_ASSERT_MEM_COLLXFRM;
 
-    /* the first sizeof(collationix) bytes are used by sv_collxfrm(). */
-    /* the +1 is for the terminating NUL. */
+    /* Replace any embedded NULs with \001.  This character almost certainly
+     * will be a control with the same ignored-ness at various sort weights as
+     * NUL.  And if the resultant strings compare equal, the original string is
+     * used as a tie breaker, so the NUL will sort before the SOH.  (We could
+     * calculate what the minimum sorting code point is, instead of assuming it
+     * will be SOH, but
+     * it's somewhat complicated and SOH is almost certainly going to be the
+     * correct value.)
+     *
+     * This is one of the few places in the perl core, where we can use
+     * standard functions like strlen() and strcat().  It's because we're
+     * looking for NULs. */
+    if (s_strlen < len) {
+        char * e = s + len;
+        char * sans_nuls;
+        STRLEN sans_nuls_len = 0;
+
+        /* The replaced string will be the same length as the input */
+        Newx(sans_nuls, len, char);
+        *sans_nuls = '\0';
+
+        while (s < e) {
+            strcat(sans_nuls, s);
+            sans_nuls_len += s_strlen;
+            *(sans_nuls + sans_nuls_len++) = '\001';
+            *(sans_nuls + sans_nuls_len++)= '\0';
+
+            /* Move past the input NUL */
+            s += s_strlen + 1;
+            s_strlen = strlen(s);
+        }
+
+        s = sans_nuls;
+    }
 
     xAlloc = sizeof(PL_collation_ix) + PL_collxfrm_base + (PL_collxfrm_mult * len) + 1;
     Newx(xbuf, xAlloc, char);
@@ -1294,17 +1331,16 @@ Perl_mem_collxfrm(pTHX_ const char *s, STRLEN len, STRLEN *xlen)
 
     /* Then the transformation of the input.  We loop until successful, or we
      * give up */
-    for (xin = 0; xin < len; ) {
-	Size_t xused;
-
 	for (;;) {
-	    xused = strxfrm(xbuf + xout, s + xin, xAlloc - xout);
+            STRLEN xused = strxfrm(xbuf + xout, s, xAlloc - xout);
 
             /* If the transformed string occupies less space than we told
              * strxfrm() was available, it means it successfully transformed
              * the whole string. */
-	    if ((STRLEN)xused < xAlloc - xout)
+	    if (xused < xAlloc - xout) {
+                xout += xused;
 		break;
+            }
 
 	    if (UNLIKELY(xused >= PERL_INT_MAX))
 		goto bad;
@@ -1318,19 +1354,20 @@ Perl_mem_collxfrm(pTHX_ const char *s, STRLEN len, STRLEN *xlen)
 		goto bad;
 	}
 
-	xin += strlen(s + xin) + 1;
-	xout += xused;
+    *xlen = xout - sizeof(PL_collation_ix);
 
-	/* Embedded NULs are understood but silently skipped
-	 * because they make no sense in locale collation. */
+
+    if (s != input_string) {
+        Safefree(s);
     }
 
-    xbuf[xout] = '\0';
-    *xlen = xout - sizeof(PL_collation_ix);
     return xbuf;
 
   bad:
     Safefree(xbuf);
+    if (s != input_string) {
+        Safefree(s);
+    }
     *xlen = 0;
     return NULL;
 }
