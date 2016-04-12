@@ -650,6 +650,19 @@ Perl_new_collate(pTHX_ const char *newcoll)
                 /* Add 1 for the trailing NUL */
                 PL_collxfrm_base = base + 1;
             }
+
+#ifdef DEBUGGING
+            if (DEBUG_L_TEST || debug_initialization) {
+                PerlIO_printf(Perl_debug_log,
+                    "%s:%d: ?UTF-8 locale=%d; x_len_shorter=%"UVuf", "
+                    "x_len_longer=%"UVuf","
+                    " collate multipler=%"UVuf", collate base=%"UVuf"\n",
+                    __FILE__, __LINE__,
+                    PL_in_utf8_COLLATE_locale,
+                    x_len_shorter, x_len_longer,
+                    PL_collxfrm_mult, PL_collxfrm_base);
+            }
+#endif
 	}
     }
 
@@ -1529,6 +1542,25 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
                         }
                     }
 
+#ifdef DEBUGGING
+                    if (DEBUG_L_TEST || debug_initialization) {
+                        PerlIO_printf(Perl_debug_log,
+                            "_mem_collxfrm: highest 1-byte collating character"
+                            " in locale %s is 0x%02X\n",
+                            PL_collation_name,
+                            PL_strxfrm_max_cp);
+                        if (DEBUG_Lv_TEST || debug_initialization) {
+                            unsigned i;
+                            PerlIO_printf(Perl_debug_log, "It is ");
+                            for (i = 0; i < strlen(cur_max_x); i ++) {
+                                PerlIO_printf(Perl_debug_log, " %02x",
+                                                              (U8) cur_max_x[i]);
+                            }
+                            PerlIO_printf(Perl_debug_log, "\n");
+                        }
+                    }
+#endif
+
                     Safefree(cur_max_x);
                 }
 
@@ -1615,6 +1647,14 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
             xAlloc = (2 * xAlloc) + 1;
         }
 
+#ifdef DEBUGGING
+        if (DEBUG_Lv_TEST || debug_initialization)
+            (PerlIO_printf(Perl_debug_log,
+            "_mem_collxfrm required more space than previously calculated"
+            " for locale %s, new try=%u\n",
+            PL_collation_name,
+            (unsigned) xAlloc));
+#endif
 
         Renew(xbuf, xAlloc, char);
         if (UNLIKELY(! xbuf))
@@ -1623,6 +1663,21 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         first_time = FALSE;
     }
 
+
+#ifdef DEBUGGING
+    if (DEBUG_L_TEST || debug_initialization)
+        (PerlIO_printf(Perl_debug_log,"xlen=%d\n", *xlen));
+    if (DEBUG_Lv_TEST || debug_initialization) {
+        unsigned i;
+        PerlIO_printf(Perl_debug_log, "For '%s', _mem_collxfrm[%d] returning: ",
+                                        input_string, PL_collation_ix);
+        for (i = 0; i < *xlen; i++) {
+            PerlIO_printf(Perl_debug_log, " %02x",
+                                          (U8) xbuf[i + COLLXFRM_HDR_LEN]);
+        }
+        PerlIO_printf(Perl_debug_log, "\n");
+    }
+#endif
 
     /* Free up unneeded space; retain ehough for trailing NUL */
     Renew(xbuf, COLLXFRM_HDR_LEN + *xlen + 1, char);
@@ -1639,6 +1694,11 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         Safefree(s);
     }
     *xlen = 0;
+#ifdef DEBUGGING
+    if (DEBUG_Lv_TEST || debug_initialization) {
+        PerlIO_printf(Perl_debug_log, "_mem_collxfrm returning NULL\n");
+    }
+#endif
     return NULL;
 }
 
