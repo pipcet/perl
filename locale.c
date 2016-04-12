@@ -1282,6 +1282,7 @@ Perl_mem_collxfrm(pTHX_ const char *input_string,
     STRLEN s_strlen = strlen(input_string);
     char *xbuf;
     STRLEN xAlloc, xout; /* xalloc is a reserved word in VC */
+    bool first_time = TRUE; /* Cleared after first loop iteration */
 
     PERL_ARGS_ASSERT_MEM_COLLXFRM;
 
@@ -1345,12 +1346,29 @@ Perl_mem_collxfrm(pTHX_ const char *input_string,
         if (UNLIKELY(xused >= PERL_INT_MAX))
             goto bad;
 
-        /* Otherwise it should be that the transformation stopped in the middle
-         * because it ran out of space.  Malloc more, and try again.  */
-        xAlloc = (2 * xAlloc) + 1;
+        /* A well-behaved strxfrm() returns exactly how much space it needs
+         * (not including the trailing NUL) when it fails due to not enough
+         * space being provided.  Use that number (plus room for the NUL) and
+         * try again, but if we've already done this once and gotten back here,
+         * it means that strxfrm() is not well-behaved */
+        if (first_time && xused > xAlloc - xout) {
+            xAlloc = xused + 1;
+        }
+        else {
+
+            /* Here, strxfrm() has shown its return value can't be relied on
+             * (under failure), because we gave it as much space as is needed
+             * and it didn't work.  Increase the buffer size by a fixed
+             * percentage and try again. */
+            xAlloc = (2 * xAlloc) + 1;
+        }
+
+
         Renew(xbuf, xAlloc, char);
         if (UNLIKELY(! xbuf))
             goto bad;
+
+        first_time = FALSE;
     }
 
     *xlen = xout - sizeof(PL_collation_ix);
