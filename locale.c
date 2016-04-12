@@ -1643,8 +1643,9 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
             /* Here, strxfrm() has shown its return value can't be relied on
              * (under failure), because we gave it as much space as is needed
              * and it didn't work.  Increase the buffer size by a fixed
-             * percentage and try again. */
-            xAlloc = (2 * xAlloc) + 1;
+             * percentage and try again.  The +1 makes sure that we don't loop
+             * forever, which we would otherwise do if xAlloc is very small */
+            xAlloc += (xAlloc / 4) + 1;
         }
 
 #ifdef DEBUGGING
