@@ -8150,7 +8150,7 @@ Perl_sv_collxfrm_flags(pTHX_ SV *const sv, STRLEN *const nxp, const I32 flags)
 	    Safefree(mg->mg_ptr);
 
 	s = SvPV_flags_const(sv, len, flags);
-	if ((xf = mem_collxfrm(s, len, &xlen))) {
+	if ((xf = _mem_collxfrm(s, len, &xlen, cBOOL(SvUTF8(sv))))) {
 	    if (! mg) {
 		mg = sv_magicext(sv, 0, PERL_MAGIC_collxfrm, &PL_vtbl_collxfrm,
 				 0, 0);
@@ -14770,6 +14770,7 @@ perl_clone_using(PerlInterpreter *proto_perl, UV flags,
     PL_collation_standard	= proto_perl->Icollation_standard;
     PL_collxfrm_base	= proto_perl->Icollxfrm_base;
     PL_collxfrm_mult	= proto_perl->Icollxfrm_mult;
+    PL_strxfrm_max_cp   = proto_perl->Istrxfrm_max_cp;
 #endif /* USE_LOCALE_COLLATE */
 
 #ifdef USE_LOCALE_NUMERIC
@@ -14780,6 +14781,7 @@ perl_clone_using(PerlInterpreter *proto_perl, UV flags,
     /* Did the locale setup indicate UTF-8? */
     PL_utf8locale	= proto_perl->Iutf8locale;
     PL_in_utf8_CTYPE_locale = proto_perl->Iin_utf8_CTYPE_locale;
+    PL_in_utf8_COLLATE_locale = proto_perl->Iin_utf8_COLLATE_locale;
     /* Unicode features (see perlrun/-C) */
     PL_unicode		= proto_perl->Iunicode;
 
