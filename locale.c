@@ -1420,6 +1420,7 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
     STRLEN s_strlen = strlen(input_string);
     char *xbuf = NULL;
     STRLEN xAlloc;          /* xalloc is a reserved word in VC */
+    STRLEN length_in_chars;
     bool first_time = TRUE; /* Cleared after first loop iteration */
 
     PERL_ARGS_ASSERT__MEM_COLLXFRM;
@@ -1601,13 +1602,15 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         }
     }
 
+    length_in_chars = (utf8)
+                      ? utf8_length((U8 *) s, (U8 *) s + len)
+                      : len;
+
     /* The first element in the output is the collation id, used by
      * sv_collxfrm(); then comes the space for the transformed string */
     xAlloc = COLLXFRM_HDR_LEN
            + PL_collxfrm_base
-           + (PL_collxfrm_mult * ((utf8)
-                                 ? utf8_length((U8 *) s, (U8 *) s + len)
-                                 : len));
+           + (PL_collxfrm_mult * length_in_chars);
     Newx(xbuf, xAlloc, char);
     if (UNLIKELY(! xbuf))
 	goto bad;
@@ -1624,6 +1627,45 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
          * was available, it means it successfully transformed the whole
          * string. */
         if (*xlen < xAlloc - COLLXFRM_HDR_LEN) {
+
+            /* If the first try didn't get it, it means our prediction was low.
+             * Modify the constants so that we predict a larger value in any
+             * future transformations */
+            if (! first_time) {
+                STRLEN needed = *xlen + 1;
+                STRLEN computed_guess = PL_collxfrm_base + (PL_collxfrm_mult * length_in_chars);
+                if (length_in_chars > 1) {  /* recalculate slope only for inputs where it matters XXX */
+                    const STRLEN new_m = needed / length_in_chars;
+                    STRLEN new_b;
+
+/*#ifdef DEBUGGING*/
+                    PerlIO_printf(Perl_debug_log, "%s: %d: initial size of %"UVuf" bytes for a %"UVuf" length string was insufficient, %"UVuf" needed\n", __FILE__, __LINE__, (UV) computed_guess, (UV) length_in_chars, (UV) needed);
+/*#endif*/
+                    if (new_m  > PL_collxfrm_mult) {
+                        STRLEN old_m = PL_collxfrm_mult;
+                        STRLEN old_b = PL_collxfrm_base;
+                        PL_collxfrm_mult = new_m;
+                        computed_guess = PL_collxfrm_mult * length_in_chars;
+                        if (computed_guess > needed) {
+                            PL_collxfrm_base = computed_guess - needed;
+                        }
+                        else {
+                            PL_collxfrm_base = 1;
+                        }
+/*#ifdef DEBUGGING*/
+                        PerlIO_printf(Perl_debug_log, "%s: %d: slope is now %"UVuf"; was %"UVuf", base is now %"UVuf"; was %"UVuf"\n", __FILE__, __LINE__, (UV) PL_collxfrm_mult, (UV) old_m, (UV) PL_collxfrm_base, (UV) old_b);
+/*#endif*/
+                        break;
+                    }
+
+                    new_b = needed - computed_guess + PL_collxfrm_base;
+                    if (new_b > PL_collxfrm_base) {
+                        PerlIO_printf(Perl_debug_log, "%s: %d: base is now %"UVuf"; was %"UVuf"\n", __FILE__, __LINE__, (UV) new_b, (UV) PL_collxfrm_base);
+                        PL_collxfrm_base = new_b;
+                    }
+                }
+            }
+
             break;
         }
 
@@ -1635,6 +1677,10 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
          * space being provided.  Use that number (plus room for the NUL) and
          * try again, but if we've already done this once and gotten back here,
          * it means that strxfrm() is not well-behaved */
+        /*if (DEBUG_Lv_TEST || debug_initialization) {*/
+            PerlIO_printf(Perl_debug_log,
+            "_mem_collxfrm didn't pass, first_time=%d, strxfrm return=%"UVuf", allocated size=%"UVuf"\n", first_time, (UV) *xlen, (UV) xAlloc - COLLXFRM_HDR_LEN);
+        /*}*/
         if (first_time && *xlen > xAlloc - COLLXFRM_HDR_LEN) {
             xAlloc = *xlen + COLLXFRM_HDR_LEN + 1;
         }
@@ -1646,16 +1692,17 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
              * percentage and try again.  The +1 makes sure that we don't loop
              * forever, which we would otherwise do if xAlloc is very small */
             xAlloc += (xAlloc / 4) + 1;
-        }
 
-#ifdef DEBUGGING
-        if (DEBUG_Lv_TEST || debug_initialization)
-            (PerlIO_printf(Perl_debug_log,
+/*#ifdef DEBUGGING*/
+        /*if (DEBUG_Lv_TEST || debug_initialization) {*/
+            PerlIO_printf(Perl_debug_log,
             "_mem_collxfrm required more space than previously calculated"
-            " for locale %s, new try=%u\n",
+            " for locale %s, trying again with new guess=%"UVuf"\n",
             PL_collation_name,
-            (unsigned) xAlloc));
-#endif
+            xAlloc - COLLXFRM_HDR_LEN - 1);
+        /*}*/
+/*#endif*/
+        }
 
         Renew(xbuf, xAlloc, char);
         if (UNLIKELY(! xbuf))
@@ -1665,9 +1712,9 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
     }
 
 
-#ifdef DEBUGGING
+/*#ifdef DEBUGGING*/
     if (DEBUG_L_TEST || debug_initialization)
-        (PerlIO_printf(Perl_debug_log,"xlen=%d\n", *xlen));
+        (PerlIO_printf(Perl_debug_log,"xlen=%"UVuf"\n", (UV) *xlen));
     if (DEBUG_Lv_TEST || debug_initialization) {
         unsigned i;
         PerlIO_printf(Perl_debug_log, "For '%s', _mem_collxfrm[%d] returning: ",
@@ -1678,7 +1725,7 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         }
         PerlIO_printf(Perl_debug_log, "\n");
     }
-#endif
+/*#endif*/
 
     /* Free up unneeded space; retain ehough for trailing NUL */
     Renew(xbuf, COLLXFRM_HDR_LEN + *xlen + 1, char);
