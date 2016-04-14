@@ -1397,14 +1397,16 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
     /* _mem_collxfrm() is a bit like strxfrm() but with two important
      * differences. First, it handles embedded NULs. Second, it allocates a bit
      * more memory than needed for the transformed data itself.  The real
-     * transformed data begins at offset sizeof(collationix).  *xlen is set to
+     * transformed data begins at offset COLLXFRM_HDR_LEN.  *xlen is set to
      * the length of that, and doesn't include the collation index size.
      * Please see sv_collxfrm() to see how this is used. */
+
+#define COLLXFRM_HDR_LEN    sizeof(PL_collation_ix)
 
     char * s = (char *) input_string;
     STRLEN s_strlen = strlen(input_string);
     char *xbuf = NULL;
-    STRLEN xAlloc, xout; /* xalloc is a reserved word in VC */
+    STRLEN xAlloc;          /* xalloc is a reserved word in VC */
     bool first_time = TRUE; /* Cleared after first loop iteration */
 
     PERL_ARGS_ASSERT__MEM_COLLXFRM;
@@ -1516,8 +1518,8 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
                         /* If this character's transformation is higher than
                          * the current highest, this one becomes the highest */
                         if (   cur_max_x == NULL
-                            || strGT(x         + sizeof(PL_collation_ix),
-                                     cur_max_x + sizeof(PL_collation_ix)))
+                            || strGT(x         + COLLXFRM_HDR_LEN,
+                                     cur_max_x + COLLXFRM_HDR_LEN))
                         {
                             PL_strxfrm_max_cp = j;
                             cur_max_x = x;
@@ -1569,7 +1571,7 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
 
     /* The first element in the output is the collation id, used by
      * sv_collxfrm(); then comes the space for the transformed string */
-    xAlloc = sizeof(PL_collation_ix)
+    xAlloc = COLLXFRM_HDR_LEN
            + PL_collxfrm_base
            + (PL_collxfrm_mult * ((utf8)
                                  ? utf8_length((U8 *) s, (U8 *) s + len)
@@ -1580,22 +1582,20 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
 
     /* Store the collation id */
     *(U32*)xbuf = PL_collation_ix;
-    xout = sizeof(PL_collation_ix);
 
     /* Then the transformation of the input.  We loop until successful, or we
      * give up */
     for (;;) {
-        STRLEN xused = strxfrm(xbuf + xout, s, xAlloc - xout);
+        *xlen = strxfrm(xbuf + COLLXFRM_HDR_LEN, s, xAlloc - COLLXFRM_HDR_LEN);
 
         /* If the transformed string occupies less space than we told strxfrm()
          * was available, it means it successfully transformed the whole
          * string. */
-        if (xused < xAlloc - xout) {
-            xout += xused;
+        if (*xlen < xAlloc - COLLXFRM_HDR_LEN) {
             break;
         }
 
-        if (UNLIKELY(xused >= PERL_INT_MAX))
+        if (UNLIKELY(*xlen >= PERL_INT_MAX))
             goto bad;
 
         /* A well-behaved strxfrm() returns exactly how much space it needs
@@ -1603,8 +1603,8 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
          * space being provided.  Use that number (plus room for the NUL) and
          * try again, but if we've already done this once and gotten back here,
          * it means that strxfrm() is not well-behaved */
-        if (first_time && xused > xAlloc - xout) {
-            xAlloc = xused + 1;
+        if (first_time && *xlen > xAlloc - COLLXFRM_HDR_LEN) {
+            xAlloc = *xlen + COLLXFRM_HDR_LEN + 1;
         }
         else {
 
@@ -1623,10 +1623,9 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         first_time = FALSE;
     }
 
-    *xlen = xout - sizeof(PL_collation_ix);
 
     /* Free up unneeded space; retain ehough for trailing NUL */
-    Renew(xbuf, xout + 1, char);
+    Renew(xbuf, COLLXFRM_HDR_LEN + *xlen + 1, char);
 
     if (s != input_string) {
         Safefree(s);
