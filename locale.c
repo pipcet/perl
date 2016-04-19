@@ -1674,9 +1674,11 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
 
         /* A well-behaved strxfrm() returns exactly how much space it needs
          * (not including the trailing NUL) when it fails due to not enough
-         * space being provided.  Use that number (plus room for the NUL) and
-         * try again, but if we've already done this once and gotten back here,
-         * it means that strxfrm() is not well-behaved */
+         * space being provided.  If that number is larger than the space that
+         * was available, and this is the first time through the loop, assume
+         * that strxfrm() is well-behaved and use the returned number (plus
+         * room for the NUL) and try again, but if we've already done this once
+         * and gotten back here, it means that strxfrm() is not well-behaved */
         /*if (DEBUG_Lv_TEST || debug_initialization) {*/
             PerlIO_printf(Perl_debug_log,
             "_mem_collxfrm didn't pass, first_time=%d, strxfrm return=%"UVuf", allocated size=%"UVuf"\n", first_time, (UV) *xlen, (UV) xAlloc - COLLXFRM_HDR_LEN);
