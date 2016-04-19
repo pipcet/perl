@@ -1688,9 +1688,26 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
         }
         else {
 
-            /* Here, strxfrm() has shown its return value can't be relied on
-             * (under failure), because we gave it as much space as is needed
-             * and it didn't work.  Increase the buffer size by a fixed
+            /* Here, either:
+             *  1)  It isn't the first time through the loop, which means that
+             *      the strxfrm() is not well-behaved, because we gave it what
+             *      it said was needed in the previous iteration, and it came
+             *      back saying it needed still more.
+             *  2)  it is the first time through the loop, and its return value
+             *      was the same as the buffer size we gave it.  For example,
+             *      we said we have 42 bytes available, and it returned that it
+             *      needed 42 bytes (not including the trailing NUL).  This
+             *      could mean either:
+             *          a)  the strxfrm() is well-behaved, and we really needed
+             *              to pass it 43 so that a trailing NUL could be
+             *              added.
+             *          b)  the strxfrm() is not well-behaved and increasing it
+             *              to 43 won't be sufficient.  (Many versions of
+             *              cygwin fit this.  When the buffer size isn't
+             *              sufficient, they return the input size instead of
+             *              how much is needed.)
+             * To cut down on extra iterations, we assume that strxfrm() isn't
+             * well behaved, and we increase the buffer size by a fixed
              * percentage and try again.  The +1 makes sure that we don't loop
              * forever, which we would otherwise do if xAlloc is very small */
             xAlloc += (xAlloc / 4) + 1;
