@@ -47,9 +47,9 @@
 /* If the environment says to, we can output debugging information during
  * initialization.  This is done before option parsing, and before any thread
  * creation, so can be a file-level static */
-#ifdef DEBUGGING
+/*#ifdef DEBUGGING*/
 static bool debug_initialization = FALSE;
-#endif
+/*#endif*/
 
 #ifdef USE_LOCALE
 
