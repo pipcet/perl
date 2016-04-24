@@ -5734,10 +5734,10 @@ GCC_DIAG_IGNORE(-Wc++-compat)
 /* Cannot use HUGE_VALQ for PL_inf because not a compile-time
  * constant. */
 INFNAN_NV_U8_DECL PL_inf = { 1.0Q/0.0Q };
-#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLINFBYTES)
-INFNAN_U8_NV_DECL PL_inf = { { LONGDBLINFBYTES } };
 #  elif NVSIZE == DOUBLESIZE && defined(DOUBLEINFBYTES)
 INFNAN_U8_NV_DECL PL_inf = { { DOUBLEINFBYTES } };
+#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLINFBYTES)
+INFNAN_U8_NV_DECL PL_inf = { { LONGDBLINFBYTES } };
 #  else
 #    if NVSIZE == LONG_DOUBLESIZE && defined(USE_LONG_DOUBLE)
 #      if defined(LDBL_INFINITY)
@@ -5770,10 +5770,10 @@ INFNAN_NV_U8_DECL PL_inf = { 1.0/0.0 }; /* keep last */
 /* Cannot use nanq("0") for PL_nan because not a compile-time
  * constant. */
 INFNAN_NV_U8_DECL PL_nan = { 0.0Q/0.0Q };
-#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLNANBYTES)
-INFNAN_U8_NV_DECL PL_nan = { { LONGDBLNANBYTES } };
 #  elif NVSIZE == DOUBLESIZE && defined(DOUBLENANBYTES)
 INFNAN_U8_NV_DECL PL_nan = { { DOUBLENANBYTES } };
+#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLNANBYTES)
+INFNAN_U8_NV_DECL PL_nan = { { LONGDBLNANBYTES } };
 #  else
 #    if NVSIZE == LONG_DOUBLESIZE && defined(USE_LONG_DOUBLE)
 #      if defined(LDBL_NAN)
