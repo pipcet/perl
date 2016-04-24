@@ -474,7 +474,7 @@ sub ret_backtrace {
         eval {
             CORE::die;
         };
-        if($@ =~ /^Died at .*(, <.*?> line \d+).$/ ) {
+        if($@ =~ /^Died at .*(, <.*?> (?:line|chunk) \d+).$/ ) {
             $mess .= $1;
         }
     }
