@@ -90,6 +90,7 @@ print $fh <<"EOT" or $error = "Can't print to $file: $!";
 # directories we need.
 splice(\@INC, 0, 1, $inc);
 \$^O = '$osname';
+1;
 __END__
 EOT
 
