@@ -4,7 +4,7 @@ use vars qw/$VERSION %released %version %families %upstream
 	    %bug_tracker %deprecated %delta/;
 use Module::CoreList::TieHashDelta;
 use version;
-$VERSION = '5.20160420';
+$VERSION = '5.20160506';
 
 sub _released_order {   # Sort helper, to make '?' sort after everything else
     (substr($released{$a}, 0, 1) eq "?")
@@ -291,7 +291,8 @@ sub changes_between {
     5.023007 => '2016-01-20',
     5.023008 => '2016-02-20',
     5.023009 => '2016-03-20',
-    5.024000 => '2016-06-01',
+    5.022002 => '2016-04-29',
+    5.024000 => '2016-05-09',
   );
 
 for my $version ( sort { $a <=> $b } keys %released ) {
@@ -9909,7 +9910,6 @@ for my $version ( sort { $a <=> $b } keys %released ) {
             'Module::Build::Version'=> 1,
             'Module::Build::YAML'   => 1,
             'Package::Constants'    => 1,
-            'Simple'                => 1,
             'inc::latest'           => 1,
         }
     },
@@ -12360,13 +12360,40 @@ for my $version ( sort { $a <=> $b } keys %released ) {
             'Win32API::File::ExtUtils::Myconst2perl'=> 1,
         }
     },
+    5.022002 => {
+        delta_from => 5.022001,
+        changed => {
+            'B::Op_private'         => '5.022002',
+            'Config'                => '5.022002',
+            'Cwd'                   => '3.56_01',
+            'File::Spec'            => '3.56_01',
+            'File::Spec::Cygwin'    => '3.56_01',
+            'File::Spec::Epoc'      => '3.56_01',
+            'File::Spec::Functions' => '3.56_01',
+            'File::Spec::Mac'       => '3.56_01',
+            'File::Spec::OS2'       => '3.56_01',
+            'File::Spec::Unix'      => '3.56_01',
+            'File::Spec::VMS'       => '3.56_01',
+            'File::Spec::Win32'     => '3.56_01',
+            'Module::CoreList'      => '5.20160429',
+            'Module::CoreList::TieHashDelta'=> '5.20160429',
+            'Module::CoreList::Utils'=> '5.20160429',
+            'XS::APItest'           => '0.72_01',
+        },
+        removed => {
+        }
+    },
     5.024000 => {
         delta_from => 5.023009,
         changed => {
             'B::Op_private'         => '5.024000',
             'Config'                => '5.024',
+            'File::Copy'            => '2.31',
             'File::Path'            => '2.12_01',
             'File::Spec::AmigaOS'   => '3.64',
+            'Module::CoreList'      => '5.20160506',
+            'Module::CoreList::TieHashDelta'=> '5.20160506',
+            'Module::CoreList::Utils'=> '5.20160506',
             'ODBM_File'             => '1.14',
             'POSIX'                 => '1.65',
             'Pod::Man'              => '4.07',
@@ -12375,7 +12402,10 @@ for my $version ( sort { $a <=> $b } keys %released ) {
             'Pod::Text::Color'      => '4.07',
             'Pod::Text::Overstrike' => '4.07',
             'Pod::Text::Termcap'    => '4.07',
+            'Thread::Queue'         => '3.09',
             'Time::HiRes'           => '1.9733',
+            'threads'               => '2.07',
+            'threads::shared'       => '1.51',
         },
         removed => {
         }
@@ -12834,7 +12864,6 @@ for my $version (sort { $a <=> $b } keys %delta) {
             'Module::Build::Version'=> 1,
             'Module::Build::YAML'   => 1,
             'Package::Constants'    => 1,
-            'Simple'                => 1,
             'inc::latest'           => 1,
         }
     },
@@ -13015,6 +13044,13 @@ for my $version (sort { $a <=> $b } keys %delta) {
     },
     5.023009 => {
         delta_from => 5.023008,
+        changed => {
+        },
+        removed => {
+        }
+    },
+    5.022002 => {
+        delta_from => 5.022001,
         changed => {
         },
         removed => {
