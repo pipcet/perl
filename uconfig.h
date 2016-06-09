@@ -182,7 +182,7 @@
 /*#define HAS_GETLOGIN		/ **/
 
 /* HAS_GETPGID:
- *	This symbol, if defined, indicates to the C program that 
+ *	This symbol, if defined, indicates to the C program that
  *	the getpgid(pid) function is available to get the
  *	process group id.
  */
@@ -641,8 +641,8 @@
  *	This symbol holds the type used for the second argument to
  *	getgroups() and setgroups().  Usually, this is the same as
  *	gidtype (gid_t) , but sometimes it isn't.
- *	It can be int, ushort, gid_t, etc... 
- *	It may be necessary to include <sys/types.h> to get any 
+ *	It can be int, ushort, gid_t, etc...
+ *	It may be necessary to include <sys/types.h> to get any
  *	typedef'ed information.  This is only required if you have
  *	getgroups() or setgroups()..
  */
@@ -1398,8 +1398,8 @@
  *	This symbol contains the ~name expanded version of ARCHLIB, to be used
  *	in programs that are not prepared to deal with ~ expansion at run-time.
  */
-/*#define ARCHLIB "/usr/local/lib/perl5/5.24/unknown"		/ **/
-/*#define ARCHLIB_EXP "/usr/local/lib/perl5/5.24/unknown"		/ **/
+/*#define ARCHLIB "/usr/local/lib/perl5/5.25/unknown"		/ **/
+/*#define ARCHLIB_EXP "/usr/local/lib/perl5/5.25/unknown"		/ **/
 
 /* BIN:
  *	This symbol holds the path of the bin directory where the package will
@@ -1452,8 +1452,8 @@
  *	This symbol contains the ~name expanded version of PRIVLIB, to be used
  *	in programs that are not prepared to deal with ~ expansion at run-time.
  */
-#define PRIVLIB "/usr/local/lib/perl5/5.24"		/**/
-#define PRIVLIB_EXP "/usr/local/lib/perl5/5.24"		/**/
+#define PRIVLIB "/usr/local/lib/perl5/5.25"		/**/
+#define PRIVLIB_EXP "/usr/local/lib/perl5/5.25"		/**/
 
 /* SITEARCH:
  *	This symbol contains the name of the private library for this package.
@@ -1470,8 +1470,8 @@
  *	This symbol contains the ~name expanded version of SITEARCH, to be used
  *	in programs that are not prepared to deal with ~ expansion at run-time.
  */
-/*#define SITEARCH "/usr/local/lib/perl5/5.24/unknown"		/ **/
-/*#define SITEARCH_EXP "/usr/local/lib/perl5/5.24/unknown"		/ **/
+/*#define SITEARCH "/usr/local/lib/perl5/5.25/unknown"		/ **/
+/*#define SITEARCH_EXP "/usr/local/lib/perl5/5.25/unknown"		/ **/
 
 /* SITELIB:
  *	This symbol contains the name of the private library for this package.
@@ -1493,8 +1493,8 @@
  *	removed.  The elements in inc_version_list (inc_version_list.U) can
  *	be tacked onto this variable to generate a list of directories to search.
  */
-#define SITELIB "/usr/local/lib/perl5/5.24"		/**/
-#define SITELIB_EXP "/usr/local/lib/perl5/5.24"		/**/
+#define SITELIB "/usr/local/lib/perl5/5.25"		/**/
+#define SITELIB_EXP "/usr/local/lib/perl5/5.25"		/**/
 #define SITELIB_STEM "/usr/local/lib/perl5"		/**/
 
 /* PERL_VENDORARCH:
@@ -3211,9 +3211,14 @@
  *	This symbol, if defined, indicates that the uselocale routine is
  *	available to set the current locale for the calling thread.
  */
+/* HAS_QUERYLOCALE:
+ *	This symbol, if defined, indicates that the querylocale routine is
+ *	available to return the name of the locale for a category mask.
+ */
 /*#define	HAS_NEWLOCALE	/ **/
 /*#define	HAS_FREELOCALE	/ **/
 /*#define	HAS_USELOCALE	/ **/
+/*#define	HAS_QUERYLOCALE	/ **/
 
 /* HAS_NEXTAFTER:
  *	This symbol, if defined, indicates that the nextafter routine is
@@ -3466,6 +3471,13 @@
  *	available to stat filesystems by file descriptors.
  */
 /*#define HAS_FSTATVFS		/ **/
+
+/* HAS_STRERROR_L:
+ *	This symbol, if defined, indicates that the strerror_l routine is
+ *	available to return the error message for a given errno value in
+ *	a particular locale (identified by a locale_t object).
+ */
+/*#define HAS_STRERROR_L		/ **/
 
 /* HAS_STRFTIME:
  *	This symbol, if defined, indicates that the strftime routine is
@@ -5241,6 +5253,6 @@
 #endif
 
 /* Generated from:
- * ce61c4f18e82f6356cdae44c5336ceac1d3253033d7449651927f5633be5c3c2 config_h.SH
- * fc611849cb5b1e14ec1687b255dac15414cc5e2e11b192d94e08136cfe277f75 uconfig.sh
+ * c14530f7567d861ce42d42446fc2ee9cd3625763f65867d5f42849c337bbc361 config_h.SH
+ * 3b14c76342a834042da506e8c3b4269f7d545453079733cb740970ab9cc4294e uconfig.sh
  * ex: set ro: */

@@ -1532,8 +1532,11 @@ S_scalarboolean(pTHX_ OP *o)
 {
     PERL_ARGS_ASSERT_SCALARBOOLEAN;
 
-    if (o->op_type == OP_SASSIGN && cBINOPo->op_first->op_type == OP_CONST
-     && !(cBINOPo->op_first->op_flags & OPf_SPECIAL)) {
+    if ((o->op_type == OP_SASSIGN && cBINOPo->op_first->op_type == OP_CONST &&
+         !(cBINOPo->op_first->op_flags & OPf_SPECIAL)) ||
+        (o->op_type == OP_NOT     && cUNOPo->op_first->op_type == OP_SASSIGN &&
+         cBINOPx(cUNOPo->op_first)->op_first->op_type == OP_CONST &&
+         !(cBINOPx(cUNOPo->op_first)->op_first->op_flags & OPf_SPECIAL))) {
 	if (ckWARN(WARN_SYNTAX)) {
 	    const line_t oldline = CopLINE(PL_curcop);
 
@@ -2977,7 +2980,13 @@ Perl_op_lvalue_flags(pTHX_ OP *o, I32 type, U32 flags)
 	break;
     case OP_KVHSLICE:
     case OP_KVASLICE:
+    case OP_AKEYS:
 	if (type == OP_LEAVESUBLV)
+	    o->op_private |= OPpMAYBE_LVSUB;
+        goto nomod;
+    case OP_AVHVSWITCH:
+	if (type == OP_LEAVESUBLV
+	 && (o->op_private & 3) + OP_EACH == OP_KEYS)
 	    o->op_private |= OPpMAYBE_LVSUB;
         goto nomod;
     case OP_AV2ARYLEN:
@@ -3223,6 +3232,12 @@ S_scalar_mod_type(const OP *o, I32 type)
     case OP_BIT_AND:
     case OP_BIT_XOR:
     case OP_BIT_OR:
+    case OP_NBIT_AND:
+    case OP_NBIT_XOR:
+    case OP_NBIT_OR:
+    case OP_SBIT_AND:
+    case OP_SBIT_XOR:
+    case OP_SBIT_OR:
     case OP_CONCAT:
     case OP_SUBST:
     case OP_TRANS:
@@ -3656,7 +3671,7 @@ S_my_kid(pTHX_ OP *o, OP *attrs, OP **imopsp)
 	return o;
     } else if (type == OP_RV2SV ||	/* "our" declaration */
 	       type == OP_RV2AV ||
-	       type == OP_RV2HV) { /* XXX does this let anything illegal in? */
+	       type == OP_RV2HV) {
 	if (cUNOPo->op_first->op_type != OP_GV) { /* MJD 20011224 */
 	    S_cant_declare(aTHX_ o);
 	} else if (attrs) {
@@ -4342,13 +4357,23 @@ S_fold_constants(pTHX_ OP *o)
 	goto nope;		/* Don't try to run w/ errors */
 
     for (curop = LINKLIST(o); curop != o; curop = LINKLIST(curop)) {
-	const OPCODE type = curop->op_type;
-	if ((type != OP_CONST || (curop->op_private & OPpCONST_BARE)) &&
-	    type != OP_LIST &&
-	    type != OP_SCALAR &&
-	    type != OP_NULL &&
-	    type != OP_PUSHMARK)
-	{
+        switch (curop->op_type) {
+        case OP_CONST:
+            if (   (curop->op_private & OPpCONST_BARE)
+                && (curop->op_private & OPpCONST_STRICT)) {
+                no_bareword_allowed(curop);
+                goto nope;
+            }
+            /* FALLTHROUGH */
+        case OP_LIST:
+        case OP_SCALAR:
+        case OP_NULL:
+        case OP_PUSHMARK:
+            /* Foldable; move to next op in list */
+            break;
+
+        default:
+            /* No other op types are considered foldable */
 	    goto nope;
 	}
     }
@@ -6747,24 +6772,7 @@ S_new_logop(pTHX_ I32 type, I32 flags, OP** firstp, OP** otherp)
 	|| type == OP_CUSTOM);
 
     scalarboolean(first);
-    /* optimize AND and OR ops that have NOTs as children */
-    if (first->op_type == OP_NOT
-	&& (first->op_flags & OPf_KIDS)
-	&& ((first->op_flags & OPf_SPECIAL) /* unless ($x) { } */
-	    || (other->op_type == OP_NOT))  /* if (!$x && !$y) { } */
-	) {
-	if (type == OP_AND || type == OP_OR) {
-	    if (type == OP_AND)
-		type = OP_OR;
-	    else
-		type = OP_AND;
-	    op_null(first);
-	    if (other->op_type == OP_NOT) { /* !a AND|OR !b => !(a OR|AND b) */
-		op_null(other);
-		prepend_not = 1; /* prepend a NOT op later */
-	    }
-	}
-    }
+
     /* search for a constant op that could let us fold the test */
     if ((cstop = search_const(first))) {
 	if (cstop->op_private & OPpCONST_STRICT)
@@ -6774,6 +6782,7 @@ S_new_logop(pTHX_ I32 type, I32 flags, OP** firstp, OP** otherp)
 	if ((type == OP_AND &&  SvTRUE(((SVOP*)cstop)->op_sv)) ||
 	    (type == OP_OR  && !SvTRUE(((SVOP*)cstop)->op_sv)) ||
 	    (type == OP_DOR && !SvOK(((SVOP*)cstop)->op_sv))) {
+            /* Elide the (constant) lhs, since it can't affect the outcome */
 	    *firstp = NULL;
 	    if (other->op_type == OP_CONST)
 		other->op_private |= OPpCONST_SHORTCIRCUIT;
@@ -6791,6 +6800,9 @@ S_new_logop(pTHX_ I32 type, I32 flags, OP** firstp, OP** otherp)
 	    return other;
 	}
 	else {
+            /* Elide the rhs, since the outcome is entirely determined by
+             * the (constant) lhs */
+
 	    /* check for C<my $x if 0>, or C<my($x,$y) if 0> */
 	    const OP *o2 = other;
 	    if ( ! (o2->op_type == OP_LIST
@@ -6811,7 +6823,7 @@ S_new_logop(pTHX_ I32 type, I32 flags, OP** firstp, OP** otherp)
 	    *otherp = NULL;
 	    if (cstop->op_type == OP_CONST)
 		cstop->op_private |= OPpCONST_SHORTCIRCUIT;
-	        op_free(other);
+            op_free(other);
 	    return first;
 	}
     }
@@ -6858,11 +6870,27 @@ S_new_logop(pTHX_ I32 type, I32 flags, OP** firstp, OP** otherp)
 	}
     }
 
-    if (!other)
-	return first;
-
     if (type == OP_ANDASSIGN || type == OP_ORASSIGN || type == OP_DORASSIGN)
 	other->op_private |= OPpASSIGN_BACKWARDS;  /* other is an OP_SASSIGN */
+
+    /* optimize AND and OR ops that have NOTs as children */
+    if (first->op_type == OP_NOT
+        && (first->op_flags & OPf_KIDS)
+        && ((first->op_flags & OPf_SPECIAL) /* unless ($x) { } */
+            || (other->op_type == OP_NOT))  /* if (!$x && !$y) { } */
+        ) {
+        if (type == OP_AND || type == OP_OR) {
+            if (type == OP_AND)
+                type = OP_OR;
+            else
+                type = OP_AND;
+            op_null(first);
+            if (other->op_type == OP_NOT) { /* !a AND|OR !b => !(a OR|AND b) */
+                op_null(other);
+                prepend_not = 1; /* prepend a NOT op later */
+            }
+        }
+    }
 
     logop = S_alloc_LOGOP(aTHX_ type, first, LINKLIST(other));
     logop->op_flags |= (U8)flags;
@@ -8453,10 +8481,12 @@ Perl_newATTRSUB_x(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs,
 	    if (ckWARN(WARN_REDEFINE)
 	     || (  ckWARN_d(WARN_REDEFINE)
 		&& (  !const_sv || SvRV(gv) == const_sv
-		   || sv_cmp(SvRV(gv), const_sv)  )))
+		   || sv_cmp(SvRV(gv), const_sv)  ))) {
+                assert(cSVOPo);
 		Perl_warner(aTHX_ packWARN(WARN_REDEFINE),
 			  "Constant subroutine %"SVf" redefined",
 			  SVfARG(cSVOPo->op_sv));
+            }
 
 	    SvREFCNT_inc_simple_void_NN(PL_compcv);
 	    CopLINE_set(PL_curcop, oldline);
@@ -10628,6 +10658,12 @@ Perl_ck_require(pTHX_ OP *o)
 	    s = SvPVX(sv);
 	    len = SvCUR(sv);
 	    end = s + len;
+            /* treat ::foo::bar as foo::bar */
+            if (len >= 2 && s[0] == ':' && s[1] == ':')
+                DIE(aTHX_ "Bareword in require must not start with a double-colon: \"%s\"\n", s);
+            if (s == end)
+                DIE(aTHX_ "Bareword in require maps to empty filename");
+
 	    for (; s < end; s++) {
 		if (*s == ':' && s[1] == ':') {
 		    *s = '/';
@@ -11933,13 +11969,14 @@ Perl_ck_each(pTHX_ OP *o)
 		 || (  SvTYPE(SvRV(cSVOPx_sv(kid))) != SVt_PVAV
 		    && SvTYPE(SvRV(cSVOPx_sv(kid))) != SVt_PVHV  )
 		   )
-		    /* we let ck_fun handle it */
-		    break;
+		    goto bad;
 	    default:
-                Perl_croak_nocontext(
+                qerror(Perl_mess(aTHX_
                     "Experimental %s on scalar is now forbidden",
-                    PL_op_desc[orig_type]);
-                break;
+                     PL_op_desc[orig_type]));
+               bad:
+                bad_type_pv(1, "hash or array", o, kid);
+                return o;
 	}
     }
     return ck_fun(o);
@@ -14586,13 +14623,7 @@ Perl_core_prototype(pTHX_ SV *sv, const char *name, const int code,
     case KEY_keys:    retsetpvs("\\[%@]", OP_KEYS);
     case KEY_values:  retsetpvs("\\[%@]", OP_VALUES);
     case KEY_each:    retsetpvs("\\[%@]", OP_EACH);
-    case KEY_push:    retsetpvs("\\@@", OP_PUSH);
-    case KEY_unshift: retsetpvs("\\@@", OP_UNSHIFT);
-    case KEY_pop:     retsetpvs(";\\@", OP_POP);
-    case KEY_shift:   retsetpvs(";\\@", OP_SHIFT);
     case KEY_pos:     retsetpvs(";\\[$*]", OP_POS);
-    case KEY_splice:
-	retsetpvs("\\@;$$@", OP_SPLICE);
     case KEY___FILE__: case KEY___LINE__: case KEY___PACKAGE__:
 	retsetpvs("", 0);
     case KEY_evalbytes:
@@ -14672,6 +14703,12 @@ Perl_coresub_op(pTHX_ SV * const coreargssv, const int code,
 	                          newOP(OP_CALLER,0)
 	               )
 	       );
+    case OP_EACH:
+    case OP_KEYS:
+    case OP_VALUES:
+	o = newUNOP(OP_AVHVSWITCH,0,argop);
+	o->op_private = opnum-OP_EACH;
+	return o;
     case OP_SELECT: /* which represents OP_SSELECT as well */
 	if (code)
 	    return newCONDOP(

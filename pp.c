@@ -2785,13 +2785,7 @@ PP(pp_i_divide)
     }
 }
 
-#if defined(__GLIBC__) && IVSIZE == 8 && !defined(PERL_DEBUG_READONLY_OPS) \
-    && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
-STATIC
-PP(pp_i_modulo_0)
-#else
 PP(pp_i_modulo)
-#endif
 {
      /* This is the vanilla old i_modulo. */
      dSP; dATARGET;
@@ -2809,11 +2803,10 @@ PP(pp_i_modulo)
      }
 }
 
-#if defined(__GLIBC__) && IVSIZE == 8 && !defined(PERL_DEBUG_READONLY_OPS) \
+#if defined(__GLIBC__) && IVSIZE == 8 \
     && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
-STATIC
-PP(pp_i_modulo_1)
 
+PP(pp_i_modulo_glibc_bugfix)
 {
      /* This is the i_modulo with the workaround for the _moddi3 bug
       * in (at least) glibc 2.2.5 (the PERL_ABS() the workaround).
@@ -2829,49 +2822,6 @@ PP(pp_i_modulo_1)
 	      SETi( 0 );
 	  else
 	      SETi( left % PERL_ABS(right) );
-	  RETURN;
-     }
-}
-
-PP(pp_i_modulo)
-{
-     dVAR; dSP; dATARGET;
-     tryAMAGICbin_MG(modulo_amg, AMGf_assign);
-     {
-	  dPOPTOPiirl_nomg;
-	  if (!right)
-	       DIE(aTHX_ "Illegal modulus zero");
-	  /* The assumption is to use hereafter the old vanilla version... */
-	  PL_op->op_ppaddr =
-	       PL_ppaddr[OP_I_MODULO] =
-	           Perl_pp_i_modulo_0;
-	  /* .. but if we have glibc, we might have a buggy _moddi3
-	   * (at least glibc 2.2.5 is known to have this bug), in other
-	   * words our integer modulus with negative quad as the second
-	   * argument might be broken.  Test for this and re-patch the
-	   * opcode dispatch table if that is the case, remembering to
-	   * also apply the workaround so that this first round works
-	   * right, too.  See [perl #9402] for more information. */
-	  {
-	       IV l =   3;
-	       IV r = -10;
-	       /* Cannot do this check with inlined IV constants since
-		* that seems to work correctly even with the buggy glibc. */
-	       if (l % r == -3) {
-		    /* Yikes, we have the bug.
-		     * Patch in the workaround version. */
-		    PL_op->op_ppaddr =
-			 PL_ppaddr[OP_I_MODULO] =
-			     &Perl_pp_i_modulo_1;
-		    /* Make certain we work right this time, too. */
-		    right = PERL_ABS(right);
-	       }
-	  }
-	  /* avoid FPE_INTOVF on some platforms when left is IV_MIN */
-	  if (right == -1)
-	      SETi( 0 );
-	  else
-	      SETi( left % right );
 	  RETURN;
      }
 }
@@ -4882,12 +4832,23 @@ PP(pp_akeys)
 	PUSHi(av_tindex(array) + 1);
     }
     else if (gimme == G_ARRAY) {
+      if (UNLIKELY(PL_op->op_private & OPpMAYBE_LVSUB)) {
+        const I32 flags = is_lvalue_sub();
+        if (flags && !(flags & OPpENTERSUB_INARGS))
+            /* diag_listed_as: Can't modify %s in %s */
+            Perl_croak(aTHX_
+                      "Can't modify keys on array in list assignment");
+      }
+      {
         IV n = Perl_av_len(aTHX_ array);
         IV i;
 
         EXTEND(SP, n + 1);
 
-	if (PL_op->op_type == OP_AKEYS) {
+	if (  PL_op->op_type == OP_AKEYS
+	   || (  PL_op->op_type == OP_AVHVSWITCH
+	      && (PL_op->op_private & 3) + OP_AEACH == OP_AKEYS  ))
+	{
 	    for (i = 0;  i <= n;  i++) {
 		mPUSHi(i);
 	    }
@@ -4898,6 +4859,7 @@ PP(pp_akeys)
 		PUSHs(elem ? *elem : &PL_sv_undef);
 	    }
 	}
+      }
     }
     RETURN;
 }
@@ -5208,7 +5170,8 @@ PP(pp_kvhslice)
        if (flags) {
            if (!(flags & OPpENTERSUB_INARGS))
                /* diag_listed_as: Can't modify %s in %s */
-	       Perl_croak(aTHX_ "Can't modify key/value hash slice in list assignment");
+	       Perl_croak(aTHX_ "Can't modify key/value hash slice in %s assignment",
+				 GIMME_V == G_ARRAY ? "list" : "scalar");
 	   lval = flags;
        }
     }
@@ -5357,41 +5320,11 @@ PP(pp_anonhash)
     RETURN;
 }
 
-static AV *
-S_deref_plain_array(pTHX_ AV *ary)
-{
-    if (SvTYPE(ary) == SVt_PVAV) return ary;
-    SvGETMAGIC((SV *)ary);
-    if (!SvROK(ary) || SvTYPE(SvRV(ary)) != SVt_PVAV)
-	Perl_die(aTHX_ "Not an ARRAY reference");
-    else if (SvOBJECT(SvRV(ary)))
-	Perl_die(aTHX_ "Not an unblessed ARRAY reference");
-    return (AV *)SvRV(ary);
-}
-
-#if defined(__GNUC__) && !defined(PERL_GCC_BRACE_GROUPS_FORBIDDEN)
-# define DEREF_PLAIN_ARRAY(ary)       \
-   ({                                  \
-     AV *aRrRay = ary;                  \
-     SvTYPE(aRrRay) == SVt_PVAV          \
-      ? aRrRay                            \
-      : S_deref_plain_array(aTHX_ aRrRay); \
-   })
-#else
-# define DEREF_PLAIN_ARRAY(ary)            \
-   (                                        \
-     PL_Sv = (SV *)(ary),                    \
-     SvTYPE(PL_Sv) == SVt_PVAV                \
-      ? (AV *)PL_Sv                            \
-      : S_deref_plain_array(aTHX_ (AV *)PL_Sv)  \
-   )
-#endif
-
 PP(pp_splice)
 {
     dSP; dMARK; dORIGMARK;
     int num_args = (SP - MARK);
-    AV *ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV *ary = MUTABLE_AV(*++MARK);
     SV **src;
     SV **dst;
     SSize_t i;
@@ -5600,7 +5533,7 @@ PP(pp_splice)
 PP(pp_push)
 {
     dSP; dMARK; dORIGMARK; dTARGET;
-    AV * const ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV * const ary = MUTABLE_AV(*++MARK);
     const MAGIC * const mg = SvTIED_mg((const SV *)ary, PERL_MAGIC_tied);
 
     if (mg) {
@@ -5643,7 +5576,7 @@ PP(pp_shift)
 {
     dSP;
     AV * const av = PL_op->op_flags & OPf_SPECIAL
-	? MUTABLE_AV(GvAV(PL_defgv)) : DEREF_PLAIN_ARRAY(MUTABLE_AV(POPs));
+	? MUTABLE_AV(GvAVn(PL_defgv)) : MUTABLE_AV(POPs);
     SV * const sv = PL_op->op_type == OP_SHIFT ? av_shift(av) : av_pop(av);
     EXTEND(SP, 1);
     assert (sv);
@@ -5656,7 +5589,7 @@ PP(pp_shift)
 PP(pp_unshift)
 {
     dSP; dMARK; dORIGMARK; dTARGET;
-    AV *ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV *ary = MUTABLE_AV(*++MARK);
     const MAGIC * const mg = SvTIED_mg((const SV *)ary, PERL_MAGIC_tied);
 
     if (mg) {
@@ -6308,6 +6241,18 @@ PP(unimplemented_op)
     DIE(aTHX_ "panic: unimplemented op %s (#%d) called", name,	op_type);
 }
 
+static void
+S_maybe_unwind_defav(pTHX)
+{
+    if (CX_CUR()->cx_type & CXp_HASARGS) {
+	PERL_CONTEXT *cx = CX_CUR();
+
+        assert(CxHASARGS(cx));
+        cx_popsub_args(cx);
+	cx->cx_type &= ~CXp_HASARGS;
+    }
+}
+
 /* For sorting out arguments passed to a &CORE:: subroutine */
 PP(pp_coreargs)
 {
@@ -6378,13 +6323,39 @@ PP(pp_coreargs)
 		svp++;
 	    }
 	    RETURN;
-	case OA_HVREF:
+	case OA_AVREF:
+	    if (!numargs) {
+		GV *gv;
+		if (CvUNIQUE(find_runcv_where(FIND_RUNCV_level_eq,1,NULL)))
+		    gv = PL_argvgv;
+		else {
+		    S_maybe_unwind_defav(aTHX);
+		    gv = PL_defgv;
+		}
+		PUSHs((SV *)GvAVn(gv));
+		break;
+	    }
 	    if (!svp || !*svp || !SvROK(*svp)
-	     || SvTYPE(SvRV(*svp)) != SVt_PVHV)
+	     || SvTYPE(SvRV(*svp)) != SVt_PVAV)
 		DIE(aTHX_
 		/* diag_listed_as: Type of arg %d to &CORE::%s must be %s*/
-		 "Type of arg %d to &CORE::%s must be hash reference",
-		  whicharg, OP_DESC(PL_op->op_next)
+		 "Type of arg %d to &CORE::%s must be array reference",
+		  whicharg, PL_op_desc[opnum]
+		);
+	    PUSHs(SvRV(*svp));
+	    break;
+	case OA_HVREF:
+	    if (!svp || !*svp || !SvROK(*svp)
+	     || (  SvTYPE(SvRV(*svp)) != SVt_PVHV
+		&& (  opnum == OP_DBMCLOSE || opnum == OP_DBMOPEN
+		   || SvTYPE(SvRV(*svp)) != SVt_PVAV  )))
+		DIE(aTHX_
+		/* diag_listed_as: Type of arg %d to &CORE::%s must be %s*/
+		 "Type of arg %d to &CORE::%s must be hash%s reference",
+		  whicharg, PL_op_desc[opnum],
+		  opnum == OP_DBMCLOSE || opnum == OP_DBMOPEN
+		     ? ""
+		     : " or array"
 		);
 	    PUSHs(SvRV(*svp));
 	    break;
@@ -6429,15 +6400,10 @@ PP(pp_coreargs)
 		       : "reference to one of [$@%*]"
 		);
 	    PUSHs(SvRV(*svp));
-	    if (opnum == OP_UNDEF && SvRV(*svp) == (SV *)PL_defgv
-	     && CX_CUR()->cx_type & CXp_HASARGS) {
+	    if (opnum == OP_UNDEF && SvRV(*svp) == (SV *)PL_defgv) {
 		/* Undo @_ localisation, so that sub exit does not undo
 		   part of our undeffing. */
-		PERL_CONTEXT *cx = CX_CUR();
-
-                assert(CxHASARGS(cx));
-                cx_popsub_args(cx);;
-		cx->cx_type &= ~CXp_HASARGS;
+		S_maybe_unwind_defav(aTHX);
 	    }
 	  }
 	  break;
@@ -6448,6 +6414,15 @@ PP(pp_coreargs)
     }
 
     RETURN;
+}
+
+PP(pp_avhvswitch)
+{
+    dVAR; dSP;
+    return PL_ppaddr[
+		(SvTYPE(TOPs) == SVt_PVAV ? OP_AEACH : OP_EACH)
+		    + (PL_op->op_private & 3)
+	   ](aTHX);
 }
 
 PP(pp_runcv)

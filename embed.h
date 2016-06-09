@@ -238,7 +238,6 @@
 #define init_i18nl14n(a)	Perl_init_i18nl14n(aTHX_ a)
 #define init_stacks()		Perl_init_stacks(aTHX)
 #define init_tm(a)		Perl_init_tm(aTHX_ a)
-#define instr			Perl_instr
 #define intro_my()		Perl_intro_my(aTHX)
 #define isALNUM_lazy(a)		Perl_isALNUM_lazy(aTHX_ a)
 #define isIDFIRST_lazy(a)	Perl_isIDFIRST_lazy(aTHX_ a)
@@ -421,7 +420,6 @@
 #define new_numeric(a)		Perl_new_numeric(aTHX_ a)
 #define new_stackinfo(a,b)	Perl_new_stackinfo(aTHX_ a,b)
 #define new_version(a)		Perl_new_version(aTHX_ a)
-#define ninstr			Perl_ninstr
 #define nothreadhook()		Perl_nothreadhook(aTHX)
 #define op_append_elem(a,b,c)	Perl_op_append_elem(aTHX_ a,b,c)
 #define op_append_list(a,b,c)	Perl_op_append_list(aTHX_ a,b,c)
@@ -443,7 +441,9 @@
 #define pad_add_name_pvn(a,b,c,d,e)	Perl_pad_add_name_pvn(aTHX_ a,b,c,d,e)
 #define pad_add_name_sv(a,b,c,d)	Perl_pad_add_name_sv(aTHX_ a,b,c,d)
 #define pad_alloc(a,b)		Perl_pad_alloc(aTHX_ a,b)
+#ifndef NO_MATHOMS
 #define pad_compname_type(a)	Perl_pad_compname_type(aTHX_ a)
+#endif
 #define pad_findmy_pv(a,b)	Perl_pad_findmy_pv(aTHX_ a,b)
 #define pad_findmy_pvn(a,b,c)	Perl_pad_findmy_pvn(aTHX_ a,b,c)
 #define pad_findmy_sv(a,b)	Perl_pad_findmy_sv(aTHX_ a,b)
@@ -632,6 +632,9 @@
 #define sv_newmortal()		Perl_sv_newmortal(aTHX)
 #define sv_newref(a)		Perl_sv_newref(aTHX_ a)
 #define sv_nosharing(a)		Perl_sv_nosharing(aTHX_ a)
+#ifndef NO_MATHOMS
+#define sv_nounlocking(a)	Perl_sv_nounlocking(aTHX_ a)
+#endif
 #define sv_nv(a)		Perl_sv_nv(aTHX_ a)
 #define sv_peek(a)		Perl_sv_peek(aTHX_ a)
 #define sv_pos_b2u(a,b)		Perl_sv_pos_b2u(aTHX_ a,b)
@@ -662,8 +665,12 @@
 #define sv_setpvf		Perl_sv_setpvf
 #define sv_setpvf_mg		Perl_sv_setpvf_mg
 #endif
+#ifndef NO_MATHOMS
 #define sv_setpviv(a,b)		Perl_sv_setpviv(aTHX_ a,b)
+#endif
+#ifndef NO_MATHOMS
 #define sv_setpviv_mg(a,b)	Perl_sv_setpviv_mg(aTHX_ a,b)
+#endif
 #define sv_setpvn(a,b,c)	Perl_sv_setpvn(aTHX_ a,b,c)
 #define sv_setpvn_mg(a,b,c)	Perl_sv_setpvn_mg(aTHX_ a,b,c)
 #define sv_setref_iv(a,b,c)	Perl_sv_setref_iv(aTHX_ a,b,c)
@@ -752,11 +759,11 @@
 #define whichsig_pvn(a,b)	Perl_whichsig_pvn(aTHX_ a,b)
 #define whichsig_sv(a)		Perl_whichsig_sv(aTHX_ a)
 #define wrap_op_checker(a,b,c)	Perl_wrap_op_checker(aTHX_ a,b,c)
+#if !(defined(HAS_MEMMEM))
+#define ninstr			Perl_ninstr
+#endif
 #if !(defined(HAS_SIGACTION) && defined(SA_SIGINFO))
 #define csighandler		Perl_csighandler
-#endif
-#if !(defined(NO_MATHOMS))
-#define sv_nounlocking(a)	Perl_sv_nounlocking(aTHX_ a)
 #endif
 #if !defined(HAS_BZERO) && !defined(HAS_MEMSET)
 #define my_bzero		Perl_my_bzero
@@ -1552,6 +1559,11 @@
 #define share_hek_flags(a,b,c,d)	S_share_hek_flags(aTHX_ a,b,c,d)
 #define unshare_hek_or_pvn(a,b,c,d)	S_unshare_hek_or_pvn(aTHX_ a,b,c,d)
 #  endif
+#  if defined(PERL_IN_LOCALE_C) || defined(PERL_IN_SV_C) || defined(PERL_IN_MATHOMS_C)
+#    if defined(USE_LOCALE_COLLATE)
+#define _mem_collxfrm(a,b,c,d)	Perl__mem_collxfrm(aTHX_ a,b,c,d)
+#    endif
+#  endif
 #  if defined(PERL_IN_MALLOC_C)
 #define adjust_size_and_find_bucket	S_adjust_size_and_find_bucket
 #  endif
@@ -1837,7 +1849,9 @@
 #  endif
 #  if defined(USE_LOCALE_COLLATE)
 #define magic_setcollxfrm(a,b)	Perl_magic_setcollxfrm(aTHX_ a,b)
+#ifndef NO_MATHOMS
 #define mem_collxfrm(a,b,c)	Perl_mem_collxfrm(aTHX_ a,b,c)
+#endif
 #  endif
 #  if defined(USE_PERLIO)
 #define PerlIO_restore_errno(a)	Perl_PerlIO_restore_errno(aTHX_ a)

@@ -551,18 +551,6 @@ Perl_delimcpy(char *to, const char *toend, const char *from, const char *fromend
     return (char *)from;
 }
 
-/* return ptr to little string in big string, NULL if not found */
-/* This routine was donated by Corey Satten. */
-
-char *
-Perl_instr(const char *big, const char *little)
-{
-
-    PERL_ARGS_ASSERT_INSTR;
-
-    return strstr((char*)big, (char*)little);
-}
-
 /*
 =head1 Miscellaneous Functions
 
@@ -596,6 +584,11 @@ char *
 Perl_ninstr(const char *big, const char *bigend, const char *little, const char *lend)
 {
     PERL_ARGS_ASSERT_NINSTR;
+
+#ifdef HAS_MEMMEM
+    return ninstr(big, bigend, little, lend);
+#else
+
     if (little >= lend)
         return (char*)big;
     {
@@ -614,6 +607,9 @@ Perl_ninstr(const char *big, const char *bigend, const char *little, const char 
         }
     }
     return NULL;
+
+#endif
+
 }
 
 /*

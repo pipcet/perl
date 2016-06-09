@@ -17,10 +17,9 @@ sub _carp {
     return warn @_, " at $file line $line\n";
 }
 
-our $VERSION = '1.001014';
-$VERSION = eval $VERSION;    ## no critic (BuiltinFunctions::ProhibitStringyEval)
+our $VERSION = '1.302026';
 
-use Test::Builder::Module 0.99;
+use Test::Builder::Module;
 our @ISA    = qw(Test::Builder::Module);
 our @EXPORT = qw(ok use_ok require_ok
   is isnt like unlike is_deeply
@@ -176,11 +175,21 @@ sub import_extra {
 
     my @other = ();
     my $idx   = 0;
+    my $import;
     while( $idx <= $#{$list} ) {
         my $item = $list->[$idx];
 
         if( defined $item and $item eq 'no_diag' ) {
             $class->builder->no_diag(1);
+        }
+        elsif( defined $item and $item eq 'import' ) {
+            if ($import) {
+                push @$import, @{$list->[ ++$idx ]};
+            }
+            else {
+                $import = $list->[ ++$idx ];
+                push @other, $item, $import;
+            }
         }
         else {
             push @other, $item;
@@ -190,6 +199,18 @@ sub import_extra {
     }
 
     @$list = @other;
+
+    if ($class eq __PACKAGE__ && (!$import || grep $_ eq '$TODO', @$import)) {
+        my $to = $class->builder->exported_to;
+        no strict 'refs';
+        *{"$to\::TODO"} = \our $TODO;
+        if ($import) {
+            @$import = grep $_ ne '$TODO', @$import;
+        }
+        else {
+            push @$list, import => [grep $_ ne '$TODO', @EXPORT];
+        }
+    }
 
     return;
 }
@@ -1293,10 +1314,13 @@ sub skip {
     my( $why, $how_many ) = @_;
     my $tb = Test::More->builder;
 
-    unless( defined $how_many ) {
-        # $how_many can only be avoided when no_plan is in use.
+    # If the plan is set, and is static, then skip needs a count. If the plan
+    # is 'no_plan' we are fine. As well if plan is undefined then we are
+    # waiting for done_testing.
+    unless (defined $how_many) {
+        my $plan = $tb->has_plan;
         _carp "skip() needs to know \$how_many tests are in the block"
-          unless $tb->has_plan eq 'no_plan';
+            if $plan && $plan =~ m/^\d+$/;
         $how_many = 1;
     }
 
@@ -1902,8 +1926,6 @@ It's the thing that powers C<make test> and where the C<prove> utility
 comes from.
 
 =head2 BUNDLES
-
-L<Bundle::Test> installs a whole bunch of useful test modules.
 
 L<Test::Most> Most commonly needed test functions and features.
 

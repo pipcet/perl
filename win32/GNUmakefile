@@ -6,7 +6,7 @@
 #	Windows SDK 64-bit compiler and tools
 #
 # This is set up to build a perl.exe that runs off a shared library
-# (perl524.dll).  Also makes individual DLLs for the XS extensions.
+# (perl525.dll).  Also makes individual DLLs for the XS extensions.
 #
 # The easiest way to customize the build process is to use parameters like this:
 #
@@ -67,7 +67,7 @@ INST_TOP := $(INST_DRV)\perl
 # versioned installation can be obtained by setting INST_TOP above to a
 # path that includes an arbitrary version string.
 #
-#INST_VER	:= \5.24.0
+#INST_VER	:= \5.25.2
 
 #
 # Comment this out if you DON'T want your perl installation to have
@@ -221,7 +221,7 @@ CCTYPE		:= GCC
 # set this to additionally provide a statically linked perl-static.exe.
 # Note that dynamic loading will not work with this perl, so you must
 # include required modules statically using the STATIC_EXT or ALL_STATIC
-# variables below. A static library perl524s.lib will also be created.
+# variables below. A static library perl525s.lib will also be created.
 # Ordinary perl.exe is not affected by this option.
 #
 #BUILD_STATIC	:= define
@@ -860,9 +860,9 @@ ifeq ($(CCTYPE),GCC)
 
 CFGSH_TMPL	= config.gc
 CFGH_TMPL	= config_H.gc
-PERLIMPLIB	= $(COREDIR)\libperl524$(a)
-PERLIMPLIBBASE	= libperl524$(a)
-PERLSTATICLIB	= ..\libperl524s$(a)
+PERLIMPLIB	= $(COREDIR)\libperl525$(a)
+PERLIMPLIBBASE	= libperl525$(a)
+PERLSTATICLIB	= ..\libperl525s$(a)
 INT64		= long long
 
 else
@@ -875,11 +875,11 @@ endif
 
 # makedef.pl must be updated if this changes, and this should normally
 # only change when there is an incompatible revision of the public API.
-PERLIMPLIB	?= $(COREDIR)\perl524$(a)
-PERLIMPLIBBASE	?= perl524$(a)
-PERLEXPLIB	?= $(COREDIR)\perl524.exp
-PERLSTATICLIB	?= ..\perl524s$(a)
-PERLDLL		= ..\perl524.dll
+PERLIMPLIB	?= $(COREDIR)\perl525$(a)
+PERLIMPLIBBASE	?= perl525$(a)
+PERLEXPLIB	?= $(COREDIR)\perl525.exp
+PERLSTATICLIB	?= ..\perl525s$(a)
+PERLDLL		= ..\perl525.dll
 
 # don't let "gmake -n all" try to run "miniperl.exe make_ext.pl"
 PLMAKE		= gmake
@@ -1544,7 +1544,7 @@ utils: $(HAVEMINIPERL) ..\utils\Makefile
 	copy ..\README.tw       ..\pod\perltw.pod
 	copy ..\README.vos      ..\pod\perlvos.pod
 	copy ..\README.win32    ..\pod\perlwin32.pod
-	copy ..\pod\perldelta.pod ..\pod\perl5240delta.pod
+	copy ..\pod\perldelta.pod ..\pod\perl5252delta.pod
 	$(MINIPERL) -I..\lib $(PL2BAT) $(UTILS)
 	$(MINIPERL) -I..\lib ..\autodoc.pl ..
 	$(MINIPERL) -I..\lib ..\pod\perlmodlib.PL -q ..
@@ -1629,6 +1629,7 @@ distclean: realclean
 	-if exist $(LIBDIR)\TAP rmdir /s /q $(LIBDIR)\TAP
 	-if exist $(LIBDIR)\Term rmdir /s /q $(LIBDIR)\Term
 	-if exist $(LIBDIR)\Test rmdir /s /q $(LIBDIR)\Test
+	-if exist $(LIBDIR)\Test2 rmdir /s /q $(LIBDIR)\Test
 	-if exist $(LIBDIR)\Text rmdir /s /q $(LIBDIR)\Text
 	-if exist $(LIBDIR)\Thread rmdir /s /q $(LIBDIR)\Thread
 	-if exist $(LIBDIR)\threads rmdir /s /q $(LIBDIR)\threads
@@ -1640,7 +1641,7 @@ distclean: realclean
 	-if exist $(LIBDIR)\Win32API rmdir /s /q $(LIBDIR)\Win32API
 	-if exist $(LIBDIR)\XS rmdir /s /q $(LIBDIR)\XS
 	-cd $(PODDIR) && del /f *.html *.bat roffitall \
-	    perl5240delta.pod perlaix.pod perlamiga.pod perlandroid.pod \
+	    perl5252delta.pod perlaix.pod perlamiga.pod perlandroid.pod \
 	    perlapi.pod perlbs2000.pod perlce.pod perlcn.pod perlcygwin.pod \
 	    perldos.pod perlfreebsd.pod perlhaiku.pod perlhpux.pod \
 	    perlhurd.pod perlintern.pod perlirix.pod perljp.pod perlko.pod \

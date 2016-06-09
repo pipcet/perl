@@ -245,6 +245,7 @@ PERLVAR(I, exit_flags,	U8)		/* was exit() unexpected, etc. */
 
 PERLVAR(I, utf8locale,	bool)		/* utf8 locale detected */
 PERLVAR(I, in_utf8_CTYPE_locale, bool)
+PERLVAR(I, in_utf8_COLLATE_locale, bool)
 #ifdef USE_LOCALE_CTYPE
     PERLVAR(I, warn_locale, SV *)
 #endif
@@ -563,6 +564,10 @@ PERLVAR(I, collation_name, char *)	/* Name of current collation */
 PERLVAR(I, collxfrm_base, Size_t)	/* Basic overhead in *xfrm() */
 PERLVARI(I, collxfrm_mult,Size_t, 2)	/* Expansion factor in *xfrm() */
 PERLVARI(I, collation_ix, U32,	0)	/* Collation generation index */
+PERLVARA(I, strxfrm_min_char, 3, char)
+PERLVARI(I, strxfrm_is_behaved, bool, TRUE)
+                            /* Assume until proven otherwise that it works */
+PERLVARI(I, strxfrm_max_cp, U8, 0)      /* Highest collating cp in locale */
 PERLVARI(I, collation_standard, bool, TRUE)
 					/* Assume simple collation */
 #endif /* USE_LOCALE_COLLATE */

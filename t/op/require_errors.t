@@ -3,12 +3,13 @@
 BEGIN {
     chdir 't' if -d 't';
     require './test.pl';
+    @INC="../lib";
 }
 
 use strict;
 use warnings;
 
-plan(tests => 17);
+plan(tests => 20);
 
 my $nonfile = tempfile();
 
@@ -29,7 +30,12 @@ for my $file ($nonfile, ' ') {
 eval "require $nonfile";
 
 like $@, qr/^Can't locate $nonfile\.pm in \@INC \(you may need to install the $nonfile module\) \(\@INC contains: @INC\) at/,
-    "correct error message for require $nonfile";
+        "correct error message for require $nonfile";
+
+eval "require ::$nonfile";
+
+like $@, qr/^Bareword in require must not start with a double-colon:/,
+        "correct error message for require ::$nonfile";
 
 eval {
     require "$nonfile.ph";
@@ -134,3 +140,11 @@ like $@, qr/^Can't locate strict\.pm\\0invalid: /, 'do nul check';
 eval "require strict\0::invalid;";
 like $@, qr/^syntax error at \(eval \d+\) line 1/, 'parse error with \0 in barewords module names';
 
+# Refs and globs that stringify with embedded nulls
+# These crashed from 5.20 to 5.24 [perl #128182].
+eval { no warnings 'syscalls'; require eval "qr/\0/" };
+like $@, qr/^Can't locate \(\?\^:\\0\):/,
+    'require ref that stringifies with embedded null';
+eval { no strict; no warnings 'syscalls'; require *{"\0a"} };
+like $@, qr/^Can't locate \*main::\\0a:/,
+    'require ref that stringifies with embedded null';

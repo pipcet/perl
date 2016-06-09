@@ -99,20 +99,17 @@ Missing $ on loop variable at - line 1.
 # NAME Missing name in "my sub"
 use feature 'lexical_subs'; my sub;
 EXPECT
-The lexical_subs feature is experimental at - line 1.
 Missing name in "my sub" at - line 1.
 ########
 # NAME Missing name in "our sub"
 use feature 'lexical_subs'; our sub;
 EXPECT
-The lexical_subs feature is experimental at - line 1.
 Missing name in "our sub" at - line 1.
 ########
 # NAME Missing name in "state sub"
-use 5.01; use feature 'lexical_subs';
+use 5.01;
 state sub;
 EXPECT
-The lexical_subs feature is experimental at - line 2.
 Missing name in "state sub" at - line 2.
 ########
 # NAME my sub pack::foo
@@ -120,8 +117,6 @@ use feature 'lexical_subs', 'state';
 my sub foo::bar;
 state sub foo::bear;
 EXPECT
-The lexical_subs feature is experimental at - line 2.
-The lexical_subs feature is experimental at - line 3.
 "my" subroutine &foo::bar can't be in a package at - line 2, near "my sub foo::bar"
 "state" subroutine &foo::bear can't be in a package at - line 3, near "state sub foo::bear"
 Execution of - aborted due to compilation errors.
@@ -256,49 +251,61 @@ Unterminated delimiter for here document at - line 1.
 # NAME my (our $x) errors
 my (our $x);
 EXPECT
-Can't redeclare "our" in "my" at - line 1, at end of line
+Can't redeclare "our" in "my" at - line 1, near "(our"
 Execution of - aborted due to compilation errors.
 ########
 # NAME our (my $x) errors
 our (my $x);
 EXPECT
-Can't redeclare "my" in "our" at - line 1, at end of line
+Can't redeclare "my" in "our" at - line 1, near "(my"
 Execution of - aborted due to compilation errors.
 ########
 # NAME state (my $x) errors
 use feature 'state';
 state (my $x);
 EXPECT
-Can't redeclare "my" in "state" at - line 2, at end of line
+Can't redeclare "my" in "state" at - line 2, near "(my"
 Execution of - aborted due to compilation errors.
 ########
 # NAME our (state $x) errors
 use feature 'state';
 our (state $x);
 EXPECT
-Can't redeclare "state" in "our" at - line 2, at end of line
+Can't redeclare "state" in "our" at - line 2, near "(state"
 Execution of - aborted due to compilation errors.
 ########
 # NAME my (my $x) errors
 my (my $x, $y, $z);
 EXPECT
-Can't redeclare "my" in "my" at - line 1, at end of line
+Can't redeclare "my" in "my" at - line 1, near "(my"
 Execution of - aborted due to compilation errors.
 ########
 # NAME our (our $x) errors
 our ($x, our($y), $z);
 EXPECT
-Can't redeclare "our" in "our" at - line 1, near ", "
+Can't redeclare "our" in "our" at - line 1, near ", our"
 Execution of - aborted due to compilation errors.
 ########
 # NAME state (state $x) errors
 use feature 'state';
 state ($x, $y, state $z);
 EXPECT
-Can't redeclare "state" in "state" at - line 2, near ", "
+Can't redeclare "state" in "state" at - line 2, near ", state"
 Execution of - aborted due to compilation errors.
 ########
 # NAME BEGIN <> [perl #125341]
 BEGIN <>
 EXPECT
 Illegal declaration of subroutine BEGIN at - line 1.
+########
+# NAME multiple conflict markers
+<<<<<<< yours:sample.txt
+my $some_code;
+=======
+my $some_other_code;
+>>>>>>> theirs:sample.txt
+EXPECT
+Version control conflict marker at - line 1, near "<<<<<<<"
+Version control conflict marker at - line 3, near "======="
+Version control conflict marker at - line 5, near ">>>>>>>"
+Execution of - aborted due to compilation errors.

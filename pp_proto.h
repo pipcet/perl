@@ -22,6 +22,7 @@ PERL_CALLCONV OP *Perl_pp_anonlist(pTHX);
 PERL_CALLCONV OP *Perl_pp_aslice(pTHX);
 PERL_CALLCONV OP *Perl_pp_atan2(pTHX);
 PERL_CALLCONV OP *Perl_pp_av2arylen(pTHX);
+PERL_CALLCONV OP *Perl_pp_avhvswitch(pTHX);
 PERL_CALLCONV OP *Perl_pp_backtick(pTHX);
 PERL_CALLCONV OP *Perl_pp_bind(pTHX);
 PERL_CALLCONV OP *Perl_pp_binmode(pTHX);
@@ -292,5 +293,10 @@ PERL_CALLCONV OP *Perl_pp_wantarray(pTHX);
 PERL_CALLCONV OP *Perl_pp_warn(pTHX);
 PERL_CALLCONV OP *Perl_pp_xor(pTHX);
 PERL_CALLCONV OP *Perl_unimplemented_op(pTHX);
+
+/* alternative functions */
+#if defined(__GLIBC__) && IVSIZE == 8  && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
+PERL_CALLCONV OP *Perl_pp_i_modulo_glibc_bugfix(pTHX);
+#endif
 
 /* ex: set ro: */

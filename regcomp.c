@@ -222,6 +222,7 @@ struct RExC_state_t {
 #endif
     bool        seen_unfolded_sharp_s;
     bool        strict;
+    bool        study_started;
 };
 
 #define RExC_flags	(pRExC_state->flags)
@@ -288,6 +289,7 @@ struct RExC_state_t {
 #define RExC_frame_last (pRExC_state->frame_last)
 #define RExC_frame_count (pRExC_state->frame_count)
 #define RExC_strict (pRExC_state->strict)
+#define RExC_study_started      (pRExC_state->study_started)
 
 /* Heuristic check on the complexity of the pattern: if TOO_NAUGHTY, we set
  * a flag to disable back-off on the fixed/floating substrings - if it's
@@ -4102,6 +4104,7 @@ S_study_chunk(pTHX_ RExC_state_t *pRExC_state, regnode **scanp,
     GET_RE_DEBUG_FLAGS_DECL;
 
     PERL_ARGS_ASSERT_STUDY_CHUNK;
+    RExC_study_started= 1;
 
 
     if ( depth == 0 ) {
@@ -5899,15 +5902,10 @@ Perl_re_printf( aTHX_  "LHS=%"UVuf" RHS=%"UVuf"\n",
 	/* Else: zero-length, ignore. */
 	scan = regnext(scan);
     }
-    /* If we are exiting a recursion we can unset its recursed bit
-     * and allow ourselves to enter it again - no danger of an
-     * infinite loop there.
-    if (stopparen > -1 && recursed) {
-	DEBUG_STUDYDATA("unset:", data,depth);
-        PAREN_UNSET( recursed, stopparen);
-    }
-    */
+
+  finish:
     if (frame) {
+        /* we need to unwind recursion. */
         depth = depth - 1;
 
         DEBUG_STUDYDATA("frame-end:",data,depth);
@@ -5924,7 +5922,6 @@ Perl_re_printf( aTHX_  "LHS=%"UVuf" RHS=%"UVuf"\n",
         goto fake_study_recurse;
     }
 
-  finish:
     assert(!frame);
     DEBUG_STUDYDATA("pre-fin:",data,depth);
 
@@ -6883,6 +6880,7 @@ Perl_re_op_compile(pTHX_ SV ** const patternp, int pat_count,
     RExC_contains_locale = 0;
     RExC_contains_i = 0;
     RExC_strict = cBOOL(pm_flags & RXf_PMf_STRICT);
+    RExC_study_started = 0;
     pRExC_state->runtime_code_qr = NULL;
     RExC_frame_head= NULL;
     RExC_frame_last= NULL;
@@ -8933,13 +8931,7 @@ Perl__invlist_union_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
      * length there.  The preface says to incorporate its examples into your
      * code at your own risk.
      *
-     * The algorithm is like a merge sort.
-     *
-     * XXX A potential performance improvement is to keep track as we go along
-     * if only one of the inputs contributes to the result, meaning the other
-     * is a subset of that one.  In that case, we can skip the final copy and
-     * return the larger of the input lists, but then outside code might need
-     * to keep track of whether to free the input list or not */
+     * The algorithm is like a merge sort. */
 
     const UV* array_a;    /* a's array */
     const UV* array_b;
@@ -8953,6 +8945,10 @@ Perl__invlist_union_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
     UV i_a = 0;		    /* current index into a's array */
     UV i_b = 0;
     UV i_u = 0;
+
+    bool has_something_from_a = FALSE;
+    bool has_something_from_b = FALSE;
+
 
     /* running count, as explained in the algorithm source book; items are
      * stopped accumulating and are output when the count changes to/from 0.
@@ -9119,10 +9115,12 @@ Perl__invlist_union_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
 	{
 	    cp_in_set = ELEMENT_RANGE_MATCHES_INVLIST(i_a);
 	    cp= array_a[i_a++];
+            has_something_from_a = TRUE;
 	}
 	else {
 	    cp_in_set = ELEMENT_RANGE_MATCHES_INVLIST(i_b);
 	    cp = array_b[i_b++];
+            has_something_from_b = TRUE;
 	}
 
 	/* Here, have chosen which of the two inputs to look at.  Only output
@@ -9171,10 +9169,54 @@ Perl__invlist_union_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
      * be output.  (If 'count' is non-zero, then the input list we exhausted
      * has everything remaining up to the machine's limit in its set, and hence
      * in the union, so there will be no further output. */
-    len_u = i_u;
-    if (count == 0) {
-	/* At most one of the subexpressions will be non-zero */
-	len_u += (len_a - i_a) + (len_b - i_b);
+    if (count != 0) {
+
+        /* Here, there is nothing left to put in the union.  If the union came
+         * only from the input that it is to overwrite, this whole operation is
+         * a no-op */
+        if (   UNLIKELY(! has_something_from_b && *output == a)
+            || UNLIKELY(! has_something_from_a && *output == b))
+        {
+            SvREFCNT_dec_NN(u);
+            return;
+        }
+
+        len_u = i_u;
+    }
+    else {
+        /* When 'count' is 0, the list that was exhausted (if one was shorter
+         * than the other) ended with everything above it not in its set.  That
+         * means that the remaining part of the union is precisely the same as
+         * the non-exhausted list, so can just copy it unchanged.  If only one
+         * of the inputs contributes to the union, and the output is to
+         * overwite that particular input, then this whole operation was a
+         * no-op. */
+
+        IV copy_count = len_a - i_a;
+	if (copy_count > 0) {
+            if (UNLIKELY(! has_something_from_b && *output == a)) {
+                SvREFCNT_dec_NN(u);
+                return;
+            }
+	    Copy(array_a + i_a, array_u + i_u, copy_count, UV);
+            len_u = i_u + copy_count;
+        }
+        else if ((copy_count = len_b - i_b) > 0) {
+            if (UNLIKELY(! has_something_from_a && *output == b)) {
+                SvREFCNT_dec_NN(u);
+                return;
+            }
+	    Copy(array_b + i_b, array_u + i_u, copy_count, UV);
+            len_u = i_u + copy_count;
+        } else if (   UNLIKELY(! has_something_from_b && *output == a)
+                   || UNLIKELY(! has_something_from_a && *output == b))
+        {
+        /* Here, both arrays are exhausted, so no need to do any additional
+         * copying.  Also here, the union came only from the input that it is
+         * to overwrite, so this whole operation is a no-op */
+            SvREFCNT_dec_NN(u);
+            return;
+        }
     }
 
     /* Set the result to the final length, which can change the pointer to
@@ -9184,22 +9226,6 @@ Perl__invlist_union_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
 	invlist_set_len(u, len_u, *get_invlist_offset_addr(u));
 	invlist_trim(u);
 	array_u = invlist_array(u);
-    }
-
-    /* When 'count' is 0, the list that was exhausted (if one was shorter than
-     * the other) ended with everything above it not in its set.  That means
-     * that the remaining part of the union is precisely the same as the
-     * non-exhausted list, so can just copy it unchanged.  (If both lists were
-     * exhausted at the same time, then the operations below will be both 0.)
-     */
-    if (count == 0) {
-	IV copy_count; /* At most one will have a non-zero copy count */
-	if ((copy_count = len_a - i_a) > 0) {
-	    Copy(array_a + i_a, array_u + i_u, copy_count, UV);
-	}
-	else if ((copy_count = len_b - i_b) > 0) {
-	    Copy(array_b + i_b, array_u + i_u, copy_count, UV);
-	}
     }
 
     /* If the output is not to overwrite either of the inputs, just return the
@@ -9273,6 +9299,9 @@ Perl__invlist_intersection_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
      * is 0 to 2.  Only when the count is 2 is something in the intersection.
      */
     UV count = 0;
+
+    bool has_something_from_a = FALSE;
+    bool has_something_from_b = FALSE;
 
     PERL_ARGS_ASSERT__INVLIST_INTERSECTION_MAYBE_COMPLEMENT_2ND;
     assert(a != b);
@@ -9370,10 +9399,12 @@ Perl__invlist_intersection_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
 	{
 	    cp_in_set = ELEMENT_RANGE_MATCHES_INVLIST(i_a);
 	    cp= array_a[i_a++];
+            has_something_from_a = TRUE;
 	}
 	else {
 	    cp_in_set = ELEMENT_RANGE_MATCHES_INVLIST(i_b);
 	    cp= array_b[i_b++];
+            has_something_from_b = TRUE;
 	}
 
 	/* Here, have chosen which of the two inputs to look at.  Only output
@@ -9415,12 +9446,52 @@ Perl__invlist_intersection_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
 	count++;
     }
 
-    /* The final length is what we've output so far plus what else is in the
-     * intersection.  At most one of the subexpressions below will be non-zero
-     * */
-    len_r = i_r;
-    if (count >= 2) {
-	len_r += (len_a - i_a) + (len_b - i_b);
+    if (count < 2) {
+
+        /* Here, there is nothing left to put in the intersection.  If the
+         * intersection came only from the input that it is to overwrite, this
+         * whole operation is a no-op */
+        if (   UNLIKELY(! has_something_from_b && *i == a)
+            || UNLIKELY(! has_something_from_a && *i == b))
+        {
+            SvREFCNT_dec_NN(r);
+            return;
+        }
+
+        len_r = i_r;
+    }
+    else {
+        /* When 'count' is 2 or more, the list that was exhausted, what remains
+         * in the intersection is precisely the same as the non-exhausted list,
+         * so can just copy it unchanged.  If only one of the inputs
+         * contributes to the intersection, and the output is to overwite that
+         * particular input, then this whole operation was a no-op. */
+
+        IV copy_count = len_a - i_a;
+	if (copy_count > 0) {
+            if (UNLIKELY(! has_something_from_b && *i == a)) {
+                SvREFCNT_dec_NN(r);
+                return;
+            }
+	    Copy(array_a + i_a, array_r + i_r, copy_count, UV);
+            len_r = i_r + copy_count;
+        }
+        else if ((copy_count = len_b - i_b) > 0) {
+            if (UNLIKELY(! has_something_from_a && *i == b)) {
+                SvREFCNT_dec_NN(r);
+                return;
+            }
+	    Copy(array_b + i_b, array_r + i_r, copy_count, UV);
+            len_r = i_r + copy_count;
+        } else if (   UNLIKELY(! has_something_from_b && *i == a)
+                   || UNLIKELY(! has_something_from_a && *i == b))
+        {
+            /* Here, both arrays are exhausted, so no need to do any additional
+             * copying.  Also here, the intersection came only from the input
+             * that it is to overwrite, so this whole operation is a no-op */
+            SvREFCNT_dec_NN(r);
+            return;
+        }
     }
 
     /* Set the result to the final length, which can change the pointer to
@@ -9430,17 +9501,6 @@ Perl__invlist_intersection_maybe_complement_2nd(pTHX_ SV* const a, SV* const b,
 	invlist_set_len(r, len_r, *get_invlist_offset_addr(r));
 	invlist_trim(r);
 	array_r = invlist_array(r);
-    }
-
-    /* Finish outputting any remaining */
-    if (count >= 2) { /* At most one will have a non-zero copy count */
-	IV copy_count;
-	if ((copy_count = len_a - i_a) > 0) {
-	    Copy(array_a + i_a, array_r + i_r, copy_count, UV);
-	}
-	else if ((copy_count = len_b - i_b) > 0) {
-	    Copy(array_b + i_b, array_r + i_r, copy_count, UV);
-	}
     }
 
     /* If the output is not to overwrite either of the inputs, just return the
@@ -10233,8 +10293,9 @@ S_parse_lparen_question_flags(pTHX_ RExC_state_t *pRExC_state)
                 if (RExC_flags & RXf_PMf_FOLD) {
                     RExC_contains_i = 1;
                 }
-                if (PASS2) {
-                    STD_PMMOD_FLAGS_PARSE_X_WARN(x_mod_count);
+
+                if (UNLIKELY((x_mod_count) > 1)) {
+                    vFAIL("Only one /x regex modifier is allowed");
                 }
                 return;
                 /*NOTREACHED*/
@@ -13189,14 +13250,13 @@ S_regatom(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth)
 		    } /* End of switch on '\' */
 		    break;
 		case '{':
-		    /* Currently we don't warn when the lbrace is at the start
+		    /* Currently we don't care if the lbrace is at the start
 		     * of a construct.  This catches it in the middle of a
 		     * literal string, or when it's the first thing after
 		     * something like "\b" */
-		    if (! SIZE_ONLY
-			&& (len || (p > RExC_start && isALPHA_A(*(p -1)))))
-		    {
-			ckWARNregdep(p + 1, "Unescaped left brace in regex is deprecated, passed through");
+		    if (len || (p > RExC_start && isALPHA_A(*(p -1)))) {
+                        RExC_parse = p + 1;
+			vFAIL("Unescaped left brace in regex is illegal");
 		    }
 		    /*FALLTHROUGH*/
 		default:    /* A literal character */
@@ -13704,7 +13764,7 @@ S_populate_ANYOF_from_invlist(pTHX_ regnode *node, SV** invlist_ptr)
  * routine. q.v. */
 #define ADD_POSIX_WARNING(p, text)  STMT_START {                            \
         if (posix_warnings) {                                               \
-            if (! warn_text) warn_text = newAV();                           \
+            if (! warn_text) warn_text = (AV *) sv_2mortal((SV *) newAV()); \
             av_push(warn_text, Perl_newSVpvf(aTHX_                          \
                                              WARNING_PREFIX                 \
                                              text                           \
@@ -14470,13 +14530,9 @@ S_handle_possible_posix(pTHX_ RExC_state_t *pRExC_state,
             }
 
             if (warn_text) {
-                if (posix_warnings) {
-                    /* mortalize to avoid a leak with FATAL warnings */
-                    *posix_warnings = (AV *) sv_2mortal((SV *) warn_text);
-                }
-                else {
-                    SvREFCNT_dec_NN(warn_text);
-                }
+                /* warn_text should only be true if posix_warnings is true */
+                assert(posix_warnings);
+                *posix_warnings = warn_text;
             }
         }
         else if (class_number != OOB_NAMEDCLASS) {
@@ -18241,7 +18297,9 @@ S_reginsert(pTHX_ RExC_state_t *pRExC_state, U8 op, regnode *opnd, U32 depth)
 	RExC_size += size;
 	return;
     }
-
+    assert(!RExC_study_started); /* I believe we should never use reginsert once we have started
+                                    studying. If this is wrong then we need to adjust RExC_recurse
+                                    below like we do with RExC_open_parens/RExC_close_parens. */
     src = RExC_emit;
     RExC_emit += size;
     dst = RExC_emit;
@@ -18252,7 +18310,10 @@ S_reginsert(pTHX_ RExC_state_t *pRExC_state, U8 op, regnode *opnd, U32 depth)
          * iow it is 1 more than the number of parens seen in
          * the pattern so far. */
         for ( paren=0 ; paren < RExC_npar ; paren++ ) {
-            if ( RExC_open_parens[paren] >= opnd ) {
+            /* note, RExC_open_parens[0] is the start of the
+             * regex, it can't move. RExC_close_parens[0] is the end
+             * of the regex, it *can* move. */
+            if ( paren && RExC_open_parens[paren] >= opnd ) {
                 /*DEBUG_PARSE_FMT("open"," - %d",size);*/
                 RExC_open_parens[paren] += size;
             } else {

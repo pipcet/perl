@@ -681,6 +681,7 @@ d_nearbyint=''
 d_duplocale=''
 d_freelocale=''
 d_newlocale=''
+d_querylocale=''
 d_uselocale=''
 i_xlocale=''
 d_nextafter=''
@@ -861,6 +862,7 @@ d_strerrm=''
 d_strerror=''
 d_sysernlst=''
 d_syserrlst=''
+d_strerror_l=''
 d_strerror_r=''
 strerror_r_proto=''
 d_strftime=''
@@ -2973,7 +2975,7 @@ $define|true|[yY]*)
 	*)  echo "Using targetarch $targetarch." >&4 ;;
 	esac
 	case "$targethost" in
-	'') echo "Targethost not defined." >&4; croak=y ;;
+	'') echo "Targethost not defined." >&4; croak=n ;;
 	*)  echo "Using targethost $targethost." >&4
 	esac
 	locincpth=' '
@@ -6798,13 +6800,13 @@ yes)
 		if $contains $tlook $tf >/dev/null 2>&1; then
 			tval=true;
 		elif $test "$mistrustnm" = compile -o "$mistrustnm" = run; then
-			echo "$extern_C void *$1$tdc; void *(*(p()))$tdc { return &$1; } int main() { if(p() && p() != (void *)main) return(0); else return(1); }"> try.c;
+			echo "$extern_C void *$1$tdc; void *(*(p()))$tdc { return &$1; } int main(int argc, char **argv) { if(p() && p() != (void *)argv[0]) return(0); else return(1); }"> try.c;
 			$cc -o try $optimize $ccflags $ldflags try.c >/dev/null 2>&1 $libs && tval=true;
 			$test "$mistrustnm" = run -a -x try && { $run ./try$_exe >/dev/null 2>&1 || tval=false; };
 			$rm_try;
 		fi;
 	else
-		echo "$extern_C void *$1$tdc; void *(*(p()))$tdc { return &$1; } int main() { if(p() && p() != (void *)main) return(0); else return(1); }"> try.c;
+		echo "$extern_C void *$1$tdc; void *(*(p()))$tdc { return &$1; } int main(int argc, char **argv) { if(p() && p() != (void *)argv[0]) return(0); else return(1); }"> try.c;
 		$cc -o try $optimize $ccflags $ldflags try.c $libs >/dev/null 2>&1 && tval=true;
 		$rm_try;
 	fi;
@@ -14149,6 +14151,10 @@ eval $inlibc
 set duplocale d_duplocale
 eval $inlibc
 
+: see if querylocale exists
+set querylocale d_querylocale
+eval $inlibc
+
 : see if frexpl exists
 set frexpl d_frexpl
 eval $inlibc
@@ -19274,6 +19280,10 @@ if test "X$d_strerror" = X -o "X$d_syserrlst" = X; then
 		d_strerrm='"unknown"'
     fi
 fi
+
+: see if strerror_l exists
+set strerror_l d_strerror_l
+eval $inlibc
 
 : see if strerror_r exists
 set strerror_r d_strerror_r
@@ -24518,6 +24528,7 @@ d_pwpasswd='$d_pwpasswd'
 d_pwquota='$d_pwquota'
 d_qgcvt='$d_qgcvt'
 d_quad='$d_quad'
+d_querylocale='$d_querylocale'
 d_random_r='$d_random_r'
 d_re_comp='$d_re_comp'
 d_readdir64_r='$d_readdir64_r'
@@ -24637,6 +24648,7 @@ d_strcoll='$d_strcoll'
 d_strctcpy='$d_strctcpy'
 d_strerrm='$d_strerrm'
 d_strerror='$d_strerror'
+d_strerror_l='$d_strerror_l'
 d_strerror_r='$d_strerror_r'
 d_strftime='$d_strftime'
 d_strlcat='$d_strlcat'
@@ -25316,8 +25328,7 @@ Id='$Id'
 : Finish up by extracting the .SH files
 case "$alldone" in
 exit)
-	$rm -rf UU
-	echo "Extraction done."
+	echo "Stopping at your request, leaving temporary files around."
 	exit 0
 	;;
 cont)
@@ -25392,11 +25403,10 @@ the policy defaults.
 
 EOM
 fi
-if $test -f config.msg; then
+if $test -f UU/config.msg; then
     echo "Hmm.  I also noted the following information while running:"
     echo " "
-    $cat config.msg >&4
-    $rm -f config.msg
+    $cat UU/config.msg >&4
 fi
 $rm -f kit*isdone ark*isdone
 $rm -rf UU

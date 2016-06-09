@@ -1241,8 +1241,12 @@ Perl_do_kv(pTHX)
     const U8 gimme = GIMME_V;
     const I32 dokv =     (PL_op->op_type == OP_RV2HV || PL_op->op_type == OP_PADHV);
     /* op_type is OP_RKEYS/OP_RVALUES if pp_rkeys delegated to here */
-    const I32 dokeys =   dokv || (PL_op->op_type == OP_KEYS);
-    const I32 dovalues = dokv || (PL_op->op_type == OP_VALUES);
+    const I32 dokeys =   dokv || (PL_op->op_type == OP_KEYS)
+	|| (  PL_op->op_type == OP_AVHVSWITCH
+	   && (PL_op->op_private & 3) + OP_EACH == OP_KEYS  );
+    const I32 dovalues = dokv || (PL_op->op_type == OP_VALUES)
+	|| (  PL_op->op_type == OP_AVHVSWITCH
+	   && (PL_op->op_private & 3) + OP_EACH == OP_VALUES  );
 
     (void)hv_iterinit(keys);	/* always reset iterator regardless */
 
@@ -1271,6 +1275,13 @@ Perl_do_kv(pTHX)
 	    PUSHi( i );
 	}
 	RETURN;
+    }
+
+    if (UNLIKELY(PL_op->op_private & OPpMAYBE_LVSUB)) {
+	const I32 flags = is_lvalue_sub();
+	if (flags && !(flags & OPpENTERSUB_INARGS))
+	    /* diag_listed_as: Can't modify %s in %s */
+	    Perl_croak(aTHX_ "Can't modify keys in list assignment");
     }
 
     /* 2*HvUSEDKEYS() should never be big enough to truncate or wrap */

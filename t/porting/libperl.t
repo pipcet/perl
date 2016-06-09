@@ -176,6 +176,7 @@ if (defined $fake_input) {
     }
     undef $nm_err_tmp; # In this case there will be no nm errors.
 } else {
+    print qq{# command: "$nm $nm_opt $libperl_a 2>$nm_err_tmp |"\n};
     open($nm_fh, "$nm $nm_opt $libperl_a 2>$nm_err_tmp |") or
         skip_all "$nm $nm_opt $libperl_a failed: $!";
 }
@@ -280,7 +281,7 @@ sub nm_parse_darwin {
         } elsif (/^ {8}(?: {8})? \(undefined(?: \[lazy bound\])?\) external _?(.+)/) {
             # darwin/ppc marks most undefined text symbols
             # as "[lazy bound]".
-            my ($symbol) = $1;
+            my ($symbol) = $1 =~ s/\$UNIX2003\z//r;
             return if is_perlish_symbol($symbol);
             $symbols->{undef}{$symbol}{$symbols->{o}}++;
             return;
@@ -348,7 +349,13 @@ if ($GSP) {
     ok(!exists $data_symbols{PL_hash_seed}, "has no PL_hash_seed");
     ok(!exists $data_symbols{PL_ppaddr}, "has no PL_ppaddr");
 
-    ok(! exists $symbols{data}{bss}, "has no data bss symbols");
+    ok(! exists $symbols{data}{bss}, "has no data bss symbols")
+        or do {
+            my $bad = "BSS entries (there are supposed to be none):\n";
+            $bad .= "  bss sym: $_\n" for sort keys %{$symbols{data}{bss}};
+            diag($bad);
+        };
+
     ok(! exists $symbols{data}{data} ||
             # clang with ASAN seems to add this symbol to every object file:
             !grep($_ ne '__unnamed_1', keys %{$symbols{data}{data}}),
@@ -364,7 +371,13 @@ if ($GSP) {
     ok(!exists $data_symbols{PL_hash_seed}, "has no PL_hash_seed");
     ok(!exists $data_symbols{PL_ppaddr}, "has no PL_ppaddr");
 
-    ok(! exists $symbols{data}{bss}, "has no data bss symbols");
+    ok(! exists $symbols{data}{bss}, "has no data bss symbols")
+        or do {
+            my $bad = "BSS entries (there are supposed to be none):\n";
+            $bad .= "  bss sym: $_\n" for sort keys %{$symbols{data}{bss}};
+            diag($bad);
+        };
+
 
     # These PerlIO data symbols are left visible with
     # -DPERL_GLOBAL_STRUCT (as opposed to -DPERL_GLOBAL_STRUCT_PRIVATE)
@@ -526,6 +539,13 @@ for my $symbol (sort keys %unexpected) {
         @o == 1 && $o[0] eq 'sv.o') {
       SKIP: {
         skip("uses sprintf for Gconvert in sv.o");
+      }
+    }
+    elsif (   $symbol eq 'strcat'
+           && @o == 1 && $o[0] eq 'locale.o')
+    {
+      SKIP: {
+        skip("locale.o legitimately uses strcat");
       }
     } else {
         is(@o, 0, "uses no $symbol (@o)");

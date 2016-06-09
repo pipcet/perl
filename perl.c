@@ -214,6 +214,26 @@ Initializes a new Perl interpreter.  See L<perlembed>.
 =cut
 */
 
+static void
+S_fixup_platform_bugs(void)
+{
+#if defined(__GLIBC__) && IVSIZE == 8 \
+    && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
+    {
+        IV l =   3;
+        IV r = -10;
+        /* Cannot do this check with inlined IV constants since
+         * that seems to work correctly even with the buggy glibc. */
+        if (l % r == -3) {
+            dTHX;
+            /* Yikes, we have the bug.
+             * Patch in the workaround version. */
+            PL_ppaddr[OP_I_MODULO] = &Perl_pp_i_modulo_glibc_bugfix;
+        }
+    }
+#endif
+}
+
 void
 perl_construct(pTHXx)
 {
@@ -250,6 +270,8 @@ perl_construct(pTHXx)
     init_stacks();
 
     init_ids();
+
+    S_fixup_platform_bugs();
 
     JMPENV_BOOTSTRAP;
     STATUS_ALL_SUCCESS;
@@ -602,16 +624,25 @@ perl_destruct(pTHXx)
     my_fflush_all();
 
 #ifdef PERL_TRACE_OPS
-    /* If we traced all Perl OP usage, report and clean up */
+    /* dump OP-counts if $ENV{PERL_TRACE_OPS} > 0 */
+    {
+        const char * const ptoenv = PerlEnv_getenv("PERL_TRACE_OPS");
+        UV uv;
+
+        if (!ptoenv || !Perl_grok_atoUV(ptoenv, &uv, NULL)
+            || !(uv > 0))
+        goto no_trace_out;
+    }
     PerlIO_printf(Perl_debug_log, "Trace of all OPs executed:\n");
     for (i = 0; i <= OP_max; ++i) {
-        PerlIO_printf(Perl_debug_log, "  %s: %"UVuf"\n", PL_op_name[i], PL_op_exec_cnt[i]);
-        PL_op_exec_cnt[i] = 0;
+        if (PL_op_exec_cnt[i])
+            PerlIO_printf(Perl_debug_log, "  %s: %"UVuf"\n", PL_op_name[i], PL_op_exec_cnt[i]);
     }
     /* Utility slot for easily doing little tracing experiments in the runloop: */
     if (PL_op_exec_cnt[OP_max+1] != 0)
         PerlIO_printf(Perl_debug_log, "  SPECIAL: %"UVuf"\n", PL_op_exec_cnt[OP_max+1]);
     PerlIO_printf(Perl_debug_log, "\n");
+ no_trace_out:
 #endif
 
 
@@ -1763,6 +1794,9 @@ S_Internals_V(pTHX_ CV *cv)
 #  endif
 #  ifdef PERL_MEM_LOG_NOIMPL
 			     " PERL_MEM_LOG_NOIMPL"
+#  endif
+#  ifdef PERL_OP_PARENT
+			     " PERL_OP_PARENT"
 #  endif
 #  ifdef PERL_PERTURB_KEYS_DETERMINISTIC
 			     " PERL_PERTURB_KEYS_DETERMINISTIC"
@@ -3116,6 +3150,7 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
       "  M  trace smart match resolution\n"
       "  B  dump suBroutine definitions, including special Blocks like BEGIN\n",
       "  L  trace some locale setting information--for Perl core development\n",
+      "  i  trace PerlIO layer processing\n",
       NULL
     };
     UV uv = 0;
@@ -3124,7 +3159,7 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
 
     if (isALPHA(**s)) {
 	/* if adding extra options, remember to update DEBUG_MASK */
-	static const char debopts[] = "psltocPmfrxuUHXDSTRJvCAqMBL";
+	static const char debopts[] = "psltocPmfrxuUHXDSTRJvCAqMBLi";
 
 	for (; isWORDCHAR(**s); (*s)++) {
 	    const char * const d = strchr(debopts,**s);

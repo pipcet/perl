@@ -217,7 +217,7 @@ sed <<!GROK!THIS! >$CONFIG_H -e 's!^#undef\(.*/\)\*!/\*#define\1 \*!' -e 's!^#un
 #$d_getlogin HAS_GETLOGIN		/**/
 
 /* HAS_GETPGID:
- *	This symbol, if defined, indicates to the C program that 
+ *	This symbol, if defined, indicates to the C program that
  *	the getpgid(pid) function is available to get the
  *	process group id.
  */
@@ -676,8 +676,8 @@ sed <<!GROK!THIS! >$CONFIG_H -e 's!^#undef\(.*/\)\*!/\*#define\1 \*!' -e 's!^#un
  *	This symbol holds the type used for the second argument to
  *	getgroups() and setgroups().  Usually, this is the same as
  *	gidtype (gid_t) , but sometimes it isn't.
- *	It can be int, ushort, gid_t, etc... 
- *	It may be necessary to include <sys/types.h> to get any 
+ *	It can be int, ushort, gid_t, etc...
+ *	It may be necessary to include <sys/types.h> to get any
  *	typedef'ed information.  This is only required if you have
  *	getgroups() or setgroups()..
  */
@@ -3246,9 +3246,14 @@ sed <<!GROK!THIS! >$CONFIG_H -e 's!^#undef\(.*/\)\*!/\*#define\1 \*!' -e 's!^#un
  *	This symbol, if defined, indicates that the uselocale routine is
  *	available to set the current locale for the calling thread.
  */
+/* HAS_QUERYLOCALE:
+ *	This symbol, if defined, indicates that the querylocale routine is
+ *	available to return the name of the locale for a category mask.
+ */
 #$d_newlocale	HAS_NEWLOCALE	/**/
 #$d_freelocale	HAS_FREELOCALE	/**/
 #$d_uselocale	HAS_USELOCALE	/**/
+#$d_querylocale	HAS_QUERYLOCALE	/**/
 
 /* HAS_NEXTAFTER:
  *	This symbol, if defined, indicates that the nextafter routine is
@@ -3501,6 +3506,13 @@ sed <<!GROK!THIS! >$CONFIG_H -e 's!^#undef\(.*/\)\*!/\*#define\1 \*!' -e 's!^#un
  *	available to stat filesystems by file descriptors.
  */
 #$d_fstatvfs HAS_FSTATVFS		/**/
+
+/* HAS_STRERROR_L:
+ *	This symbol, if defined, indicates that the strerror_l routine is
+ *	available to return the error message for a given errno value in
+ *	a particular locale (identified by a locale_t object).
+ */
+#$d_strerror_l HAS_STRERROR_L		/**/
 
 /* HAS_STRFTIME:
  *	This symbol, if defined, indicates that the strftime routine is

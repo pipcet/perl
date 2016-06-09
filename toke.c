@@ -52,7 +52,6 @@ Individual members of C<PL_parser> have their own documentation.
 #define PL_lex_brackstack	(PL_parser->lex_brackstack)
 #define PL_lex_casemods		(PL_parser->lex_casemods)
 #define PL_lex_casestack        (PL_parser->lex_casestack)
-#define PL_lex_defer		(PL_parser->lex_defer)
 #define PL_lex_dojoin		(PL_parser->lex_dojoin)
 #define PL_lex_formbrack        (PL_parser->lex_formbrack)
 #define PL_lex_inpat		(PL_parser->lex_inpat)
@@ -142,7 +141,6 @@ static const char* const ident_too_long = "Identifier too long";
 				        string or after \E, $foo, etc       */
 #define LEX_INTERPCONST		 2 /* NOT USED */
 #define LEX_FORMLINE		 1 /* expecting a format line               */
-#define LEX_KNOWNEXT		 0 /* next token known; just return it      */
 
 
 #ifdef DEBUGGING
@@ -1919,10 +1917,6 @@ S_force_next(pTHX_ I32 type)
     assert(PL_nexttoke < C_ARRAY_LENGTH(PL_nexttype));
     PL_nexttype[PL_nexttoke] = type;
     PL_nexttoke++;
-    if (PL_lex_state != LEX_KNOWNEXT) {
-	PL_lex_defer = PL_lex_state;
-	PL_lex_state = LEX_KNOWNEXT;
-    }
 }
 
 /*
@@ -1938,13 +1932,13 @@ static int
 S_postderef(pTHX_ int const funny, char const next)
 {
     assert(funny == DOLSHARP || strchr("$@%&*", funny));
-    assert(strchr("*[{", next));
     if (next == '*') {
 	PL_expect = XOPERATOR;
 	if (PL_lex_state == LEX_INTERPNORMAL && !PL_lex_brackets) {
 	    assert('@' == funny || '$' == funny || DOLSHARP == funny);
 	    PL_lex_state = LEX_INTERPEND;
-	    force_next(POSTJOIN);
+	    if ('@' == funny)
+		force_next(POSTJOIN);
 	}
 	force_next(next);
 	PL_bufptr+=2;
@@ -2018,7 +2012,7 @@ S_force_word(pTHX_ char *start, int token, int check_keyword, int allow_pack)
     start = skipspace(start);
     s = start;
     if (isIDFIRST_lazy_if(s,UTF)
-        || (allow_pack && *s == ':') )
+        || (allow_pack && *s == ':' && s[1] == ':') )
     {
 	s = scan_word(s, PL_tokenbuf, sizeof PL_tokenbuf, allow_pack, &len);
 	if (check_keyword) {
@@ -2346,7 +2340,6 @@ S_sublex_push(pTHX)
     SAVEI32(PL_lex_casemods);
     SAVEI32(PL_lex_starts);
     SAVEI8(PL_lex_state);
-    SAVEI8(PL_lex_defer);
     SAVESPTR(PL_lex_repl);
     SAVEVPTR(PL_lex_inpat);
     SAVEI16(PL_lex_inwhat);
@@ -2588,11 +2581,6 @@ S_get_and_check_backslash_N_name(pTHX_ const char* s, const char* const e)
 	    if (*s == ' ' && *(s-1) == ' ') {
                 goto multi_spaces;
             }
-	    if ((U8) *s == NBSP_NATIVE && ckWARN_d(WARN_DEPRECATED)) {
-                Perl_warner(aTHX_ packWARN(WARN_DEPRECATED),
-                           "NO-BREAK SPACE in a charnames "
-                           "alias definition is deprecated");
-            }
             s++;
         }
     }
@@ -2639,14 +2627,6 @@ S_get_and_check_backslash_N_name(pTHX_ const char* s, const char* const e)
                 if (! isCHARNAME_CONT(EIGHT_BIT_UTF8_TO_NATIVE(*s, *(s+1))))
                 {
                     goto bad_charname;
-                }
-                if (*s == *NBSP_UTF8
-                    && *(s+1) == *(NBSP_UTF8+1)
-                    && ckWARN_d(WARN_DEPRECATED))
-                {
-                    Perl_warner(aTHX_ packWARN(WARN_DEPRECATED),
-                                "NO-BREAK SPACE in a charnames "
-                                "alias definition is deprecated");
                 }
                 s += 2;
             }
@@ -4418,9 +4398,9 @@ S_tokenize_use(pTHX_ int is_use, char *s) {
 	};
 #endif
 
-#define word_takes_any_delimeter(p,l) S_word_takes_any_delimeter(p,l)
+#define word_takes_any_delimiter(p,l) S_word_takes_any_delimiter(p,l)
 STATIC bool
-S_word_takes_any_delimeter(char *p, STRLEN len)
+S_word_takes_any_delimiter(char *p, STRLEN len)
 {
     return (len == 1 && strchr("msyq", p[0]))
             || (len == 2
@@ -4442,6 +4422,26 @@ S_check_scalar_slice(pTHX_ char *s)
 	pl_yylval.ival = OPpSLICEWARNING;
 }
 
+#define lex_token_boundary() S_lex_token_boundary(aTHX)
+static void
+S_lex_token_boundary(pTHX)
+{
+    PL_oldoldbufptr = PL_oldbufptr;
+    PL_oldbufptr = PL_bufptr;
+}
+
+#define vcs_conflict_marker(s) S_vcs_conflict_marker(aTHX_ s)
+static char *
+S_vcs_conflict_marker(pTHX_ char *s)
+{
+    lex_token_boundary();
+    PL_bufptr = s;
+    yyerror("Version control conflict marker");
+    while (s < PL_bufend && *s != '\n')
+	s++;
+    return s;
+}
+
 /*
   yylex
 
@@ -4453,15 +4453,15 @@ S_check_scalar_slice(pTHX_ char *s)
     The type of the next token
 
   Structure:
+      Check if we have already built the token; if so, use it.
       Switch based on the current state:
-	  - if we already built the token before, use it
 	  - if we have a case modifier in a string, deal with that
 	  - handle other cases of interpolation inside a string
 	  - scan the next line if we are inside a format
-      In the normal state switch on the next character:
+      In the normal state, switch on the next character:
 	  - default:
 	    if alphabetic, go to key lookup
-	    unrecoginized character - croak
+	    unrecognized character - croak
 	  - 0/4/26: handle end-of-line or EOF
 	  - cases for whitespace
 	  - \n and #: handle comments and line numbers
@@ -4520,10 +4520,6 @@ Perl_yylex(pTHX)
     if (PL_nexttoke) {
 	PL_nexttoke--;
 	pl_yylval = PL_nextval[PL_nexttoke];
-	if (!PL_nexttoke) {
-	    PL_lex_state = PL_lex_defer;
-	    PL_lex_defer = LEX_NORMAL;
-	}
 	{
 	    I32 next_type;
 	    next_type = PL_nexttype[PL_nexttoke];
@@ -4697,14 +4693,6 @@ Perl_yylex(pTHX)
 	/* FALLTHROUGH */
 
     case LEX_INTERPEND:
-	/* Treat state as LEX_NORMAL if we have no inner lexing scope.
-	   XXX This hack can be removed if we stop setting PL_lex_state to
-	   LEX_KNOWNEXT, as can the hack under LEX_INTREPCONCAT below.  */
-	if (UNLIKELY(!PL_lex_inwhat)) {
-	    PL_lex_state = LEX_NORMAL;
-	    break;
-	}
-
 	if (PL_lex_dojoin) {
 	    const U8 dojoin_was = PL_lex_dojoin;
 	    PL_lex_dojoin = FALSE;
@@ -4756,14 +4744,6 @@ Perl_yylex(pTHX)
 	    Perl_croak(aTHX_ "panic: INTERPCONCAT, lex_brackets=%ld",
 		       (long) PL_lex_brackets);
 #endif
-	/* Treat state as LEX_NORMAL when not in an inner lexing scope.
-	   XXX This hack can be removed if we stop setting PL_lex_state to
-	   LEX_KNOWNEXT.  */
-	if (UNLIKELY(!PL_lex_inwhat)) {
-	    PL_lex_state = LEX_NORMAL;
-	    break;
-	}
-
 	if (PL_bufptr == PL_bufend)
 	    return REPORT(sublex_done());
 
@@ -6032,6 +6012,10 @@ Perl_yylex(pTHX)
 	{
 	    const char tmp = *s++;
 	    if (tmp == '=') {
+	        if ((s == PL_linestart+2 || s[-3] == '\n') && strnEQ(s, "=====", 5)) {
+	            s = vcs_conflict_marker(s + 5);
+	            goto retry;
+	        }
 		if (!PL_lex_allbrackets
                     && PL_lex_fakeeof >= LEX_FAKEEOF_COMPARE)
                 {
@@ -6146,8 +6130,13 @@ Perl_yylex(pTHX)
 	if (PL_expect != XOPERATOR) {
 	    if (s[1] != '<' && !strchr(s,'>'))
 		check_uni();
-	    if (s[1] == '<' && s[2] != '>')
+	    if (s[1] == '<' && s[2] != '>') {
+	        if ((s == PL_linestart || s[-1] == '\n') && strnEQ(s+2, "<<<<<", 5)) {
+	            s = vcs_conflict_marker(s + 7);
+	            goto retry;
+	        }
 		s = scan_heredoc(s);
+	    }
 	    else
 		s = scan_inputsymbol(s);
 	    PL_expect = XOPERATOR;
@@ -6157,6 +6146,10 @@ Perl_yylex(pTHX)
 	{
 	    char tmp = *s++;
 	    if (tmp == '<') {
+	        if ((s == PL_linestart+2 || s[-3] == '\n') && strnEQ(s, "<<<<<", 5)) {
+                    s = vcs_conflict_marker(s + 5);
+	            goto retry;
+	        }
 		if (*s == '=' && !PL_lex_allbrackets
                     && PL_lex_fakeeof >= LEX_FAKEEOF_ASSIGN)
                 {
@@ -6197,6 +6190,10 @@ Perl_yylex(pTHX)
 	{
 	    const char tmp = *s++;
 	    if (tmp == '>') {
+	        if ((s == PL_linestart+2 || s[-3] == '\n') && strnEQ(s, ">>>>>", 5)) {
+	            s = vcs_conflict_marker(s + 5);
+	            goto retry;
+	        }
 		if (*s == '=' && !PL_lex_allbrackets
                     && PL_lex_fakeeof >= LEX_FAKEEOF_ASSIGN)
                 {
@@ -6666,7 +6663,7 @@ Perl_yylex(pTHX)
 	s = scan_word(s, PL_tokenbuf, sizeof PL_tokenbuf, FALSE, &len);
 
 	/* Some keywords can be followed by any delimiter, including ':' */
-	anydelim = word_takes_any_delimeter(PL_tokenbuf, len);
+	anydelim = word_takes_any_delimiter(PL_tokenbuf, len);
 
 	/* x::* is just a word, unless x is "CORE" */
 	if (!anydelim && *s == ':' && s[1] == ':') {
@@ -7749,7 +7746,6 @@ Perl_yylex(pTHX)
 	    UNI(OP_LCFIRST);
 
 	case KEY_local:
-	    pl_yylval.ival = 0;
 	    OPERATOR(LOCAL);
 
 	case KEY_length:
@@ -7809,6 +7805,7 @@ Perl_yylex(pTHX)
 	case KEY_my:
 	case KEY_state:
 	    if (PL_in_my) {
+	        PL_bufptr = s;
 	        yyerror(Perl_form(aTHX_
 	                          "Can't redeclare \"%s\" in \"%s\"",
 	                           tmp      == KEY_my    ? "my" :
@@ -7821,17 +7818,7 @@ Perl_yylex(pTHX)
 	    if (isIDFIRST_lazy_if(s,UTF)) {
 		s = scan_word(s, PL_tokenbuf, sizeof PL_tokenbuf, TRUE, &len);
 		if (len == 3 && strnEQ(PL_tokenbuf, "sub", 3))
-		{
-		    if (!FEATURE_LEXSUBS_IS_ENABLED)
-			Perl_croak(aTHX_
-				  "Experimental \"%s\" subs not enabled",
-				   tmp == KEY_my    ? "my"    :
-				   tmp == KEY_state ? "state" : "our");
-		    Perl_ck_warner_d(aTHX_
-			packWARN(WARN_EXPERIMENTAL__LEXICAL_SUBS),
-			"The lexical_subs feature is experimental");
 		    goto really_sub;
-		}
 		PL_in_my_stash = find_in_my_stash(PL_tokenbuf, len);
 		if (!PL_in_my_stash) {
 		    char tmpbuf[1024];
@@ -7842,7 +7829,6 @@ Perl_yylex(pTHX)
 		    yyerror_pv(tmpbuf, UTF ? SVf_UTF8 : 0);
 		}
 	    }
-	    pl_yylval.ival = 1;
 	    OPERATOR(MY);
 
 	case KEY_next:
@@ -8904,26 +8890,17 @@ S_scan_word(pTHX_ char *s, char *dest, STRLEN destlen, int allow_package, STRLEN
  *          2) '{'
  *     The final case currently doesn't get this far in the program, so we
  *     don't test for it.  If that were to change, it would be ok to allow it.
- *  c) When not under Unicode rules, any upper Latin1 character
- *  d) Otherwise, when unicode rules are used, all XIDS characters.
+ *  b) When not under Unicode rules, any upper Latin1 character
+ *  c) Otherwise, when unicode rules are used, all XIDS characters.
  *
  *      Because all ASCII characters have the same representation whether
  *      encoded in UTF-8 or not, we can use the foo_A macros below and '\0' and
- *      '{' without knowing if is UTF-8 or not.
- * EBCDIC already uses the rules that ASCII platforms will use after the
- * deprecation cycle; see comment below about the deprecation. */
-#ifdef EBCDIC
-#   define VALID_LEN_ONE_IDENT(s, is_utf8)                                    \
+ *      '{' without knowing if is UTF-8 or not. */
+#define VALID_LEN_ONE_IDENT(s, is_utf8)                                       \
     (isGRAPH_A(*(s)) || ((is_utf8)                                            \
                          ? isIDFIRST_utf8((U8*) (s))                          \
                          : (isGRAPH_L1(*s)                                    \
                             && LIKELY((U8) *(s) != LATIN1_TO_NATIVE(0xAD)))))
-#else
-#   define VALID_LEN_ONE_IDENT(s, is_utf8)                                    \
-    (isGRAPH_A(*(s)) || ((is_utf8)                                            \
-                         ? isIDFIRST_utf8((U8*) (s))                          \
-                         : ! isASCII_utf8((U8*) (s))))
-#endif
 
 STATIC char *
 S_scan_ident(pTHX_ char *s, char *dest, STRLEN destlen, I32 ck_uni)
@@ -8988,18 +8965,6 @@ S_scan_ident(pTHX_ char *s, char *dest, STRLEN destlen, I32 ck_uni)
                           : 1)
         && VALID_LEN_ONE_IDENT(s, is_utf8))
     {
-        /* Deprecate all non-graphic characters.  Include SHY as a non-graphic,
-         * because often it has no graphic representation.  (We can't get to
-         * here with SHY when 'is_utf8' is true, so no need to include a UTF-8
-         * test for it.) */
-        if ((is_utf8)
-            ? ! isGRAPH_utf8( (U8*) s)
-            : (! isGRAPH_L1( (U8) *s)
-               || UNLIKELY((U8) *(s) == LATIN1_TO_NATIVE(0xAD))))
-        {
-            deprecate("literal non-graphic characters in variable names");
-        }
-
         if (is_utf8) {
             const STRLEN skip = UTF8SKIP(s);
             STRLEN i;
@@ -9282,7 +9247,9 @@ S_scan_pat(pTHX_ char *start, I32 type)
 		       "Use of /c modifier is meaningless without /g" );
     }
 
-    STD_PMMOD_FLAGS_PARSE_X_WARN(x_mod_count);
+    if (UNLIKELY((x_mod_count) > 1)) {
+        yyerror("Only one /x regex modifier is allowed");
+    }
 
     PL_lex_op = (OP*)pm;
     pl_yylval.ival = OP_MATCH;
@@ -9337,7 +9304,9 @@ S_scan_subst(pTHX_ char *start)
 	}
     }
 
-    STD_PMMOD_FLAGS_PARSE_X_WARN(x_mod_count);
+    if (UNLIKELY((x_mod_count) > 1)) {
+        yyerror("Only one /x regex modifier is allowed");
+    }
 
     if ((pm->op_pmflags & PMf_CONTINUE)) {
         Perl_ck_warner(aTHX_ packWARN(WARN_REGEXP), "Use of /c modifier is meaningless in s///" );
@@ -11094,8 +11063,7 @@ Perl_yyerror_pvn(pTHX_ const char *const s, STRLEN len, U32 flags)
     else if (yychar > 255)
 	sv_catpvs(where_sv, "next token ???");
     else if (yychar == YYEMPTY) {
-	if (    PL_lex_state == LEX_NORMAL
-            || (PL_lex_state == LEX_KNOWNEXT && PL_lex_defer == LEX_NORMAL))
+	if (PL_lex_state == LEX_NORMAL)
 	    sv_catpvs(where_sv, "at end of line");
 	else if (PL_lex_inpat)
 	    sv_catpvs(where_sv, "within pattern");
@@ -11764,7 +11732,7 @@ Perl_parse_label(pTHX_ U32 flags)
 {
     if (flags & ~PARSE_OPTIONAL)
 	Perl_croak(aTHX_ "Parsing code internal error (%s)", "parse_label");
-    if (PL_lex_state == LEX_KNOWNEXT) {
+    if (PL_nexttoke) {
 	PL_parser->yychar = yylex();
 	if (PL_parser->yychar == LABEL) {
 	    char * const lpv = pl_yylval.pval;
@@ -11783,7 +11751,7 @@ Perl_parse_label(pTHX_ U32 flags)
         if (!isIDFIRST_lazy_if(s, UTF))
 	    goto no_label;
 	t = scan_word(s, PL_tokenbuf, sizeof PL_tokenbuf, FALSE, &wlen);
-	if (word_takes_any_delimeter(s, wlen))
+	if (word_takes_any_delimiter(s, wlen))
 	    goto no_label;
 	bufptr_pos = s - SvPVX(PL_linestr);
 	PL_bufptr = t;
@@ -11885,14 +11853,6 @@ Perl_parse_stmtseq(pTHX_ U32 flags)
     if (c != -1 && c != /*{*/'}')
 	qerror(Perl_mess(aTHX_ "Parse error"));
     return stmtseqop;
-}
-
-#define lex_token_boundary() S_lex_token_boundary(aTHX)
-static void
-S_lex_token_boundary(pTHX)
-{
-    PL_oldoldbufptr = PL_oldbufptr;
-    PL_oldbufptr = PL_bufptr;
 }
 
 #define parse_opt_lexvar() S_parse_opt_lexvar(aTHX)
