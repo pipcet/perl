@@ -522,7 +522,7 @@ miniperl_objs = $(miniperl_objs_nodt) $(DTRACE_MINI_O)
 perllib_objs  = $(perllib_objs_nodt) $(DTRACE_PERLLIB_O)
 perlmain_objs = perlmain$(OBJ_EXT) $(DTRACE_MAIN_O)
 
-perltoc_pod_prereqs = extra.pods pod/perl5252delta.pod pod/perlapi.pod pod/perlintern.pod pod/perlmodlib.pod pod/perluniprops.pod
+perltoc_pod_prereqs = extra.pods pod/perl5253delta.pod pod/perlapi.pod pod/perlintern.pod pod/perlmodlib.pod pod/perluniprops.pod
 generated_pods = pod/perltoc.pod $(perltoc_pod_prereqs)
 generated_headers = uudmap.h bitcount.h mg_data.h
 
@@ -635,7 +635,7 @@ esac
 
 $spitshell >>$Makefile <<!GROK!THIS!
 utils/Makefile: \$(MINIPERL_EXE) \$(CONFIGPM) utils/Makefile.PL
-	\$(MINIPERL) -Ilib utils/Makefile.PL
+	\$(MINIPERL) utils/Makefile.PL
 
 utilities:	utils/Makefile $util_deps
 	@echo " "; echo "	Making utilities"; cd utils; \$(LDLIBPTH) \$(MAKE) all
@@ -731,7 +731,7 @@ case "$osname" in
 amigaos*)
 $spitshell >>$Makefile <<'!NO!SUBS!'
 perlmain.c: $(MINIPERL_EXE) ext/ExtUtils-Miniperl/pm_to_blib
-	$(MINIPERL) -Ilib -MExtUtils::Miniperl -e 'writemain(\\"perlmain.c", @ARGV)' DynaLoader $(static_ext)
+	$(MINIPERL) -MExtUtils::Miniperl -e 'writemain(\\"perlmain.c", @ARGV)' DynaLoader $(static_ext)
 
 # The file ext.libs is a list of libraries that must be linked in
 # for static extensions, e.g. -lm -lgdbm, etc.  The individual
@@ -744,7 +744,7 @@ ext.libs: $(static_ext)
 *)
 $spitshell >>$Makefile <<'!NO!SUBS!'
 perlmain.c: $(MINIPERL_EXE) ext/ExtUtils-Miniperl/pm_to_blib
-	$(MINIPERL) -Ilib -MExtUtils::Miniperl -e 'writemain(\"perlmain.c", @ARGV)' DynaLoader $(static_ext)
+	$(MINIPERL) -MExtUtils::Miniperl -e 'writemain(\"perlmain.c", @ARGV)' DynaLoader $(static_ext)
 
 # The file ext.libs is a list of libraries that must be linked in
 # for static extensions, e.g. -lm -lgdbm, etc.  The individual
@@ -1085,9 +1085,9 @@ pod/perlintern.pod: $(MINIPERL_EXE) autodoc.pl embed.fnc
 pod/perlmodlib.pod: $(MINIPERL_EXE) pod/perlmodlib.PL MANIFEST
 	$(MINIPERL) pod/perlmodlib.PL -q
 
-pod/perl5252delta.pod: pod/perldelta.pod
-	$(RMS) pod/perl5252delta.pod
-	$(LNS) perldelta.pod pod/perl5252delta.pod
+pod/perl5253delta.pod: pod/perldelta.pod
+	$(RMS) pod/perl5253delta.pod
+	$(LNS) perldelta.pod pod/perl5253delta.pod
 
 extra.pods: $(MINIPERL_EXE)
 	-@test ! -f extra.pods || rm -f `cat extra.pods`

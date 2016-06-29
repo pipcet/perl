@@ -142,11 +142,11 @@ You may need to set up a foreign symbol for the unpacking utility of
 choice.  Once you have done so, use a command like the following to
 unpack the archive:
 
-    vmstar -xvf perl-5^.25^.2.tar
+    vmstar -xvf perl-5^.25^.3.tar
 
 Then set default to the top-level source directory like so:
 
-    set default [.perl-5^.25^.2]
+    set default [.perl-5^.25^.3]
 
 and proceed with configuration as described in the next section.
 
@@ -246,7 +246,7 @@ the build.
 Once you issue your MMS or MMK command, sit back and wait.  Perl should 
 compile and link without a problem.  If a problem does occur check the 
 "CAVEATS" section of this document.  If that does not help send some 
-mail to the VMSPERL mailing list.  Instructions are in the L<"Mailing Lists"> 
+mail to the VMSPERL mailing list.  Instructions are in the L</"Mailing Lists"> 
 section of this document.
 
 =head1 Testing Perl

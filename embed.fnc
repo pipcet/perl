@@ -2350,7 +2350,7 @@ Es	|void	|regcppop	|NN regexp *rex\
 ERsn	|U8*	|reghop3	|NN U8 *s|SSize_t off|NN const U8 *lim
 ERsn	|U8*	|reghop4	|NN U8 *s|SSize_t off|NN const U8 *llim \
 				|NN const U8 *rlim
-ERsn	|U8*	|reghopmaybe3	|NN U8 *s|SSize_t off|NN const U8 *lim
+ERsn	|U8*	|reghopmaybe3	|NN U8 *s|SSize_t off|NN const U8 * const lim
 ERs	|char*	|find_byclass	|NN regexp * prog|NN const regnode *c \
 				|NN char *s|NN const char *strend \
 				|NULLOK regmatch_info *reginfo
@@ -2358,7 +2358,14 @@ Es	|void	|to_utf8_substr	|NN regexp * prog
 Es	|bool	|to_byte_substr	|NN regexp * prog
 ERsn	|I32	|reg_check_named_buff_matched	|NN const regexp *rex \
 						|NN const regnode *scan
-EinR	|bool	|isGCB		|const GCB_enum before|const GCB_enum after
+EsR	|bool	|isGCB		|const GCB_enum before			\
+				|const GCB_enum after			\
+				|NN const U8 * const strbeg		\
+				|NN const U8 * const curpos		\
+				|const bool utf8_target
+EsR	|GCB_enum|backup_one_GCB|NN const U8 * const strbeg			\
+				|NN U8 ** curpos				\
+				|const bool utf8_target
 EsR	|bool	|isLB		|LB_enum before				\
 				|LB_enum after				\
 				|NN const U8 * const strbeg		\
@@ -2433,7 +2440,7 @@ poM	|void	|sv_kill_backrefs	|NN SV *const sv|NULLOK AV *const av
 #if defined(PERL_IN_SV_C) || defined (PERL_IN_OP_C)
 pR	|SV *	|varname	|NULLOK const GV *const gv|const char gvtype \
 				|PADOFFSET targ|NULLOK const SV *const keyname \
-				|I32 aindex|int subscript_type
+				|SSize_t aindex|int subscript_type
 #endif
 
 pX	|void	|sv_del_backref	|NN SV *const tsv|NN SV *const sv
@@ -2541,7 +2548,7 @@ s	|int	|deprecate_commaless_var_list
 s	|int	|ao		|int toketype
 s  |void|parse_ident|NN char **s|NN char **d \
                      |NN char * const e|int allow_package \
-                     |bool is_utf8
+				|bool is_utf8|bool check_dollar
 #  if defined(PERL_CR_FILTER)
 s	|I32	|cr_textfilter	|int idx|NULLOK SV *sv|int maxlen
 s	|void	|strip_return	|NN SV *sv
@@ -2767,6 +2774,7 @@ Apod	|void	|hv_assert	|NN HV *hv
 #endif
 
 ApdR	|SV*	|hv_scalar	|NN HV *hv
+ApdRMD	|SV*	|hv_bucket_ratio|NN HV *hv
 ApoR	|I32*	|hv_riter_p	|NN HV *hv
 ApoR	|HE**	|hv_eiter_p	|NN HV *hv
 Apo	|void	|hv_riter_set	|NN HV *hv|I32 riter
@@ -2793,7 +2801,7 @@ p	|SV*	|magic_scalarpack|NN HV *hv|NN MAGIC *mg
 #if defined(PERL_IN_SV_C)
 s	|SV *	|find_hash_subscript|NULLOK const HV *const hv \
 		|NN const SV *const val
-s	|I32	|find_array_subscript|NULLOK const AV *const av \
+s	|SSize_t|find_array_subscript|NULLOK const AV *const av \
 		|NN const SV *const val
 sMd	|SV*	|find_uninit_var|NULLOK const OP *const obase \
 		|NULLOK const SV *const uninit_sv|bool match \

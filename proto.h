@@ -1117,6 +1117,12 @@ PERL_CALLCONV void	Perl_gv_try_downgrade(pTHX_ GV* gv);
 PERL_CALLCONV AV**	Perl_hv_backreferences_p(pTHX_ HV *hv);
 #define PERL_ARGS_ASSERT_HV_BACKREFERENCES_P	\
 	assert(hv)
+PERL_CALLCONV SV*	Perl_hv_bucket_ratio(pTHX_ HV *hv)
+			__attribute__deprecated__
+			__attribute__warn_unused_result__;
+#define PERL_ARGS_ASSERT_HV_BUCKET_RATIO	\
+	assert(hv)
+
 PERL_CALLCONV void	Perl_hv_clear(pTHX_ HV *hv);
 PERL_CALLCONV void	Perl_hv_clear_placeholders(pTHX_ HV *hv);
 #define PERL_ARGS_ASSERT_HV_CLEAR_PLACEHOLDERS	\
@@ -5219,6 +5225,11 @@ STATIC WB_enum	S_advance_one_WB(pTHX_ U8 ** curpos, const U8 * const strend, con
 #define PERL_ARGS_ASSERT_ADVANCE_ONE_WB	\
 	assert(curpos); assert(strend)
 
+STATIC GCB_enum	S_backup_one_GCB(pTHX_ const U8 * const strbeg, U8 ** curpos, const bool utf8_target)
+			__attribute__warn_unused_result__;
+#define PERL_ARGS_ASSERT_BACKUP_ONE_GCB	\
+	assert(strbeg); assert(curpos)
+
 STATIC LB_enum	S_backup_one_LB(pTHX_ const U8 * const strbeg, U8 ** curpos, const bool utf8_target)
 			__attribute__warn_unused_result__;
 #define PERL_ARGS_ASSERT_BACKUP_ONE_LB	\
@@ -5247,8 +5258,10 @@ STATIC bool	S_isFOO_utf8_lc(pTHX_ const U8 classnum, const U8* character)
 #define PERL_ARGS_ASSERT_ISFOO_UTF8_LC	\
 	assert(character)
 
-PERL_STATIC_INLINE bool	S_isGCB(const GCB_enum before, const GCB_enum after)
+STATIC bool	S_isGCB(pTHX_ const GCB_enum before, const GCB_enum after, const U8 * const strbeg, const U8 * const curpos, const bool utf8_target)
 			__attribute__warn_unused_result__;
+#define PERL_ARGS_ASSERT_ISGCB	\
+	assert(strbeg); assert(curpos)
 
 STATIC bool	S_isLB(pTHX_ LB_enum before, LB_enum after, const U8 * const strbeg, const U8 * const curpos, const U8 * const strend, const bool utf8_target)
 			__attribute__warn_unused_result__;
@@ -5286,7 +5299,7 @@ STATIC U8*	S_reghop4(U8 *s, SSize_t off, const U8 *llim, const U8 *rlim)
 #define PERL_ARGS_ASSERT_REGHOP4	\
 	assert(s); assert(llim); assert(rlim)
 
-STATIC U8*	S_reghopmaybe3(U8 *s, SSize_t off, const U8 *lim)
+STATIC U8*	S_reghopmaybe3(U8 *s, SSize_t off, const U8 * const lim)
 			__attribute__warn_unused_result__;
 #define PERL_ARGS_ASSERT_REGHOPMAYBE3	\
 	assert(s); assert(lim)
@@ -5342,7 +5355,7 @@ STATIC I32	S_expect_number(pTHX_ char **const pattern)
 #define PERL_ARGS_ASSERT_EXPECT_NUMBER	\
 	assert(pattern)
 
-STATIC I32	S_find_array_subscript(pTHX_ const AV *const av, const SV *const val);
+STATIC SSize_t	S_find_array_subscript(pTHX_ const AV *const av, const SV *const val);
 #define PERL_ARGS_ASSERT_FIND_ARRAY_SUBSCRIPT	\
 	assert(val)
 STATIC SV *	S_find_hash_subscript(pTHX_ const HV *const hv, const SV *const val);
@@ -5422,7 +5435,7 @@ STATIC void	S_unreferenced_to_tmp_stack(pTHX_ AV *const unreferenced);
 #  endif
 #endif
 #if defined(PERL_IN_SV_C) || defined (PERL_IN_OP_C)
-PERL_CALLCONV SV *	Perl_varname(pTHX_ const GV *const gv, const char gvtype, PADOFFSET targ, const SV *const keyname, I32 aindex, int subscript_type)
+PERL_CALLCONV SV *	Perl_varname(pTHX_ const GV *const gv, const char gvtype, PADOFFSET targ, const SV *const keyname, SSize_t aindex, int subscript_type)
 			__attribute__warn_unused_result__;
 
 #endif
@@ -5483,7 +5496,7 @@ STATIC SV*	S_new_constant(pTHX_ const char *s, STRLEN len, const char *key, STRL
 STATIC void	S_no_op(pTHX_ const char *const what, char *s);
 #define PERL_ARGS_ASSERT_NO_OP	\
 	assert(what)
-STATIC void	S_parse_ident(pTHX_ char **s, char **d, char * const e, int allow_package, bool is_utf8);
+STATIC void	S_parse_ident(pTHX_ char **s, char **d, char * const e, int allow_package, bool is_utf8, bool check_dollar);
 #define PERL_ARGS_ASSERT_PARSE_IDENT	\
 	assert(s); assert(d); assert(e)
 STATIC int	S_pending_ident(pTHX);

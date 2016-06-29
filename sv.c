@@ -13860,7 +13860,6 @@ S_sv_dup_common(pTHX_ const SV *const sstr, CLONE_PARAMS *const param)
 			}
 			daux->xhv_name_count = saux->xhv_name_count;
 
-			daux->xhv_fill_lazy = saux->xhv_fill_lazy;
 			daux->xhv_aux_flags = saux->xhv_aux_flags;
 #ifdef PERL_HASH_RANDOMIZE_KEYS
 			daux->xhv_rand = saux->xhv_rand;
@@ -15613,7 +15612,7 @@ S_find_hash_subscript(pTHX_ const HV *const hv, const SV *const val)
 /* Look for an entry in the array whose value has the same SV as val;
  * If so, return the index, otherwise return -1. */
 
-STATIC I32
+STATIC SSize_t
 S_find_array_subscript(pTHX_ const AV *const av, const SV *const val)
 {
     PERL_ARGS_ASSERT_FIND_ARRAY_SUBSCRIPT;
@@ -15624,7 +15623,7 @@ S_find_array_subscript(pTHX_ const AV *const av, const SV *const val)
 
     if (val != &PL_sv_undef) {
 	SV ** const svp = AvARRAY(av);
-	I32 i;
+	SSize_t i;
 
 	for (i=AvFILLp(av); i>=0; i--)
 	    if (svp[i] == val)
@@ -15646,7 +15645,7 @@ S_find_array_subscript(pTHX_ const AV *const av, const SV *const val)
 
 SV*
 Perl_varname(pTHX_ const GV *const gv, const char gvtype, PADOFFSET targ,
-	const SV *const keyname, I32 aindex, int subscript_type)
+	const SV *const keyname, SSize_t aindex, int subscript_type)
 {
 
     SV * const name = sv_newmortal();
@@ -15683,9 +15682,12 @@ Perl_varname(pTHX_ const GV *const gv, const char gvtype, PADOFFSET targ,
 
     if (subscript_type == FUV_SUBSCRIPT_HASH) {
 	SV * const sv = newSV(0);
+        STRLEN len;
+        const char * const pv = SvPV_nomg_const((SV*)keyname, len);
+
 	*SvPVX(name) = '$';
 	Perl_sv_catpvf(aTHX_ name, "{%s}",
-	    pv_pretty(sv, SvPVX_const(keyname), SvCUR(keyname), 32, NULL, NULL,
+	    pv_pretty(sv, pv, len, 32, NULL, NULL,
 		    PERL_PV_PRETTY_DUMP | PERL_PV_ESCAPE_UNI_DETECT ));
 	SvREFCNT_dec_NN(sv);
     }
@@ -15756,7 +15758,7 @@ S_find_uninit_var(pTHX_ const OP *const obase, const SV *const uninit_sv,
                             || (obase->op_type == OP_PADRANGE
                                 && SvTYPE(PAD_SVl(obase->op_targ)) == SVt_PVHV)
                           );
-	I32 index = 0;
+	SSize_t index = 0;
 	SV *keysv = NULL;
 	int subscript_type = FUV_SUBSCRIPT_WITHIN;
 
@@ -15942,7 +15944,7 @@ S_find_uninit_var(pTHX_ const OP *const obase, const SV *const uninit_sv,
 						keysv, 0, FUV_SUBSCRIPT_HASH);
 	    }
 	    else {
-		const I32 index
+		const SSize_t index
 		    = find_array_subscript((const AV *)sv, uninit_sv);
 		if (index >= 0)
 		    return varname(gv, '@', o->op_targ,
@@ -16138,7 +16140,7 @@ S_find_uninit_var(pTHX_ const OP *const obase, const SV *const uninit_sv,
 						keysv, 0, FUV_SUBSCRIPT_HASH);
 	    }
 	    else {
-		const I32 index
+		const SSize_t index
 		    = find_array_subscript((const AV *)sv, uninit_sv);
 		if (index >= 0)
 		    return varname(agg_gv, '@', agg_targ,
