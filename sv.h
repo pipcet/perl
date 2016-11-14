@@ -160,9 +160,7 @@ typedef enum {
 #define SVt_MASK 0xf	/* smallest bitmask that covers all types */
 
 #ifndef PERL_CORE
-/* Although Fast Boyer Moore tables are now being stored in PVGVs, for most
-   purposes external code wanting to consider PVBM probably needs to think of
-   PVMG instead.  */
+/* Fast Boyer Moore tables are now stored in magic attached to PVMGs */
 #  define SVt_PVBM	SVt_PVMG
 /* Anything wanting to create a reference from clean should ensure that it has
    a scalar of type SVt_IV now:  */
@@ -269,7 +267,8 @@ struct p5rx {
 =head1 SV Manipulation Functions
 
 =for apidoc Am|U32|SvREFCNT|SV* sv
-Returns the value of the object's reference count.
+Returns the value of the object's reference count. Exposed
+to perl code via Internals::SvREFCNT().
 
 =for apidoc Am|SV*|SvREFCNT_inc|SV* sv
 Increments the reference count of the given SV, returning the SV.
@@ -368,8 +367,7 @@ perform the upgrade if necessary.  See C<L</svtype>>.
 #define SVp_IOK		0x00001000  /* has valid non-public integer value */
 #define SVp_NOK		0x00002000  /* has valid non-public numeric value */
 #define SVp_POK		0x00004000  /* has valid non-public pointer value */
-#define SVp_SCREAM	0x00008000  /* method name is DOES */
-                                    /* eval cx text is ref counted */
+#define SVp_SCREAM	0x00008000  /* currently unused on plain scalars */
 #define SVphv_CLONEABLE	SVp_SCREAM  /* PVHV (stashes) clone its objects */
 #define SVpgv_GP	SVp_SCREAM  /* GV has a valid GP */
 #define SVprv_PCS_IMPORTED  SVp_SCREAM  /* RV is a proxy for a constant
@@ -415,7 +413,12 @@ perform the upgrade if necessary.  See C<L</svtype>>.
 
 #define PRIVSHIFT 4	/* (SVp_?OK >> PRIVSHIFT) == SVf_?OK */
 
-/* Note that SVf_AMAGIC is now only set on stashes.  */
+/* SVf_AMAGIC means that the stash *may* have have overload methods. It's
+ * set each time a function is compiled into a stash, and is reset by the
+ * overload code when called for the first time and finds that there are
+ * no overload methods. Note that this used to be set on the object; but
+ * is now only set on stashes.
+ */
 #define SVf_AMAGIC	0x10000000  /* has magical overloaded methods */
 #define SVf_IsCOW	0x10000000  /* copy on write (shared hash key if
 				       SvLEN == 0) */
@@ -437,28 +440,10 @@ perform the upgrade if necessary.  See C<L</svtype>>.
 /* Some private flags. */
 
 
-/* The SVp_SCREAM|SVpbm_VALID (0x40008000) combination is up for grabs.
-   Formerly it was used for pad names, but now it is available.  The core
-   is careful to avoid setting both flags.
-
-   SVf_POK, SVp_POK also set:
-   0x00004400   Normal
-   0x0000C400   method name for DOES (SvSCREAM)
-   0x40004400   FBM compiled (SvVALID)
-   0x4000C400   *** Formerly used for pad names ***
-
-   0x00008000   GV with GP
-   0x00008800   RV with PCS imported
-*/
 /* PVAV */
 #define SVpav_REAL	0x40000000  /* free old entries */
 /* PVHV */
 #define SVphv_LAZYDEL	0x40000000  /* entry in xhv_eiter must be deleted */
-/* This is only set true on a PVGV when it's playing "PVBM", but is tested for
-   on any regular scalar (anything <= PVLV) */
-#define SVpbm_VALID	0x40000000
-/* Only used in toke.c on an SV stored in PL_lex_repl */
-#define SVrepl_EVAL	0x40000000  /* Replacement part of s///e */
 
 /* IV, PVIV, PVNV, PVMG, PVGV and (I assume) PVLV  */
 #define SVf_IVisUV	0x80000000  /* use XPVUV instead of XPVIV */
@@ -466,8 +451,6 @@ perform the upgrade if necessary.  See C<L</svtype>>.
 #define SVpav_REIFY 	0x80000000  /* can become real */
 /* PVHV */
 #define SVphv_HASKFLAGS	0x80000000  /* keys have flag byte after hash */
-/* PVGV when SVpbm_VALID is true */
-#define SVpbm_TAIL	0x80000000  /* string has a fake "\n" appended */
 /* RV upwards. However, SVf_ROK and SVp_IOK are exclusive  */
 #define SVprv_WEAKREF   0x80000000  /* Weak reference */
 /* pad name vars only */
@@ -486,16 +469,16 @@ perform the upgrade if necessary.  See C<L</svtype>>.
 union _xnvu {
     NV	    xnv_nv;		/* numeric value, if any */
     HV *    xgv_stash;
-    struct {
-	U32 xlow;
-	U32 xhigh;
-    }	    xpad_cop_seq;	/* used by pad.c for cop_sequence */
+    line_t  xnv_lines;           /* used internally by S_scan_subst() */
+    bool    xnv_bm_tail;        /* an SvVALID (BM) SV has an implicit "\n" */
 };
 
 union _xivu {
     IV	    xivu_iv;		/* integer value */
     UV	    xivu_uv;
     HEK *   xivu_namehek;	/* xpvlv, xpvgv: GvNAME */
+    bool    xivu_eval_seen;     /* used internally by S_scan_subst() */
+
 };
 
 union _xmgu {
@@ -563,8 +546,8 @@ struct xpvinvlist {
                                    the list, merely toggle this flag  */
 };
 
-/* This structure works in 3 ways - regular scalar, GV with GP, or fast
-   Boyer-Moore.  */
+/* This structure works in 2 ways - regular scalar, or GV with GP */
+
 struct xpvgv {
     _XPV_HEAD;
     union _xivu xiv_u;
@@ -617,7 +600,7 @@ struct xpvio {
      * Perl_filter_add() tries to do with the dirp), hence the
      *  following union trick (as suggested by Gurusamy Sarathy).
      * For further information see Geir Johansen's problem report
-     * titled [ID 20000612.002] Perl problem on Cray system
+     * titled [ID 20000612.002 (#3366)] Perl problem on Cray system
      * The any pointer (known as IoANY()) will also be a good place
      * to hang any IO disciplines to.
      */
@@ -1089,6 +1072,22 @@ C<sv_force_normal> does nothing.
 #define SvOBJECT_on(sv)		(SvFLAGS(sv) |= SVs_OBJECT)
 #define SvOBJECT_off(sv)	(SvFLAGS(sv) &= ~SVs_OBJECT)
 
+/*
+=for apidoc Am|U32|SvREADONLY|SV* sv
+Returns true if the argument is readonly, otherwise returns false.
+Exposed to to perl code via Internals::SvREADONLY().
+
+=for apidoc Am|U32|SvREADONLY_on|SV* sv
+Mark an object as readonly. Exactly what this means depends on the object
+type. Exposed to perl code via Internals::SvREADONLY().
+
+=for apidoc Am|U32|SvREADONLY_off|SV* sv
+Mark an object as not-readonly. Exactly what this mean depends on the
+object type. Exposed to perl code via Internals::SvREADONLY().
+
+=cut
+*/
+
 #define SvREADONLY(sv)		(SvFLAGS(sv) & (SVf_READONLY|SVf_PROTECT))
 #ifdef PERL_CORE
 # define SvREADONLY_on(sv)	(SvFLAGS(sv) |= (SVf_READONLY|SVf_PROTECT))
@@ -1108,44 +1107,28 @@ C<sv_force_normal> does nothing.
 #  define SvCOMPILED_off(sv)
 #endif
 
-#define SvEVALED(sv)		(SvFLAGS(sv) & SVrepl_EVAL)
-#define SvEVALED_on(sv)		(SvFLAGS(sv) |= SVrepl_EVAL)
-#define SvEVALED_off(sv)	(SvFLAGS(sv) &= ~SVrepl_EVAL)
 
 #if defined (DEBUGGING) && defined(__GNUC__) && !defined(PERL_GCC_BRACE_GROUPS_FORBIDDEN)
-#  define SvVALID(sv)		({ const SV *const _svvalid = (const SV*)(sv); \
-				   if (SvFLAGS(_svvalid) & SVpbm_VALID && !SvSCREAM(_svvalid)) \
-				       assert(!isGV_with_GP(_svvalid));	\
-				   (SvFLAGS(_svvalid) & SVpbm_VALID);	\
-				})
-#  define SvVALID_on(sv)	({ SV *const _svvalid = MUTABLE_SV(sv);	\
-				   assert(!isGV_with_GP(_svvalid));	\
-				   assert(!SvSCREAM(_svvalid));		\
-				   (SvFLAGS(_svvalid) |= SVpbm_VALID);	\
-				})
-#  define SvVALID_off(sv)	({ SV *const _svvalid = MUTABLE_SV(sv);	\
-				   assert(!isGV_with_GP(_svvalid));	\
-				   assert(!SvSCREAM(_svvalid));		\
-				   (SvFLAGS(_svvalid) &= ~SVpbm_VALID);	\
-				})
-
 #  define SvTAIL(sv)	({ const SV *const _svtail = (const SV *)(sv);	\
 			    assert(SvTYPE(_svtail) != SVt_PVAV);	\
 			    assert(SvTYPE(_svtail) != SVt_PVHV);	\
-			    assert(!SvSCREAM(_svtail));			\
-			    (SvFLAGS(sv) & (SVpbm_TAIL|SVpbm_VALID))	\
-				== (SVpbm_TAIL|SVpbm_VALID);		\
+			    assert(!(SvFLAGS(_svtail) & (SVf_NOK|SVp_NOK))); \
+			    assert(SvVALID(_svtail));                        \
+                            ((XPVNV*)SvANY(_svtail))->xnv_u.xnv_bm_tail;     \
 			})
 #else
-#  define SvVALID(sv)		((SvFLAGS(sv) & SVpbm_VALID) && !SvSCREAM(sv))
-#  define SvVALID_on(sv)	(SvFLAGS(sv) |= SVpbm_VALID)
-#  define SvVALID_off(sv)	(SvFLAGS(sv) &= ~SVpbm_VALID)
-#  define SvTAIL(sv)	    ((SvFLAGS(sv) & (SVpbm_TAIL|SVpbm_VALID))	\
-			     == (SVpbm_TAIL|SVpbm_VALID))
-
+#  define SvTAIL(_svtail)  (((XPVNV*)SvANY(_svtail))->xnv_u.xnv_bm_tail)
 #endif
-#define SvTAIL_on(sv)		(SvFLAGS(sv) |= SVpbm_TAIL)
-#define SvTAIL_off(sv)		(SvFLAGS(sv) &= ~SVpbm_TAIL)
+
+/* Does the SV have a Boyer-Moore table attached as magic?
+ * 'VALID' is a poor name, but is kept for historical reasons.  */
+#define SvVALID(_svvalid) (                                  \
+               SvPOKp(_svvalid)                              \
+            && SvSMAGICAL(_svvalid)                          \
+            && SvMAGIC(_svvalid)                             \
+            && (SvMAGIC(_svvalid)->mg_type == PERL_MAGIC_bm  \
+                || mg_find(_svvalid, PERL_MAGIC_bm))         \
+        )
 
 #define SvRVx(sv) SvRV(sv)
 
@@ -2021,9 +2004,14 @@ Returns a pointer to the character
 buffer.  SV must be of type >= C<SVt_PV>.  One
 alternative is to call C<sv_grow> if you are not sure of the type of SV.
 
+=for apidoc Am|char *|SvPVCLEAR|SV* sv
+Ensures that sv is a SVt_PV and that its SvCUR is 0, and that it is
+properly null terminated. Equivalent to sv_setpvs(""), but more efficient.
+
 =cut
 */
 
+#define SvPVCLEAR(sv) sv_setpv_bufsize(sv,0,0)
 #define SvSHARE(sv) PL_sharehook(aTHX_ sv)
 #define SvLOCK(sv) PL_lockhook(aTHX_ sv)
 #define SvUNLOCK(sv) PL_unlockhook(aTHX_ sv)

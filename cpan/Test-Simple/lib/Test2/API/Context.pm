@@ -2,7 +2,7 @@ package Test2::API::Context;
 use strict;
 use warnings;
 
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 
 use Carp qw/confess croak longmess/;
@@ -19,7 +19,7 @@ my %LOADED = (
         my $file = "Test2/Event/$_.pm";
         require $file unless $INC{$file};
         ( $pkg => $pkg, $_ => $pkg )
-    } qw/Ok Diag Note Plan Bail Exception Waiting Skip Subtest/
+    } qw/Ok Diag Note Info Plan Bail Exception Waiting Skip Subtest/
 );
 
 use Test2::Util::ExternalMeta qw/meta get_meta set_meta delete_meta/;
@@ -66,9 +66,13 @@ sub DESTROY {
 
     # Do not show the warning if it looks like an exception has been thrown, or
     # if the context is not local to this process or thread.
-    if($self->{+EVAL_ERROR} eq $@ && $hub->is_local) {
-        my $frame = $self->{+_IS_SPAWN} || $self->{+TRACE}->frame;
-        warn <<"        EOT";
+    {
+        # Sometimes $@ is uninitialized, not a problem in this case so do not
+        # show the warning about using eq.
+        no warnings 'uninitialized';
+        if($self->{+EVAL_ERROR} eq $@ && $hub->is_local) {
+            my $frame = $self->{+_IS_SPAWN} || $self->{+TRACE}->frame;
+            warn <<"            EOT";
 A context appears to have been destroyed without first calling release().
 Based on \$@ it does not look like an exception was thrown (this is not always
 a reliable test)
@@ -84,7 +88,8 @@ release():
   Tool: $frame->[3]
 
 Cleaning up the CONTEXT stack...
-        EOT
+            EOT
+        }
     }
 
     return if $self->{+_IS_SPAWN};
@@ -201,12 +206,13 @@ sub send_event {
 
     my $pkg = $LOADED{$event} || $self->_parse_event($event);
 
-    $self->{+HUB}->send(
-        $pkg->new(
-            trace => $self->{+TRACE}->snapshot,
-            %args,
-        )
+    my $e = $pkg->new(
+        trace => $self->{+TRACE}->snapshot,
+        %args,
     );
+
+    ${$self->{+_ABORTED}}++ if $self->{+_ABORTED} && defined $e->terminate;
+    $self->{+HUB}->send($e);
 }
 
 sub build_event {
@@ -224,7 +230,7 @@ sub build_event {
 
 sub ok {
     my $self = shift;
-    my ($pass, $name, $diag) = @_;
+    my ($pass, $name, $on_fail) = @_;
 
     my $hub = $self->{+HUB};
 
@@ -240,8 +246,15 @@ sub ok {
 
     $self->failure_diag($e);
 
-    if ($diag && @$diag) {
-        $self->diag($_) for @$diag
+    if ($on_fail && @$on_fail) {
+        for my $of (@$on_fail) {
+            if (ref($of)) {
+                $self->info($of, diagnostics => 1);
+            }
+            else {
+                $self->diag($of);
+            }
+        }
     }
 
     return $e;
@@ -286,6 +299,12 @@ sub skip {
     );
 }
 
+sub info {
+    my $self = shift;
+    my ($renderer, %params) = @_;
+    $self->send_event('Info', renderer => $renderer, %params);
+}
+
 sub note {
     my $self = shift;
     my ($message) = @_;
@@ -304,13 +323,11 @@ sub diag {
 
 sub plan {
     my ($self, $max, $directive, $reason) = @_;
-    ${$self->{+_ABORTED}}++ if $self->{+_ABORTED} && $directive && $directive =~ m/^(SKIP|skip_all)$/;
     $self->send_event('Plan', max => $max, directive => $directive, reason => $reason);
 }
 
 sub bail {
     my ($self, $reason) = @_;
-    ${$self->{+_ABORTED}}++ if $self->{+_ABORTED};
     $self->send_event('Bail', reason => $reason);
 }
 
@@ -399,7 +416,7 @@ inherit it:
 =item you MUST always use the context() sub from Test2::API
 
 Creating your own context via C<< Test2::API::Context->new() >> will almost never
-produce a desirable result. Use C<context()> which is exported by L<Test2>.
+produce a desirable result. Use C<context()> which is exported by L<Test2::API>.
 
 There are a handful of cases where a tool author may want to create a new
 context by hand, which is why the C<new> method exists. Unless you really know
@@ -537,15 +554,21 @@ The value of C<$@> when the context was created.
 
 =item $event = $ctx->ok($bool, $name)
 
-=item $event = $ctx->ok($bool, $name, \@diag)
+=item $event = $ctx->ok($bool, $name, \@on_fail)
 
 This will create an L<Test2::Event::Ok> object for you. If C<$bool> is false
 then an L<Test2::Event::Diag> event will be sent as well with details about the
 failure. If you do not want automatic diagnostics you should use the
 C<send_event()> method directly.
 
-The C<\@diag> can contain diagnostics messages you wish to have displayed in the
-event of a failure. For a passing test the diagnostics array will be ignored.
+The third argument C<\@on_fail>) is an optional set of diagnostics to be sent in
+the event of a test failure. Plain strings will be sent as
+L<Test2::Event::Diag> events. References will be used to construct
+L<Test2::Event::Info> events with C<< diagnostics => 1 >>.
+
+=item $event = $ctx->info($renderer, diagnostics => $bool, %other_params)
+
+Send an L<Test2::Event::Info>.
 
 =item $event = $ctx->note($message)
 

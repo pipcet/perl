@@ -26,8 +26,8 @@ use strict;
 
 BEGIN {
     # Get function prototypes
-    require 'regen/regen_lib.pl';
-    require 'regen/embed_lib.pl';
+    require './regen/regen_lib.pl';
+    require './regen/embed_lib.pl';
 }
 
 my $SPLINT = 0; # Turn true for experimental splint support http://www.splint.org
@@ -44,8 +44,8 @@ sub full_name ($$) { # Returns the function name with potentially the
 		     # prefixes 'S_' or 'Perl_'
     my ($func, $flags) = @_;
 
-    return "S_$func" if $flags =~ /[si]/;
     return "Perl_$func" if $flags =~ /p/;
+    return "S_$func" if $flags =~ /[si]/;
     return $func;
 }
 
@@ -75,10 +75,11 @@ my ($embed, $core, $ext, $api) = setup_embed();
 	}
 
 	my ($flags,$retval,$plain_func,@args) = @$_;
-	if ($flags =~ / ( [^AabDdEfiMmnOoPpRrsUXx] ) /x) {
+        if ($flags =~ / ( [^AabDdEfiMmnOoPpRrsUWXx] ) /x) {
 	    warn "flag $1 is not legal (for function $plain_func)";
 	}
 	my @nonnull;
+        my $has_depth = ( $flags =~ /W/ );
 	my $has_context = ( $flags !~ /n/ );
 	my $never_returns = ( $flags =~ /r/ );
 	my $binarycompat = ( $flags =~ /b/ );
@@ -92,12 +93,8 @@ my ($embed, $core, $ext, $api) = setup_embed();
 	    warn "It is nonsensical to require the return value of a void function ($plain_func) to be checked";
 	}
 
-	my $scope_type_flag_count = 0;
-	$scope_type_flag_count++ if $flags =~ /s/;
-	$scope_type_flag_count++ if $flags =~ /i/;
-	$scope_type_flag_count++ if $flags =~ /p/;
-	warn "$plain_func: i, p, and s flags are all mutually exclusive"
-						   if $scope_type_flag_count > 1;
+	warn "$plain_func: s flag is mutually exclusive from the i and p plags"
+					    if $flags =~ /s/ && $flags =~ /[ip]/;
 	my $splint_flags = "";
 	if ( $SPLINT && !$commented_out ) {
 	    $splint_flags .= '/*@noreturn@*/ ' if $never_returns;
@@ -165,6 +162,7 @@ my ($embed, $core, $ext, $api) = setup_embed();
 	else {
 	    $ret .= "void" if !$has_context;
 	}
+        $ret .= " _pDEPTH" if $has_depth;
 	$ret .= ")";
 	my @attrs;
 	if ( $flags =~ /r/ ) {
@@ -325,7 +323,15 @@ sub embed_h {
 		$ret .=  "\t" x ($t < 4 ? 4 - $t : 1);
 		$ret .= full_name($func, $flags) . "(aTHX";
 		$ret .= "_ " if $alist;
-		$ret .= $alist . ")\n";
+                $ret .= $alist;
+                if ($flags =~ /W/) {
+                    if ($alist) {
+                        $ret .= " _aDEPTH";
+                    } else {
+                        die "Can't use W without other args (currently)";
+                    }
+                }
+                $ret .= ")\n";
 	    }
 	    $ret = "#ifndef NO_MATHOMS\n$ret#endif\n" if $flags =~ /b/;
 	}
@@ -485,9 +491,11 @@ END
 
 for $sym (@globvar) {
     print $em "#ifdef OS2\n" if $sym eq 'sh_path';
+    print $em "#ifdef __VMS\n" if $sym eq 'perllib_sep';
     print $em multon($sym,   'G','my_vars->');
     print $em multon("G$sym",'', 'my_vars->');
     print $em "#endif\n" if $sym eq 'sh_path';
+    print $em "#endif\n" if $sym eq 'perllib_sep';
 }
 
 print $em <<'END';

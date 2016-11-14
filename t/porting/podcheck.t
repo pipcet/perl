@@ -422,6 +422,7 @@ my $non_pods = qr/ (?: \.
                            | $dl_ext  # dynamic libraries
                            | gif      # GIF images (example files from CGI.pm)
                            | eg       # examples from libnet
+                           | core
                        )
                        $
                     ) | ~$ | \ \(Autosaved\)\.txt$ # Other editor droppings
@@ -531,15 +532,19 @@ sub suppressed {
         last SKIP;
     }
 
-    sub note {
-        my $message = shift;
+    sub _note {
+        my ($andle, $message) = @_;
 
         chomp $message;
 
-        print $message =~ s/^/# /mgr;
-        print "\n";
+        print $andle $message =~ s/^/# /mgr;
+        print $andle "\n";
         return;
     }
+
+    sub note { unshift @_, \*STDOUT; goto &_note }
+
+    sub diag { unshift @_, \*STDERR; goto &_note }
 
     END {
         if ($planned && $planned != $current_test) {
@@ -2095,7 +2100,8 @@ foreach my $filename (@files) {
                     $diagnostic .= " " if $problem_count == 1;
                     $diagnostic .= "\n$indent$indent";
                     $diagnostic .= "$problem->{parameter}" if $problem->{parameter};
-                    $diagnostic .= " near line $problem->{-line}";
+                    $diagnostic .= " near line $problem->{-line} of "
+                                   . $filename;
                     $diagnostic .= " $problem->{comment}" if $problem->{comment};
                 }
                 $diagnostic .= "\n";
@@ -2133,7 +2139,7 @@ foreach my $filename (@files) {
         }
         ok(@diagnostics == $thankful_diagnostics, $output);
         if (@diagnostics) {
-            note(join "", @diagnostics,
+            diag(join "", @diagnostics,
             "See end of this test output for your options on silencing this");
         }
 
@@ -2165,7 +2171,7 @@ if (%files_with_unknown_issues) {
                         : "were $were_count_files files";
     my $message = <<EOF;
 
-HOW TO GET THIS .t TO PASS
+HOW TO GET ${\__FILE__} TO PASS
 
 There $were_count_files that had new potential problems identified.
 Some of them may be real, and some of them may be false positives because
@@ -2204,9 +2210,9 @@ EOF
    and change the count of known potential problems to -1.
 EOF
 
-    note($message);
+    diag($message);
 } elsif (%files_with_fixes) {
-    note(<<EOF
+    diag(<<EOF
 To teach this test script that the potential problems have been fixed,
 $how_to
 EOF

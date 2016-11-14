@@ -3,17 +3,15 @@
 BEGIN {
     chdir 't' if -d 't';
     require './test.pl';
-    @INC="../lib";
+    set_up_inc( qw(../lib) );
 }
 
 use strict;
 use warnings;
 
-plan(tests => 20);
+plan(tests => 27);
 
 my $nonfile = tempfile();
-
-@INC = qw(Perl Rules);
 
 # The tests for ' ' and '.h' never did fail, but previously the error reporting
 # code would read memory before the start of the SV's buffer
@@ -122,18 +120,28 @@ SKIP: {
 # fail and print the full filename
 eval { no warnings 'syscalls'; require "strict.pm\0invalid"; };
 like $@, qr/^Can't locate strict\.pm\\0invalid: /, 'require nul check [perl #117265]';
-eval { no warnings 'syscalls'; do "strict.pm\0invalid"; };
-like $@, qr/^Can't locate strict\.pm\\0invalid: /, 'do nul check';
 {
   my $WARN;
   local $SIG{__WARN__} = sub { $WARN = shift };
+  {
+    my $ret = do "strict.pm\0invalid";
+    my $exc = $@;
+    my $err = $!;
+    is $ret, undef, 'do nulstring returns undef';
+    is $exc, '',    'do nulstring clears $@';
+    $! = $err;
+    ok $!{ENOENT},  'do nulstring fails with ENOENT';
+    like $WARN, qr{^Invalid \\0 character in pathname for do: strict\.pm\\0invalid at }, 'do nulstring warning';
+  }
+
+  $WARN = '';
   eval { require "strict.pm\0invalid"; };
   like $WARN, qr{^Invalid \\0 character in pathname for require: strict\.pm\\0invalid at }, 'nul warning';
   like $@, qr{^Can't locate strict\.pm\\0invalid: }, 'nul error';
 
   $WARN = '';
   local @INC = @INC;
-  unshift @INC, "lib\0invalid";
+  set_up_inc( "lib\0invalid" );
   eval { require "unknown.pm" };
   like $WARN, qr{^Invalid \\0 character in \@INC entry for require: lib\\0invalid at }, 'nul warning';
 }
@@ -148,3 +156,15 @@ like $@, qr/^Can't locate \(\?\^:\\0\):/,
 eval { no strict; no warnings 'syscalls'; require *{"\0a"} };
 like $@, qr/^Can't locate \*main::\\0a:/,
     'require ref that stringifies with embedded null';
+
+eval { require undef };
+like $@, qr/^Missing or undefined argument to require /;
+
+eval { do undef };
+like $@, qr/^Missing or undefined argument to do /;
+
+eval { require "" };
+like $@, qr/^Missing or undefined argument to require /;
+
+eval { do "" };
+like $@, qr/^Missing or undefined argument to do /;

@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-$ENV{LC_ALL} = 'C';
+local $ENV{LC_ALL} = 'C';
 
 my $Quiet;
 @ARGV = grep { not($_ eq '-q' and $Quiet = 1) } @ARGV;
@@ -13,7 +13,7 @@ if (@ARGV) {
     chdir $workdir
         or die "Couldn't chdir to '$workdir': $!";
 }
-require 'regen/regen_lib.pl';
+require './regen/regen_lib.pl';
 
 # MANIFEST itself is Unix style filenames, so we have to assume that Unix style
 # filenames will work.

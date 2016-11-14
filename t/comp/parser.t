@@ -8,7 +8,7 @@ BEGIN {
     chdir 't' if -d 't';
 }
 
-print "1..185\n";
+print "1..186\n";
 
 sub failed {
     my ($got, $expected, $name) = @_;
@@ -58,11 +58,11 @@ sub is {
 eval '%@x=0;';
 like( $@, qr/^Can't modify hash dereference in repeat \(x\)/, '%@x=0' );
 
-# Bug 20010422.005
+# Bug 20010422.005 (#6874)
 eval q{{s//${}/; //}};
 like( $@, qr/syntax error/, 'syntax error, used to dump core' );
 
-# Bug 20010528.007
+# Bug 20010528.007 (#7052)
 eval q/"\x{"/;
 like( $@, qr/^Missing right brace on \\x/,
     'syntax error in string, used to dump core' );
@@ -85,7 +85,7 @@ eval "a.b.c.d.e.f;sub";
 like( $@, qr/^Illegal declaration of anonymous subroutine/,
     'found by Markov chain stress testing' );
 
-# Bug 20010831.001
+# Bug 20010831.001 (#7605)
 eval '($a, b) = (1, 2);';
 like( $@, qr/^Can't modify constant item in list assignment/,
     'bareword in list assignment' );
@@ -96,11 +96,11 @@ like( $@, qr/^Can't modify constant item in tie /,
 
 eval 'undef foo';
 like( $@, qr/^Can't modify constant item in undef operator /,
-    'undefing constant causes a segfault in 5.6.1 [ID 20010906.019]' );
+    'undefing constant causes a segfault in 5.6.1 [ID 20010906.019 (#7642)]' );
 
 eval 'read($bla, FILE, 1);';
 like( $@, qr/^Can't modify constant item in read /,
-    'read($var, FILE, 1) segfaults on 5.6.1 [ID 20011025.054]' );
+    'read($var, FILE, 1) segfaults on 5.6.1 [ID 20011025.054 (#7847)]' );
 
 # This used to dump core (bug #17920)
 eval q{ sub { sub { f1(f2();); my($a,$b,$c) } } };
@@ -540,6 +540,15 @@ eval "grep+grep";
  eval 'my $_; m// ~~ 0';
 }
 
+# Used to crash [perl #125679]
+eval 'BEGIN {$^H=-1} \eval=time';
+
+# Used to fail an assertion [perl #129073]
+{
+ local $SIG{__WARN__} = sub{};
+ eval '${p{};sub p}()';
+}
+
 # RT #124207 syntax error during stringify can leave stringify op
 # with multiple children and assertion failures
 
@@ -572,6 +581,15 @@ eval 'sub { read $fh, keys %h, 0 }';
 is $@, "", 'read into keys';
 eval 'substr keys(%h),0,=3';
 is $@, "", 'substr keys assignment';
+
+# very large utf8 char in error message was overflowing buffer
+{
+
+    no warnings;
+    eval "q" . chr(100000000064);
+    like $@, qr/Can't find string terminator "." anywhere before EOF/,
+        'RT 128952';
+}
 
 # Add new tests HERE (above this line)
 

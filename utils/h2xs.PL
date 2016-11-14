@@ -35,6 +35,8 @@ $Config{startperl}
 
 print OUT <<'!NO!SUBS!';
 
+BEGIN { pop @INC if $INC[-1] eq '.' }
+
 use warnings;
 
 =head1 NAME
@@ -1032,7 +1034,7 @@ if( ! $opt_X ){  # use XS, unless it was disabled
       }
     }
     { local $" = '|';
-      $typedef_rex = qr(\b(?<!struct )(?:@good_td)\b) if @good_td;
+      $typedef_rex = qr(\b(?<!struct )(?<!enum )(?:@good_td)\b) if @good_td;
     }
     %known_fnames = map @$_[1,3], @$fdecls_parsed; # [1,3] is NAME, FULLTEXT
     if ($fmask) {

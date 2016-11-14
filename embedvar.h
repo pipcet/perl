@@ -109,6 +109,7 @@
 #define PL_curcopdb		(vTHX->Icurcopdb)
 #define PL_curpad		(vTHX->Icurpad)
 #define PL_curpm		(vTHX->Icurpm)
+#define PL_curpm_under		(vTHX->Icurpm_under)
 #define PL_curstack		(vTHX->Icurstack)
 #define PL_curstackinfo		(vTHX->Icurstackinfo)
 #define PL_curstash		(vTHX->Icurstash)
@@ -140,7 +141,6 @@
 #define PL_e_script		(vTHX->Ie_script)
 #define PL_efloatbuf		(vTHX->Iefloatbuf)
 #define PL_efloatsize		(vTHX->Iefloatsize)
-#define PL_encoding		(vTHX->Iencoding)
 #define PL_endav		(vTHX->Iendav)
 #define PL_envgv		(vTHX->Ienvgv)
 #define PL_errgv		(vTHX->Ierrgv)
@@ -185,7 +185,6 @@
 #define PL_lastgotoprobe	(vTHX->Ilastgotoprobe)
 #define PL_laststatval		(vTHX->Ilaststatval)
 #define PL_laststype		(vTHX->Ilaststype)
-#define PL_lex_encoding		(vTHX->Ilex_encoding)
 #define PL_localizing		(vTHX->Ilocalizing)
 #define PL_localpatches		(vTHX->Ilocalpatches)
 #define PL_lockhook		(vTHX->Ilockhook)
@@ -197,7 +196,6 @@
 #define PL_markstack_max	(vTHX->Imarkstack_max)
 #define PL_markstack_ptr	(vTHX->Imarkstack_ptr)
 #define PL_max_intro_pending	(vTHX->Imax_intro_pending)
-#define PL_maxo			(vTHX->Imaxo)
 #define PL_maxsysfd		(vTHX->Imaxsysfd)
 #define PL_memory_debug_header	(vTHX->Imemory_debug_header)
 #define PL_mess_sv		(vTHX->Imess_sv)
@@ -367,6 +365,8 @@
 
 #if defined(PERL_GLOBAL_STRUCT)
 
+#define PL_C_locale_obj		(my_vars->GC_locale_obj)
+#define PL_GC_locale_obj	(my_vars->GC_locale_obj)
 #define PL_appctx		(my_vars->Gappctx)
 #define PL_Gappctx		(my_vars->Gappctx)
 #define PL_check		(my_vars->Gcheck)
@@ -415,6 +415,10 @@
 #define PL_Gperlio_fd_refcnt_size	(my_vars->Gperlio_fd_refcnt_size)
 #define PL_perlio_mutex		(my_vars->Gperlio_mutex)
 #define PL_Gperlio_mutex	(my_vars->Gperlio_mutex)
+#ifdef __VMS
+#define PL_perllib_sep		(my_vars->Gperllib_sep)
+#define PL_Gperllib_sep		(my_vars->Gperllib_sep)
+#endif
 #define PL_ppaddr		(my_vars->Gppaddr)
 #define PL_Gppaddr		(my_vars->Gppaddr)
 #ifdef OS2

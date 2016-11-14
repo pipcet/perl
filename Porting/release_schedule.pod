@@ -23,14 +23,14 @@ Code freezes (which happen in the 5.25.X series)
 =head2 Perl 5.24
 
   2016-05-09  5.24.0 ✓        Ricardo Signes
-  2016-07-??  5.24.1          ??
+  2016-07-25  5.24.1          Steve Hay
 
 =head2 Perl 5.22
 
   2015-06-01  5.22.0 ✓        Ricardo Signes
   2015-12-13  5.22.1 ✓        Steve Hay
   2016-04-29  5.22.2 ✓        Steve Hay
-  2016-??-??  5.22.3          ??
+  2016-07-25  5.22.3          Steve Hay
 
 =head1 DEVELOPMENT RELEASE SCHEDULE
 
@@ -51,13 +51,13 @@ you should reset the version numbers to the next blead series.
   2016-04-08  5.25.0 ✓        Ricardo Signes
   2016-05-20  5.25.1 ✓        Sawyer X
   2016-06-20  5.25.2 ✓        Matthew Horsfall
-  2016-07-20  5.25.3          Steve Hay
-  2016-08-20  5.25.4          BinGOs
-  2016-09-20  5.25.5          Stevan Little
-  2016-10-20  5.25.6          Sawyer X
-  2016-11-20  5.25.7          Aaron Crane
-  2016-12-20  5.25.8          ?
-  2017-01-20  5.25.9          ?
+  2016-07-20  5.25.3 ✓        Steve Hay
+  2016-08-20  5.25.4 ✓        BinGOs
+  2016-09-20  5.25.5 ✓        Stevan Little
+  2016-10-20  5.25.6 ✓        Aaron Crane
+  2016-11-20  5.25.7          Chad Granum
+  2016-12-20  5.25.8          Sawyer X
+  2017-01-20  5.25.9          Abigail
   2017-02-20  5.25.10         Renée Bäcker
 
 (RC0 for 5.26.0 will be released once we think that all the blockers have been

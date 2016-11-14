@@ -51,7 +51,6 @@ my %abs = (
 	   '../cpan/Locale-Codes' => 1,
 	   '../cpan/Module-Load' => 1,
 	   '../cpan/Module-Load-Conditional' => 1,
-	   '../cpan/Parse-CPAN-Meta' => 1,
 	   '../cpan/Pod-Simple' => 1,
 	   '../cpan/Test-Simple' => 1,
 	   '../cpan/podlators' => 1,
@@ -69,13 +68,12 @@ my %temp_no_core =
      '../cpan/IO-Compress' => 1,
      '../cpan/MIME-Base64' => 1,
      '../cpan/parent' => 1,
-     '../cpan/Parse-CPAN-Meta' => 1,
      '../cpan/Pod-Simple' => 1,
      '../cpan/podlators' => 1,
      '../cpan/Test-Simple' => 1,
      '../cpan/Tie-RefHash' => 1,
      '../cpan/Unicode-Collate' => 1,
-     '../cpan/Unicode-Normalize' => 1,
+     '../dist/Unicode-Normalize' => 1,
     );
 
 # delete env vars that may influence the results

@@ -320,7 +320,7 @@ PP(pp_backtick)
 	    ENTER_with_name("backtick");
 	    SAVESPTR(PL_rs);
 	    PL_rs = &PL_sv_undef;
-	    sv_setpvs(TARG, "");	/* note that this preserves previous buffer */
+            SvPVCLEAR(TARG);        /* note that this preserves previous buffer */
 	    while (sv_gets(TARG, fp, SvCUR(TARG)) != NULL)
 		NOOP;
 	    LEAVE_with_name("backtick");
@@ -952,10 +952,23 @@ PP(pp_tie)
 	 * (Sorry obfuscation writers. You're not going to be given this one.)
 	 */
        stash = gv_stashsv(*MARK, 0);
-       if (!stash || !(gv = gv_fetchmethod(stash, methname))) {
-	    DIE(aTHX_ "Can't locate object method \"%s\" via package \"%"SVf"\"",
-		 methname, SVfARG(SvOK(*MARK) ? *MARK : &PL_sv_no));
-	}
+       if (!stash) {
+           SV *stashname = SvOK(*MARK) ? *MARK : &PL_sv_no;
+           if (!SvCUR(*MARK)) {
+               stashname = sv_2mortal(newSVpvs("main"));
+           }
+           DIE(aTHX_ "Can't locate object method \"%s\" via package \"%"SVf"\""
+               " (perhaps you forgot to load \"%"SVf"\"?)",
+               methname, SVfARG(stashname), SVfARG(stashname));
+       }
+       else if (!(gv = gv_fetchmethod(stash, methname))) {
+           /* The effective name can only be NULL for stashes that have
+            * been deleted from the symbol table, which this one can't
+            * be, since we just looked it up by name.
+            */
+           DIE(aTHX_ "Can't locate object method \"%s\" via package \"%"HEKf"\"",
+               methname, HvENAME_HEK_NN(stash));
+       }
 	ENTER_with_name("call_TIE");
 	PUSHSTACKi(PERLSI_MAGIC);
 	PUSHMARK(SP);
@@ -1684,7 +1697,7 @@ PP(pp_sysread)
 	goto say_undef;
     bufsv = *++MARK;
     if (! SvOK(bufsv))
-	sv_setpvs(bufsv, "");
+        SvPVCLEAR(bufsv);
     length = SvIVx(*++MARK);
     if (length < 0)
 	DIE(aTHX_ "Negative length");
@@ -1705,9 +1718,9 @@ PP(pp_sysread)
 
     if ((fp_utf8 = PerlIO_isutf8(IoIFP(io))) && !IN_BYTES) {
         if (PL_op->op_type == OP_SYSREAD || PL_op->op_type == OP_RECV) {
-            Perl_ck_warner(aTHX_ packWARN(WARN_DEPRECATED),
-                           "%s() is deprecated on :utf8 handles",
-                           OP_DESC(PL_op));
+            Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
+                             "%s() is deprecated on :utf8 handles",
+                             OP_DESC(PL_op));
         }
 	buffer = SvPVutf8_force(bufsv, blen);
 	/* UTF-8 may not have been set if they are all low bytes */
@@ -1968,9 +1981,9 @@ PP(pp_syswrite)
     doing_utf8 = DO_UTF8(bufsv);
 
     if (PerlIO_isutf8(IoIFP(io))) {
-        Perl_ck_warner(aTHX_ packWARN(WARN_DEPRECATED),
-                       "%s() is deprecated on :utf8 handles",
-                       OP_DESC(PL_op));
+        Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
+                         "%s() is deprecated on :utf8 handles",
+                         OP_DESC(PL_op));
 	if (!SvUTF8(bufsv)) {
 	    /* We don't modify the original scalar.  */
 	    tmpbuf = bytes_to_utf8((const U8*) buffer, &blen);
@@ -2895,7 +2908,7 @@ PP(pp_stat)
 	    havefp = FALSE;
 	    PL_laststype = OP_STAT;
 	    PL_statgv = gv ? gv : (GV *)io;
-	    sv_setpvs(PL_statname, "");
+            SvPVCLEAR(PL_statname);
             if(gv) {
                 io = GvIO(gv);
 	    }
@@ -3455,7 +3468,7 @@ PP(pp_fttext)
 	}
 	else {
 	    PL_statgv = gv;
-	    sv_setpvs(PL_statname, "");
+            SvPVCLEAR(PL_statname);
 	    io = GvIO(PL_statgv);
 	}
 	PL_laststatval = -1;
@@ -3555,15 +3568,11 @@ PP(pp_fttext)
 #endif
 
     assert(len);
-    if (! is_invariant_string((U8 *) s, len)) {
-        const U8 *ep;
+    if (! is_utf8_invariant_string((U8 *) s, len)) {
 
         /* Here contains a variant under UTF-8 .  See if the entire string is
-         * UTF-8.  But the buffer may end in a partial character, so consider
-         * it UTF-8 if the first non-UTF8 char is an ending partial */
-        if (is_utf8_string_loc((U8 *) s, len, &ep)
-            || ep + UTF8SKIP(ep)  > (U8 *) (s + len))
-        {
+         * UTF-8. */
+        if (is_utf8_fixed_width_buf_flags((U8 *) s, len, 0)) {
             if (PL_op->op_type == OP_FTTEXT) {
                 FT_RETURNYES;
             }
@@ -3639,6 +3648,7 @@ PP(pp_chdir)
 	HV * const table = GvHVn(PL_envgv);
 	SV **svp;
 
+        EXTEND(SP, 1);
         if (    (svp = hv_fetchs(table, "HOME", FALSE))
              || (svp = hv_fetchs(table, "LOGDIR", FALSE))
 #ifdef VMS
@@ -4934,9 +4944,7 @@ S_space_join_names_mortal(pTHX_ char *const *array)
 {
     SV *target;
 
-    PERL_ARGS_ASSERT_SPACE_JOIN_NAMES_MORTAL;
-
-    if (*array) {
+    if (array && *array) {
 	target = newSVpvs_flags("", SVs_TEMP);
 	while (1) {
 	    sv_catpv(target, *array);

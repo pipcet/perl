@@ -7,6 +7,16 @@
 MODULE = Hash::Util		PACKAGE = Hash::Util
 
 void
+_clear_placeholders(hashref)
+        HV *hashref
+    PROTOTYPE: \%
+    PREINIT:
+        HV *hv;
+    CODE:
+        hv = MUTABLE_HV(hashref);
+        hv_clear_placeholders(hv);
+
+void
 all_keys(hash,keys,placeholder)
 	HV *hash
 	AV *keys
@@ -264,8 +274,7 @@ bucket_array(rhv)
     XSRETURN(0);
 }
 
-#if PERL_VERSION < 25
-SV*
+void
 bucket_ratio(rhv)
         SV* rhv
     PROTOTYPE: \%
@@ -274,7 +283,11 @@ bucket_ratio(rhv)
     if (SvROK(rhv)) {
         rhv= SvRV(rhv);
         if ( SvTYPE(rhv)==SVt_PVHV ) {
+#if PERL_VERSION < 25
             SV *ret= Perl_hv_scalar(aTHX_ (HV*)rhv);
+#else
+            SV *ret= Perl_hv_bucket_ratio(aTHX_ (HV*)rhv);
+#endif
             ST(0)= ret;
             XSRETURN(1);
         }
@@ -282,7 +295,7 @@ bucket_ratio(rhv)
     XSRETURN_UNDEF;
 }
 
-SV*
+void
 num_buckets(rhv)
         SV* rhv
     PROTOTYPE: \%
@@ -297,7 +310,7 @@ num_buckets(rhv)
     XSRETURN_UNDEF;
 }
 
-SV*
+void
 used_buckets(rhv)
         SV* rhv
     PROTOTYPE: \%
@@ -312,4 +325,3 @@ used_buckets(rhv)
     XSRETURN_UNDEF;
 }
 
-#endif

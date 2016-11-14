@@ -5,15 +5,15 @@
 [ this is a template for a new perldelta file.  Any text flagged as XXX needs
 to be processed before release. ]
 
-perldelta - what is new for perl v5.25.3
+perldelta - what is new for perl v5.25.7
 
 =head1 DESCRIPTION
 
-This document describes differences between the 5.25.2 release and the 5.25.3
+This document describes differences between the 5.25.6 release and the 5.25.7
 release.
 
-If you are upgrading from an earlier release such as 5.25.1, first read
-L<perl5252delta>, which describes differences between 5.25.1 and 5.25.2.
+If you are upgrading from an earlier release such as 5.25.5, first read
+L<perl5256delta>, which describes differences between 5.25.5 and 5.25.6.
 
 =head1 Notice
 
@@ -27,12 +27,37 @@ here, but most should go in the L</Performance Enhancements> section.
 
 [ List each enhancement as a =head2 entry ]
 
-=head2 Unicode 9.0 is now supported
+=head2 Indented Here-documents
 
-A list of changes is at
-L<http://www.unicode.org/versions/Unicode9.0.0/>.  Modules that are
-shipped with core Perl but not maintained by p5p do not necessarily
-support Unicode 9.0.  L<Unicode::Normalize> does work on 9.0.
+This adds a new modifier '~' to here-docs that tells the parser
+that it should look for /^\s*$DELIM\n/ as the closing delimiter.
+
+These syntaxes are all supported:
+
+    <<~EOF;
+    <<~\EOF;
+    <<~'EOF';
+    <<~"EOF";
+    <<~`EOF`;
+    <<~ 'EOF';
+    <<~ "EOF";
+    <<~ `EOF`;
+
+The '~' modifier will strip, from each line in the here-doc, the
+same whitespace that appears before the delimiter.
+
+Newlines will be copied as is, and lines that don't include the
+proper beginning whitespace will cause perl to croak.
+
+For example:
+
+    if (1) {
+      print <<~EOF;
+        Hello there
+        EOF
+    }
+
+prints "Hello there\n" with no leading whitespace.
 
 =head1 Security
 
@@ -96,19 +121,14 @@ There may well be none in a stable release.
 
 =item *
 
-XXX
+Array and hash assignment are now faster, e.g.
+
+    (..., @a) = (...);
+    (..., %h) = (...);
+
+especially when the RHS is empty.
 
 =back
-
-=head2 C<scalar(%hash)> return signature changed
-
-The value returned for C<scalar(%hash)> will no longer show information
-about the buckets allocated in the hash. It will simply return the count
-of used keys. It is thus equivalent to C<0+keys(%hash)>.
-
-A form of backwards compatibility is provided via C<Hash::Util::bucket_ratio()>
-which provides the same behavior as scalar(%hash) provided prior to
-Perl 5.25.
 
 =head1 Modules and Pragmata
 
@@ -133,10 +153,6 @@ XXX
 =head2 Updated Modules and Pragmata
 
 =over 4
-
-=item *
-
-L<Module::CoreList> has been upgraded from version 5.20160620 to 5.20160720.
 
 =item *
 
@@ -173,13 +189,13 @@ XXX Changes which significantly change existing files in F<pod/> go here.
 However, any changes to F<pod/perldiag.pod> should go in the L</Diagnostics>
 section.
 
-=head3 L<XXX>
+=head3 L<perlobj>
 
 =over 4
 
 =item *
 
-XXX Description of the change here
+Added a section on calling methods using their fully qualified names.
 
 =back
 
@@ -359,7 +375,17 @@ files in F<ext/> and F<lib/> are best summarized in L</Modules and Pragmata>.
 
 =item *
 
-XXX
+List assignment in list context where the LHS contained aggregates and
+where there were not enough RHS elements, used to skip scalar lvalues.
+Previously, C<(($a,$b,@c,$d) = (1))> in list context returned C<($a)>; now
+it returns C<($a,$b,$d)>. C<(($a,$b,$c) = (1))> is unchanged: it still
+returns <($a,$b,$c)>. This can be seen in the following:
+
+    sub inc { $_++ for @_ }
+    inc(($a,$b,@c,$d) = (10))
+
+Formerly, the values of C<($a,$b,$d)> would be left as C<(11,undef,undef)>;
+now they are C<(11,1,1)>.
 
 =back
 
@@ -388,15 +414,6 @@ XXX
 XXX Add anything here that we forgot to add, or were mistaken about, in
 the perldelta of a previous release.
 
-=item *
-
-Parsing bad POSIX charclasses no longer leaks memory. [perl #128313]
-
-=item *
-
-Fixed issues with recursive regexes. The behavior was broken in 5.24.0.
-[perl #126182]
-
 =back
 
 =head1 Obituary
@@ -408,7 +425,7 @@ here.
 
 XXX Generate this with:
 
-  perl Porting/acknowledgements.pl v5.25.2..HEAD
+  perl Porting/acknowledgements.pl v5.25.5..HEAD
 
 =head1 Reporting Bugs
 

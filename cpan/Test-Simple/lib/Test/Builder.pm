@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 BEGIN {
     if( $] < 5.008 ) {
@@ -69,7 +69,7 @@ sub _add_ts_hooks {
         return Test::Builder::TodoDiag->new(%$e) if ref($e) eq 'Test2::Event::Diag';
 
         # Set todo on ok's
-        if ($hub == $active_hub && $e->isa('Test2::Event::Ok')) {
+        if ($e->isa('Test2::Event::Ok')) {
             $e->set_todo($todo);
             $e->set_effective_pass(1);
 
@@ -197,6 +197,7 @@ sub child {
     $meta->{Test_Results} = [];
     $meta->{subevents} = $subevents;
     $meta->{subtest_id} = $hub->id;
+    $meta->{subtest_buffered} = $parent->format ? 0 : 1;
 
     $self->_add_ts_hooks;
 
@@ -269,6 +270,7 @@ FAIL
         else {
             $parent->{subevents}  = $meta->{subevents};
             $parent->{subtest_id} = $meta->{subtest_id};
+            $parent->{subtest_buffered} = $meta->{subtest_buffered};
             $parent->ok( $chub->is_passing, $meta->{Name} );
         }
     }
@@ -337,7 +339,7 @@ sub subtest {
         $st_ctx->diag('No tests run!');
     }
 
-    $child->finalize($ok);
+    $child->finalize($st_ctx->trace);
 
     $ctx->release;
 
@@ -624,20 +626,14 @@ sub ok {
 
     my $orig_name = $name;
 
-    # The regex form is ~250ms, the index form is ~50ms
-    #$name && $name =~ m/(?:#|\n)/ && ($name =~ s|#|\\#|g, $name =~ s{\n}{\n# }sg);
-    $name && (
-        (index($name, "#" ) >= 0 && $name =~ s|#|\\#|g),
-        (index($name, "\n") >= 0 && $name =~ s{\n}{\n# }sg)
-    );
-
     my @attrs;
     my $subevents  = delete $self->{subevents};
     my $subtest_id = delete $self->{subtest_id};
+    my $subtest_buffered = delete $self->{subtest_buffered};
     my $epkg = 'Test2::Event::Ok';
     if ($subevents) {
         $epkg = 'Test2::Event::Subtest';
-        push @attrs => (subevents => $subevents, subtest_id => $subtest_id);
+        push @attrs => (subevents => $subevents, subtest_id => $subtest_id, buffered => $subtest_buffered);
     }
 
     my $e = bless {
@@ -1150,7 +1146,7 @@ BEGIN {
 
             my $ctx = $self->ctx;
             my $format = $ctx->hub->format;
-            unless ($format && $format->isa('Test2::Formatter::TAP') && $format->can($set)) {
+            unless ($format && $format->can($set)) {
                 warn "The current formatter does not support '$method'" if $format;
                 $ctx->release;
                 return
@@ -1183,6 +1179,7 @@ sub diag {
     my $ctx = $self->ctx;
     $ctx->diag(join '' => map {defined($_) ? $_ : 'undef'} @_);
     $ctx->release;
+    return 0;
 }
 
 
@@ -1193,6 +1190,7 @@ sub note {
     my $ctx = $self->ctx;
     $ctx->note(join '' => map {defined($_) ? $_ : 'undef'} @_);
     $ctx->release;
+    return 0;
 }
 
 

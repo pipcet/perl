@@ -12,38 +12,7 @@ BEGIN { require "t/tools.pl" };
 #########################
 
 use Test2::API qw/test2_stack/;
-
-sub capture(&) {
-    my $code = shift;
-
-    my ($err, $out) = ("", "");
-
-    my $handles = test2_stack->top->format->handles;
-    my ($ok, $e);
-    {
-        my ($out_fh, $err_fh);
-
-        ($ok, $e) = try {
-            open($out_fh, '>', \$out) or die "Failed to open a temporary STDOUT: $!";
-            open($err_fh, '>', \$err) or die "Failed to open a temporary STDERR: $!";
-
-            test2_stack->top->format->set_handles([$out_fh, $err_fh, $out_fh]);
-
-            $code->();
-        };
-    }
-    test2_stack->top->format->set_handles($handles);
-
-    die $e unless $ok;
-
-    $err =~ s/ $/_/mg;
-    $out =~ s/ $/_/mg;
-
-    return {
-        STDOUT => $out,
-        STDERR => $err,
-    };
-}
+use Test::Builder::Formatter;
 
 # The tools in tools.pl have some intentional differences from the Test::More
 # versions, these behave more like Test::More which is important for
@@ -51,11 +20,6 @@ sub capture(&) {
 sub tm_ok($;$) {
     my ($bool, $name) = @_;
     my $ctx = context;
-
-    $name && (
-        (index($name, "#" ) >= 0 && $name =~ s|#|\\#|g),
-        (index($name, "\n") >= 0 && $name =~ s{\n}{\n# }sg)
-    );
 
     my $ok = bless {
         pass => $bool,
@@ -66,6 +30,7 @@ sub tm_ok($;$) {
     # Do not call init
 
     $ctx->hub->send($ok);
+
     $ctx->release;
     return $bool;
 }

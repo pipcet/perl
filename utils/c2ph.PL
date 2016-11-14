@@ -198,8 +198,8 @@ them in terms of packages and functions.  Consider the following program:
     #!/usr/local/bin/perl
 
     require 'syscall.ph';
-    require 'sys/time.ph';
-    require 'sys/resource.ph';
+    require './sys/time.ph';
+    require './sys/resource.ph';
 
     $ru = "\0" x &rusage'sizeof();
 
@@ -280,6 +280,7 @@ Anyway, here it is.  Should run on perl v4 or greater.  Maybe less.
 
 $RCSID = '$Id: c2ph,v 1.7 95/10/28 10:41:47 tchrist Exp Locker: tchrist $';
 
+BEGIN { pop @INC if $INC[-1] eq '.' }
 use File::Temp;
 
 ######################################################################

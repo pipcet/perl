@@ -104,18 +104,6 @@ PP(pp_regcomp)
     assert (re != (REGEXP*) &PL_sv_undef);
     eng = re ? RX_ENGINE(re) : current_re_engine();
 
-    /*
-     In the below logic: these are basically the same - check if this regcomp is part of a split.
-
-    (PL_op->op_pmflags & PMf_split )
-    (PL_op->op_next->op_type == OP_PUSHRE)
-
-    We could add a new mask for this and copy the PMf_split, if we did
-    some bit definition fiddling first.
-
-    For now we leave this
-    */
-
     new_re = (eng->op_comp
 		    ? eng->op_comp
 		    : &Perl_re_op_compile
@@ -171,13 +159,25 @@ PP(pp_regcomp)
         RX_TAINT_on(new_re);
     }
 
+    /* handle the empty pattern */
+    if (!RX_PRELEN(PM_GETRE(pm)) && PL_curpm) {
+        if (PL_curpm == PL_reg_curpm) {
+            if (PL_curpm_under) {
+                if (PL_curpm_under == PL_reg_curpm) {
+                    Perl_croak(aTHX_ "Infinite recursion via empty pattern");
+                } else {
+                    pm = PL_curpm_under;
+                }
+            }
+        } else {
+            pm = PL_curpm;
+        }
+    }
+
 #if !defined(USE_ITHREADS)
     /* can't change the optree at runtime either */
     /* PMf_KEEP is handled differently under threads to avoid these problems */
-    if (!RX_PRELEN(PM_GETRE(pm)) && PL_curpm)
-	pm = PL_curpm;
     if (pm->op_pmflags & PMf_KEEP) {
-	pm->op_private &= ~OPpRUNTIME;	/* no point compiling again */
 	cLOGOP->op_first->op_next = PL_op->op_next;
     }
 #endif
@@ -927,6 +927,7 @@ PP(pp_formline)
     }
 }
 
+/* also used for: pp_mapstart() */
 PP(pp_grepstart)
 {
     dSP;
@@ -1150,7 +1151,7 @@ PP(pp_flip)
 		RETURNOP(((LOGOP*)cUNOP->op_first)->op_other);
 	    }
 	}
-	sv_setpvs(TARG, "");
+        SvPVCLEAR(TARG);
 	SETs(targ);
 	RETURN;
     }
@@ -1588,41 +1589,73 @@ Perl_qerror(pTHX_ SV *err)
 
 
 
-/* undef or delete the $INC{namesv} entry, then croak.
- * require0 indicates that the require didn't return a true value */
+/* pop a CXt_EVAL context and in addition, if it was a require then
+ * based on action:
+ *     0: do nothing extra;
+ *     1: undef  $INC{$name}; croak "$name did not return a true value";
+ *     2: delete $INC{$name}; croak "$errsv: Compilation failed in require"
+ */
 
 static void
-S_undo_inc_then_croak(pTHX_ SV *namesv, SV *err, bool require0)
+S_pop_eval_context_maybe_croak(pTHX_ PERL_CONTEXT *cx, SV *errsv, int action)
 {
-    const char *fmt;
-    HV *inc_hv = GvHVn(PL_incgv);
-    I32  klen  = SvUTF8(namesv) ? -(I32)SvCUR(namesv) : (I32)SvCUR(namesv);
-    const char *key = SvPVX_const(namesv);
+    SV  *namesv = NULL; /* init to avoid dumb compiler warning */
+    bool do_croak;
 
-    if (require0) {
-	(void)hv_delete(inc_hv, key, klen, G_DISCARD);
-	fmt = "%"SVf" did not return a true value";
-        err = namesv;
+    CX_LEAVE_SCOPE(cx);
+    do_croak = action && (CxOLD_OP_TYPE(cx) == OP_REQUIRE);
+    if (do_croak) {
+        /* keep namesv alive after cx_popeval() */
+        namesv = cx->blk_eval.old_namesv;
+        cx->blk_eval.old_namesv = NULL;
+        sv_2mortal(namesv);
     }
-    else {
-        (void)hv_store(inc_hv, key, klen, &PL_sv_undef, 0);
-        fmt = "%"SVf"Compilation failed in require";
-        err = err ? err : newSVpvs_flags("Unknown error\n", SVs_TEMP);
-    }
+    cx_popeval(cx);
+    cx_popblock(cx);
+    CX_POP(cx);
 
-    Perl_croak(aTHX_ fmt, SVfARG(err));
+    if (do_croak) {
+        const char *fmt;
+        HV *inc_hv = GvHVn(PL_incgv);
+        I32  klen  = SvUTF8(namesv) ? -(I32)SvCUR(namesv) : (I32)SvCUR(namesv);
+        const char *key = SvPVX_const(namesv);
+
+        if (action == 1) {
+            (void)hv_delete(inc_hv, key, klen, G_DISCARD);
+            fmt = "%"SVf" did not return a true value";
+            errsv = namesv;
+        }
+        else {
+            (void)hv_store(inc_hv, key, klen, &PL_sv_undef, 0);
+            fmt = "%"SVf"Compilation failed in require";
+            if (!errsv)
+                errsv = newSVpvs_flags("Unknown error\n", SVs_TEMP);
+        }
+
+        Perl_croak(aTHX_ fmt, SVfARG(errsv));
+    }
 }
 
+
+/* die_unwind(): this is the final destination for the various croak()
+ * functions. If we're in an eval, unwind the context and other stacks
+ * back to the top-most CXt_EVAL and set $@ to msv; otherwise print msv
+ * to STDERR and initiate an exit. Note that if the CXt_EVAL popped back
+ * to is a require the exception will be rethrown, as requires don't
+ * actually trap exceptions.
+ */
 
 void
 Perl_die_unwind(pTHX_ SV *msv)
 {
-    SV *exceptsv = sv_mortalcopy(msv);
+    SV *exceptsv = msv;
     U8 in_eval = PL_in_eval;
     PERL_ARGS_ASSERT_DIE_UNWIND;
 
     if (in_eval) {
 	I32 cxix;
+
+        exceptsv = sv_2mortal(SvREFCNT_inc_simple_NN(exceptsv));
 
 	/*
 	 * Historically, perl used to set ERRSV ($@) early in the die
@@ -1653,10 +1686,9 @@ Perl_die_unwind(pTHX_ SV *msv)
 	 * perls 5.13.{1..7} which had late setting of $@ without this
 	 * early-setting hack.
 	 */
-	if (!(in_eval & EVAL_KEEPERR)) {
-	    SvTEMP_off(exceptsv);
-	    sv_setsv(ERRSV, exceptsv);
-	}
+	if (!(in_eval & EVAL_KEEPERR))
+	    sv_setsv_flags(ERRSV, exceptsv,
+                        (SV_GMAGIC|SV_DO_COW_SVSETSV|SV_NOSTEAL));
 
 	if (in_eval & EVAL_KEEPERR) {
 	    Perl_ck_warner(aTHX_ packWARN(WARN_MISC), "\t(in cleanup) %"SVf,
@@ -1671,7 +1703,6 @@ Perl_die_unwind(pTHX_ SV *msv)
 	}
 
 	if (cxix >= 0) {
-            SV *namesv = NULL;
 	    PERL_CONTEXT *cx;
 	    SV **oldsp;
             U8 gimme;
@@ -1691,23 +1722,15 @@ Perl_die_unwind(pTHX_ SV *msv)
 		*++oldsp = &PL_sv_undef;
 	    PL_stack_sp = oldsp;
 
-            CX_LEAVE_SCOPE(cx);
-	    cx_popeval(cx);
-	    cx_popblock(cx);
 	    restartjmpenv = cx->blk_eval.cur_top_env;
-	    restartop = cx->blk_eval.retop;
-            if (CxOLD_OP_TYPE(cx) == OP_REQUIRE)
-                namesv = cx->blk_eval.old_namesv;
-            CX_POP(cx);
-
-            if (namesv) {
-                /* note that unlike pp_entereval, pp_require isn't
-                 * supposed to trap errors. So now that we've popped the
-                 * EVAL that pp_require pushed, process the error message
-                 * and rethrow the error */
-                S_undo_inc_then_croak(aTHX_ namesv, exceptsv, FALSE);
-                NOT_REACHED; /* NOTREACHED */
-            }
+	    restartop     = cx->blk_eval.retop;
+            /* Note that unlike pp_entereval, pp_require isn't supposed to
+             * trap errors. So if we're a require, after we pop the
+             * CXt_EVAL that pp_require pushed, rethrow the error with
+             * croak(exceptsv). This is all handled by the call below when
+             * action == 2.
+             */
+            S_pop_eval_context_maybe_croak(aTHX_ cx, exceptsv, 2);
 
 	    if (!(in_eval & EVAL_KEEPERR))
 		sv_setsv(ERRSV, exceptsv);
@@ -2225,21 +2248,21 @@ PP(pp_leaveloop)
 {
     PERL_CONTEXT *cx;
     U8 gimme;
+    SV **base;
     SV **oldsp;
-    SV **mark;
 
     cx = CX_CUR();
     assert(CxTYPE_is_LOOP(cx));
-    mark = PL_stack_base + cx->blk_oldsp;
-    oldsp = CxTYPE(cx) == CXt_LOOP_LIST
+    oldsp = PL_stack_base + cx->blk_oldsp;
+    base = CxTYPE(cx) == CXt_LOOP_LIST
                 ? PL_stack_base + cx->blk_loop.state_u.stack.basesp
-                : mark;
+                : oldsp;
     gimme = cx->blk_gimme;
 
     if (gimme == G_VOID)
-        PL_stack_sp = oldsp;
+        PL_stack_sp = base;
     else
-        leave_adjust_stacks(MARK, oldsp, gimme,
+        leave_adjust_stacks(oldsp, base, gimme,
                                 PL_op->op_private & OPpLVALUE ? 3 : 1);
 
     CX_LEAVE_SCOPE(cx);
@@ -3331,7 +3354,7 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
     }
     else {
 	PL_hints = saveop->op_private & OPpEVAL_COPHH
-		     ? oldcurcop->cop_hints : saveop->op_targ;
+		     ? oldcurcop->cop_hints : (U32)saveop->op_targ;
 
         /* making 'use re eval' not be in scope when compiling the
          * qr/mabye_has_runtime_code_block/ ensures that we don't get
@@ -3383,7 +3406,6 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
     yystatus = (!in_require && CATCH_GET) ? S_try_yyparse(aTHX_ GRAMPROG) : yyparse(GRAMPROG);
 
     if (yystatus || PL_parser->error_count || !PL_eval_root) {
-        SV *namesv = NULL; /* initialise  to avoid compiler warning */
 	PERL_CONTEXT *cx;
         SV *errsv;
 
@@ -3398,25 +3420,17 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
 	    }
 	    SP = PL_stack_base + POPMARK;	/* pop original mark */
             cx = CX_CUR();
-            CX_LEAVE_SCOPE(cx);
-	    cx_popeval(cx);
-	    cx_popblock(cx);
-            if (in_require)
-                namesv = cx->blk_eval.old_namesv;
-            CX_POP(cx);
+            assert(CxTYPE(cx) == CXt_EVAL);
+            /* pop the CXt_EVAL, and if was a require, croak */
+            S_pop_eval_context_maybe_croak(aTHX_ cx, ERRSV, 2);
 	}
+
+        /* die_unwind() re-croaks when in require, having popped the
+         * require EVAL context. So we should never catch a require
+         * exception here */
+	assert(!in_require);
 
 	errsv = ERRSV;
-	if (in_require) {
-            if (yystatus == 3) {
-                cx = CX_CUR();
-                assert(CxTYPE(cx) == CXt_EVAL);
-                namesv = cx->blk_eval.old_namesv;
-            }
-            S_undo_inc_then_croak(aTHX_ namesv, errsv, FALSE);
-            NOT_REACHED; /* NOTREACHED */
-	}
-
         if (!*(SvPV_nolen_const(errsv)))
             sv_setpvs(errsv, "Compilation error");
 
@@ -3677,20 +3691,28 @@ S_require_file(pTHX_ SV *const sv)
     int saved_errno;
     bool path_searchable;
     I32 old_savestack_ix;
+    const bool op_is_require = PL_op->op_type == OP_REQUIRE;
+    const char *const op_name = op_is_require ? "require" : "do";
+
+    assert(op_is_require || PL_op->op_type == OP_DOFILE);
 
     if (!SvOK(sv))
-        DIE(aTHX_ "Missing or undefined argument to require");
+        DIE(aTHX_ "Missing or undefined argument to %s", op_name);
     name = SvPV_nomg_const(sv, len);
     if (!(name && len > 0 && *name))
-        DIE(aTHX_ "Missing or undefined argument to require");
+        DIE(aTHX_ "Missing or undefined argument to %s", op_name);
 
-    if (!IS_SAFE_PATHNAME(name, len, "require")) {
+    if (!IS_SAFE_PATHNAME(name, len, op_name)) {
+        if (!op_is_require) {
+            CLEAR_ERRSV();
+            RETPUSHUNDEF;
+        }
         DIE(aTHX_ "Can't locate %s:   %s",
             pv_escape(newSVpvs_flags("",SVs_TEMP),name,len,len*2,
                       NULL, SvUTF8(sv)?PERL_PV_ESCAPE_UNI:0),
             Strerror(ENOENT));
     }
-    TAINT_PROPER("require");
+    TAINT_PROPER(op_name);
 
     path_searchable = path_is_searchable(name);
 
@@ -3717,7 +3739,7 @@ S_require_file(pTHX_ SV *const sv)
 	unixname = (char *) name;
 	unixlen = len;
     }
-    if (PL_op->op_type == OP_REQUIRE) {
+    if (op_is_require) {
 	SV * const * const svp = hv_fetch(GvHVn(PL_incgv),
 					  unixname, unixlen, 0);
 	if ( svp ) {
@@ -3932,7 +3954,7 @@ S_require_file(pTHX_ SV *const sv)
 			dirlen = 0;
 		    }
 
-		    if (!IS_SAFE_SYSCALL(dir, dirlen, "@INC entry", "require"))
+		    if (!IS_SAFE_SYSCALL(dir, dirlen, "@INC entry", op_name))
 			continue;
 #ifdef VMS
 		    if ((unixdir =
@@ -3983,7 +4005,7 @@ S_require_file(pTHX_ SV *const sv)
 		    }
 #  endif
 #endif
-		    TAINT_PROPER("require");
+		    TAINT_PROPER(op_name);
 		    tryname = SvPVX_const(namesv);
 		    tryrsfp = doopen_pm(namesv);
 		    if (tryrsfp) {
@@ -4009,7 +4031,7 @@ S_require_file(pTHX_ SV *const sv)
     saved_errno = errno; /* sv_2mortal can realloc things */
     sv_2mortal(namesv);
     if (!tryrsfp) {
-	if (PL_op->op_type == OP_REQUIRE) {
+	if (op_is_require) {
 	    if(saved_errno == EMFILE || saved_errno == EACCES) {
 		/* diag_listed_as: Can't locate %s */
 		DIE(aTHX_ "Can't locate %s:   %s: %s",
@@ -4274,10 +4296,9 @@ PP(pp_leaveeval)
     U8 gimme;
     PERL_CONTEXT *cx;
     OP *retop;
-    SV *namesv = NULL;
+    int failed;
     CV *evalcv;
-    /* grab this value before cx_popeval restores old PL_in_eval */
-    bool keep = cBOOL(PL_in_eval & EVAL_KEEPERR);
+    bool keep;
 
     PERL_ASYNC_CHECK();
 
@@ -4288,12 +4309,10 @@ PP(pp_leaveeval)
     gimme = cx->blk_gimme;
 
     /* did require return a false value? */
-    if (       CxOLD_OP_TYPE(cx) == OP_REQUIRE
-            && !(gimme == G_SCALAR
+    failed =    CxOLD_OP_TYPE(cx) == OP_REQUIRE
+             && !(gimme == G_SCALAR
                     ? SvTRUE(*PL_stack_sp)
-                : PL_stack_sp > oldsp)
-    )
-        namesv = cx->blk_eval.old_namesv;
+                    : PL_stack_sp > oldsp);
 
     if (gimme == G_VOID)
         PL_stack_sp = oldsp;
@@ -4308,23 +4327,17 @@ PP(pp_leaveeval)
      */
     PL_curcop = cx->blk_oldcop;
 
-    CX_LEAVE_SCOPE(cx);
-    cx_popeval(cx);
-    cx_popblock(cx);
+    /* grab this value before cx_popeval restores the old PL_in_eval */
+    keep = cBOOL(PL_in_eval & EVAL_KEEPERR);
     retop = cx->blk_eval.retop;
     evalcv = cx->blk_eval.cv;
-    CX_POP(cx);
-
 #ifdef DEBUGGING
     assert(CvDEPTH(evalcv) == 1);
 #endif
     CvDEPTH(evalcv) = 0;
 
-    if (namesv) { /* require returned false */
-	/* Unassume the success we assumed earlier. */
-        S_undo_inc_then_croak(aTHX_ namesv, NULL, TRUE);
-        NOT_REACHED; /* NOTREACHED */
-    }
+    /* pop the CXt_EVAL, and if a require failed, croak */
+    S_pop_eval_context_maybe_croak(aTHX_ cx, NULL, failed);
 
     if (!keep)
         CLEAR_ERRSV();

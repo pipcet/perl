@@ -690,7 +690,7 @@ Perl_init_i18nl14n(pTHX_ int printwarn)
 }
 
 bool
-Perl_is_utf8_string_loc(const U8 *s, STRLEN len, const U8 **ep)
+Perl_is_utf8_string_loc(const U8 *s, const STRLEN len, const U8 **ep)
 {
     PERL_ARGS_ASSERT_IS_UTF8_STRING_LOC;
 
@@ -745,17 +745,6 @@ Perl_save_long(pTHX_ long int *longp)
     SSPUSHLONG(*longp);
     SSPUSHPTR(longp);
     SSPUSHUV(SAVEt_LONG);
-}
-
-void
-Perl_save_iv(pTHX_ IV *ivp)
-{
-    PERL_ARGS_ASSERT_SAVE_IV;
-
-    SSCHECK(3);
-    SSPUSHIV(*ivp);
-    SSPUSHPTR(ivp);
-    SSPUSHUV(SAVEt_IV);
 }
 
 void
@@ -1194,7 +1183,7 @@ Perl_sv_copypv(pTHX_ SV *const dsv, SV *const ssv)
 {
     PERL_ARGS_ASSERT_SV_COPYPV;
 
-    sv_copypv_flags(dsv, ssv, 0);
+    sv_copypv_flags(dsv, ssv, SV_GMAGIC);
 }
 
 UV      /* Made into a function, so can be deprecated */

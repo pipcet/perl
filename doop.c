@@ -680,7 +680,7 @@ Perl_do_join(pTHX_ SV *sv, SV *delim, SV **mark, SV **sp)
 	++mark;
     }
 
-    sv_setpvs(sv, "");
+    SvPVCLEAR(sv);
     /* sv_setpv retains old UTF8ness [perl #24846] */
     SvUTF8_off(sv);
 
@@ -1008,7 +1008,7 @@ Perl_do_vop(pTHX_ I32 optype, SV *sv, SV *left, SV *right)
     PERL_ARGS_ASSERT_DO_VOP;
 
     if (sv != left || (optype != OP_BIT_AND && !SvOK(sv)))
-	sv_setpvs(sv, "");	/* avoid undef warning on |= and ^= */
+        SvPVCLEAR(sv);        /* avoid undef warning on |= and ^= */
     if (sv == left) {
 	lsave = lc = SvPV_force_nomg(left, leftlen);
     }
@@ -1093,6 +1093,7 @@ Perl_do_vop(pTHX_ I32 optype, SV *sv, SV *left, SV *right)
 	    if (sv == left || sv == right)
 		(void)sv_usepvn(sv, dcorig, needlen);
 	    SvCUR_set(sv, dc - dcorig);
+	    *SvEND(sv) = 0;
 	    break;
 	case OP_BIT_XOR:
 	    while (lulen && rulen) {
@@ -1215,12 +1216,20 @@ Perl_do_vop(pTHX_ I32 optype, SV *sv, SV *left, SV *right)
 		*dc++ = *lc++ | *rc++;
 	  mop_up:
 	    len = lensave;
-	    if (rightlen > len)
-		sv_catpvn_nomg(sv, rsave + len, rightlen - len);
-	    else if (leftlen > (STRLEN)len)
-		sv_catpvn_nomg(sv, lsave + len, leftlen - len);
-	    else
-		*SvEND(sv) = '\0';
+	    if (rightlen > len) {
+                if (dc == rc)
+                    SvCUR(sv) = rightlen;
+                else
+                    sv_catpvn_nomg(sv, rsave + len, rightlen - len);
+            }
+            else if (leftlen > len) {
+                if (dc == lc)
+                    SvCUR(sv) = leftlen;
+                else
+                    sv_catpvn_nomg(sv, lsave + len, leftlen - len);
+            }
+            *SvEND(sv) = '\0';
+
 	    break;
 	}
     }

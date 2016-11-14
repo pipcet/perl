@@ -15,15 +15,15 @@ $| = 1;
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = ('../lib','.','../ext/re');
     require Config; import Config;
     require './test.pl'; require './charset_tools.pl';
     require './loc_tools.pl';
+    set_up_inc('../lib', '.', '../ext/re');
+}
     skip_all('no re module') unless defined &DynaLoader::boot_DynaLoader;
     skip_all_without_unicode_tables();
-}
 
-plan tests => 790;  # Update this when adding/deleting tests.
+plan tests => 827;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -638,9 +638,11 @@ sub run_tests {
     }
 
     {
-        my $message = '@- and @+ tests';
+        my $message = '@- and @+ and @{^CAPTURE} tests';
 
-        /a(?=.$)/;
+        $_= "ace";
+        /c(?=.$)/;
+        is($#{^CAPTURE}, -1, $message);
         is($#+, 0, $message);
         is($#-, 0, $message);
         is($+ [0], 2, $message);
@@ -648,66 +650,87 @@ sub run_tests {
         ok(!defined $+ [1] && !defined $- [1] &&
            !defined $+ [2] && !defined $- [2], $message);
 
-        /a(a)(a)/;
+        /a(c)(e)/;
+        is($#{^CAPTURE}, 1, $message); # one less than $#-
         is($#+, 2, $message);
         is($#-, 2, $message);
         is($+ [0], 3, $message);
         is($- [0], 0, $message);
+        is(${^CAPTURE}[0], "c", $message);
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
+        is(${^CAPTURE}[1], "e", $message);
         is($+ [2], 3, $message);
         is($- [2], 2, $message);
         ok(!defined $+ [3] && !defined $- [3] &&
+           !defined ${^CAPTURE}[2] && !defined ${^CAPTURE}[3] &&
            !defined $+ [4] && !defined $- [4], $message);
 
         # Exists has a special check for @-/@+ - bug 45147
         ok(exists $-[0], $message);
         ok(exists $+[0], $message);
+        ok(exists ${^CAPTURE}[0], $message);
+        ok(exists ${^CAPTURE}[1], $message);
         ok(exists $-[2], $message);
         ok(exists $+[2], $message);
+        ok(!exists ${^CAPTURE}[2], $message);
         ok(!exists $-[3], $message);
         ok(!exists $+[3], $message);
+        ok(exists ${^CAPTURE}[-1], $message);
+        ok(exists ${^CAPTURE}[-2], $message);
         ok(exists $-[-1], $message);
         ok(exists $+[-1], $message);
         ok(exists $-[-3], $message);
         ok(exists $+[-3], $message);
         ok(!exists $-[-4], $message);
         ok(!exists $+[-4], $message);
+        ok(!exists ${^CAPTURE}[-3], $message);
 
-        /.(a)(b)?(a)/;
+
+        /.(c)(b)?(e)/;
+        is($#{^CAPTURE}, 2, $message); # one less than $#-
         is($#+, 3, $message);
         is($#-, 3, $message);
+        is(${^CAPTURE}[0], "c", $message);
+        is(${^CAPTURE}[2], "e", $message . "[$1 $3]");
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
         is($+ [3], 3, $message);
         is($- [3], 2, $message);
         ok(!defined $+ [2] && !defined $- [2] &&
-           !defined $+ [4] && !defined $- [4], $message);
+           !defined $+ [4] && !defined $- [4] &&
+           !defined ${^CAPTURE}[1], $message);
 
-        /.(a)/;
+        /.(c)/;
+        is($#{^CAPTURE}, 0, $message); # one less than $#-
         is($#+, 1, $message);
         is($#-, 1, $message);
+        is(${^CAPTURE}[0], "c", $message);
         is($+ [0], 2, $message);
         is($- [0], 0, $message);
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
         ok(!defined $+ [2] && !defined $- [2] &&
-           !defined $+ [3] && !defined $- [3], $message);
+           !defined $+ [3] && !defined $- [3] &&
+           !defined ${^CAPTURE}[1], $message);
 
-        /.(a)(ba*)?/;
+        /.(c)(ba*)?/;
+        is($#{^CAPTURE}, 0, $message); # one less than $#-
         is($#+, 2, $message);
         is($#-, 1, $message);
 
         # Check that values don’t stick
         "     "=~/()()()(.)(..)/;
-        my($m,$p) = (\$-[5], \$+[5]);
-        () = "$$_" for $m, $p; # FETCH (or eqv.)
+        my($m,$p,$q) = (\$-[5], \$+[5], \${^CAPTURE}[4]);
+        () = "$$_" for $m, $p, $q; # FETCH (or eqv.)
         " " =~ /()/;
         is $$m, undef, 'values do not stick to @- elements';
         is $$p, undef, 'values do not stick to @+ elements';
+        is $$q, undef, 'values do not stick to @{^CAPTURE} elements';
     }
 
     foreach ('$+[0] = 13', '$-[0] = 13', '@+ = (7, 6, 5)',
+             '${^CAPTURE}[0] = 13',
 	     '@- = qw (foo bar)', '$^N = 42') {
 	is(eval $_, undef);
         like($@, qr/^Modification of a read-only value attempted/,
@@ -973,6 +996,19 @@ sub run_tests {
         @b = grep /\s/, @a;
         @c = grep /[\s]/, @a;
         is("@b", "@c", $message);
+
+        # Test an inverted posix class with a char also in the class.
+        my $nbsp = chr utf8::unicode_to_native(0xA0);
+        my $non_s = chr utf8::unicode_to_native(0xA1);
+        my $pat_string = "[^\\S ]";
+        unlike(" ", qr/$pat_string/, "Verify ' ' !~ /$pat_string/");
+        like("\t", qr/$pat_string/, "Verify '\\t =~ /$pat_string/");
+        unlike($nbsp, qr/$pat_string/, "Verify non-utf8-NBSP !~ /$pat_string/");
+        utf8::upgrade($nbsp);
+        like($nbsp, qr/$pat_string/, "Verify utf8-NBSP =~ /$pat_string/");
+        unlike($non_s, qr/$pat_string/, "Verify non-utf8-inverted-bang !~ /$pat_string/");
+        utf8::upgrade($non_s);
+        unlike($non_s, qr/$pat_string/, "Verify utf8-inverted-bang !~ /$pat_string/");
     }
     {
         my $message = '\D, [\D], \d, [\d]';
@@ -1663,7 +1699,7 @@ EOP
             # NOTE - Do not put quotes in the code!
             # NOTE - We have to triple escape the backref in the pattern below.
             my $code='
-                BEGIN{require q(test.pl);}
+                BEGIN{require q(./test.pl);}
                 watchdog(3);
                 for my $len (1 .. 20) {
                     my $eights= q(8) x $len;
@@ -1679,7 +1715,7 @@ EOP
             # #123562]
 
             my $code='
-                BEGIN{require q(test.pl);}
+                BEGIN{require q(./test.pl);}
                 use Encode qw(_utf8_on);
                 # \x80 and \x41 are continuation bytes in their respective
                 # character sets
@@ -1747,7 +1783,7 @@ EOP
                 my ($expr, $expect, $test_name, $cap1)= @$tuple;
                 # avoid quotes in this code!
                 my $code='
-                    BEGIN{require q(test.pl);}
+                    BEGIN{require q(./test.pl);}
                     watchdog(3);
                     my $status= eval(q{ !(' . $expr . ') ? q(failed) : ' .
                         ($cap1 ? '($1 ne q['.$cap1.']) ? qq(badmatch:$1) : ' : '') .
@@ -1767,6 +1803,62 @@ EOP
                 $_ = "a" x 1000 . "b" x 1000 . "c" x 1000;
                 /.*a.*b.*c.*[de]/;
             ',"Timeout",{},"Test Perl 73464")
+        }
+
+        {   # [perl #128686], crashed the the interpreter
+            my $AE = chr utf8::unicode_to_native(0xC6);
+            my $ae = chr utf8::unicode_to_native(0xE6);
+            my $re = qr/[$ae\s]/i;
+            ok($AE !~ $re, '/[\xE6\s]/i doesn\'t match \xC6 when not in UTF-8');
+            utf8::upgrade $AE;
+            ok($AE =~ $re, '/[\xE6\s]/i matches \xC6 when in UTF-8');
+        }
+
+        {   # [perl #126606 crashed the interpreter
+            no warnings 'deprecated';
+            like("sS", qr/\N{}Ss|/i, "\N{} with empty branch alternation works");
+        }
+
+        {
+            is(0+("\n" =~ m'\n'), 1, q|m'\n' should interpolate escapes|);
+        }
+
+        {
+            my $str = "a\xB6";
+            ok( $str =~ m{^(a|a\x{b6})$}, "fix [perl #129950] - latin1 case" );
+            utf8::upgrade($str);
+            ok( $str =~ m{^(a|a\x{b6})$}, "fix [perl #129950] - utf8 case" );
+        }
+        {
+            my $got= run_perl( switches => [ '-l' ], prog => <<'EOF_CODE' );
+            my $died= !eval {
+                $_=qq(ab);
+                print;
+                my $p=qr/(?{ s!!x! })/;
+                /$p/;
+                print;
+                /a/;
+                /$p/;
+                print;
+                /b/;
+                /$p/;
+                print;
+                //;
+                1;
+            };
+            $error = $died ? ($@ || qq(Zombie)) : qq(none);
+            print $died ? qq(died) : qq(lived);
+            print qq(Error: $@);
+EOF_CODE
+            my @got= split /\n/, $got;
+            is($got[0],"ab","empty pattern in regex codeblock: got expected start string");
+            is($got[1],"xab",
+                "empty pattern in regex codeblock: first subst with no last-match worked right");
+            is($got[2],"xxb","empty pattern in regex codeblock: second subst worked right");
+            is($got[3],"xxx","empty pattern in regex codeblock: third subst worked right");
+            is($got[4],"died","empty pattern in regex codeblock: died as expected");
+            like($got[5],qr/Error: Infinite recursion via empty pattern/,
+           "empty pattern in regex codeblock: produced the right exception message" );
         }
 } # End of sub run_tests
 

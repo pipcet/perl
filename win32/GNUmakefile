@@ -36,10 +36,6 @@ ifeq ($(GCCBIN),i686-w64-mingw32-gcc)
 GCCCROSS := i686-w64-mingw32
 endif
 
-GCCTARGET := $(shell $(GCCBIN) -dumpmachine)
-GCCVER1   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%i)
-GCCVER2   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%j)
-GCCVER3   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%k)
 
 ##
 ## Build configuration.  Edit the values below to suit your needs.
@@ -67,7 +63,7 @@ INST_TOP := $(INST_DRV)\perl
 # versioned installation can be obtained by setting INST_TOP above to a
 # path that includes an arbitrary version string.
 #
-#INST_VER	:= \5.25.3
+#INST_VER	:= \5.25.7
 
 #
 # Comment this out if you DON'T want your perl installation to have
@@ -178,7 +174,7 @@ USE_LARGE_FILES	:= define
 # Visual C++ 2013 Express Edition (aka Visual C++ 12.0) (free version)
 #CCTYPE		:= MSVC120FREE
 # MinGW or mingw-w64 with gcc-3.4.5 or later
-CCTYPE		:= GCC
+#CCTYPE		:= GCC
 
 #
 # If you are using Intel C++ Compiler uncomment this
@@ -242,27 +238,7 @@ CCTYPE		:= GCC
 # so you may have to set CCHOME explicitly (spaces in the path name should
 # not be quoted)
 #
-ifeq ($(CCTYPE),GCC)
-CCHOME		:= C:\MinGW
-else
-CCHOME		:= $(MSVCDIR)
-endif
-
-#
-# Following sets $Config{incpath} and $Config{libpth}
-#
-
-ifneq ($(GCCCROSS),)
-CCINCDIR := $(CCHOME)\$(GCCCROSS)\include
-CCLIBDIR := $(CCHOME)\$(GCCCROSS)\lib
-CCDLLDIR := $(CCLIBDIR)
-ARCHPREFIX := $(GCCCROSS)-
-else
-CCINCDIR := $(CCHOME)\include
-CCLIBDIR := $(CCHOME)\lib
-CCDLLDIR := $(CCHOME)\bin
-ARCHPREFIX :=
-endif
+#CCHOME		:= C:\MinGW
 
 #
 # Additional compiler flags can be specified here.
@@ -352,6 +328,50 @@ endif
 
 ifeq ($(USE_NO_REGISTRY),define)
 BUILDOPT	+= -DWIN32_NO_REGISTRY
+endif
+
+ifeq ($(CCTYPE),GCC)
+GCCTARGET	:= $(shell $(GCCBIN) -dumpmachine)
+endif
+
+#no explicit CCTYPE given, do auto detection
+ifeq ($(CCTYPE),)
+GCCTARGET	:= $(shell $(GCCBIN) -dumpmachine 2>NUL)
+#do we have a GCC?
+ifneq ($(GCCTARGET),)
+CCTYPE		:= GCC
+else
+#use var to capture 1st line only, not 8th token of lines 2 & 3 in cl.exe output
+#rmving the cmd /c causes the var2b undef4echo but!4"set MSVCVER", cmd.exe bug?
+MSVCVER		:= $(shell (set MSVCVER=) & (for /f "tokens=8 delims=.^ " \
+	%%i in ('cl ^2^>^&1') do if not defined MSVCVER set /A "MSVCVER=%%i-6") \
+	& cmd /c echo %%MSVCVER%%)
+CCTYPE		:= MSVC$(MSVCVER)0
+endif
+endif
+
+ifeq ($(CCHOME),)
+ifeq ($(CCTYPE),GCC)
+CCHOME		:= C:\MinGW
+else
+CCHOME		:= $(MSVCDIR)
+endif
+endif
+
+#
+# Following sets $Config{incpath} and $Config{libpth}
+#
+
+ifneq ($(GCCCROSS),)
+CCINCDIR := $(CCHOME)\$(GCCCROSS)\include
+CCLIBDIR := $(CCHOME)\$(GCCCROSS)\lib
+CCDLLDIR := $(CCLIBDIR)
+ARCHPREFIX := $(GCCCROSS)-
+else
+CCINCDIR := $(CCHOME)\include
+CCLIBDIR := $(CCHOME)\lib
+CCDLLDIR := $(CCHOME)\bin
+ARCHPREFIX :=
 endif
 
 ifeq ($(CCTYPE),GCC)
@@ -482,6 +502,10 @@ ifeq ($(USE_LONG_DOUBLE),define)
 BUILDOPT        += -D__USE_MINGW_ANSI_STDIO
 MINIBUILDOPT    += -D__USE_MINGW_ANSI_STDIO
 endif
+
+GCCVER1   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%i)
+GCCVER2   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%j)
+GCCVER3   := $(shell for /f "delims=. tokens=1,2,3" %%i in ('gcc -dumpversion') do echo %%k)
 
 # If you are using GCC, 4.3 or later by default we add the -fwrapv option.
 # See https://rt.perl.org/Ticket/Display.html?id=121505
@@ -998,9 +1022,8 @@ UUDMAP_H	= ..\uudmap.h
 BITCOUNT_H	= ..\bitcount.h
 MG_DATA_H	= ..\mg_data.h
 GENERATED_HEADERS = $(UUDMAP_H) $(BITCOUNT_H) $(MG_DATA_H)
-#a stub ppport.h must be generated so building XS modules, .c->.obj wise, will
-#work, so this target also represents creating the COREDIR and filling it
-HAVE_COREDIR	= $(COREDIR)\ppport.h
+
+HAVE_COREDIR	= .coreheaders
 
 MICROCORE_OBJ	= $(MICROCORE_SRC:.c=$(o))
 CORE_OBJ	= $(MICROCORE_OBJ) $(EXTRACORE_SRC:.c=$(o))
@@ -1084,15 +1107,18 @@ CFG_VARS	=					\
 all : info rebasePE Extensions_nonxs $(PERLSTATIC)
 
 info :
+	@echo # CCTYPE=$(CCTYPE)
+ifeq ($(CCTYPE),GCC)
 	@echo # GCCBIN=$(GCCBIN)
 	@echo # GCCVER=$(GCCVER1).$(GCCVER2).$(GCCVER3)
 	@echo # GCCTARGET=$(GCCTARGET)
 	@echo # GCCCROSS=$(GCCCROSS)
+endif
 	@echo # WIN64=$(WIN64)
 	@echo # ARCHITECTURE=$(ARCHITECTURE)
 	@echo # ARCHNAME=$(ARCHNAME)
 	@echo # MAKE=$(PLMAKE)
-ifeq ($(GCCTARGET),)
+ifeq ($(CCTYPE),)
 	@echo Unable to detect gcc and/or architecture!
 	@exit 1
 endif
@@ -1419,10 +1445,13 @@ else
 	$(EMBED_EXE_MANI)
 endif
 
-#This generates a stub ppport.h & creates & fills /lib/CORE to allow for XS
-#building .c->.obj wise (linking is a different thing). This target is AKA
-#$(HAVE_COREDIR).
-$(COREDIR)\ppport.h : $(CORE_H)
+.PHONY: MakePPPort
+
+MakePPPort : $(HAVEMINIPERL) $(CONFIGPM)
+	$(MINIPERL) -I..\lib ..\mkppport
+
+# also known as $(HAVE_COREDIR)
+.coreheaders : $(CORE_H)
 	$(XCOPY) *.h $(COREDIR)\\*.*
 	$(RCOPY) include $(COREDIR)\\*.*
 	$(XCOPY) ..\\*.h $(COREDIR)\\*.*
@@ -1461,7 +1490,7 @@ endif
 # DynaLoader.pm, so this will have to do
 
 #most of deps of this target are in DYNALOADER and therefore omitted here
-Extensions : $(PERLDEP) $(DYNALOADER) $(GLOBEXE)
+Extensions : $(PERLDEP) $(DYNALOADER) $(GLOBEXE) MakePPPort
 	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(PLMAKE)" --dir=$(CPANDIR) --dir=$(DISTDIR) --dir=$(EXTDIR) --dynamic !Unicode/Normalize
 
 Extensions_normalize : $(PERLDEP) $(DYNALOADER) $(GLOBEXE) $(UNIDATAFILES)
@@ -1470,7 +1499,7 @@ Extensions_normalize : $(PERLDEP) $(DYNALOADER) $(GLOBEXE) $(UNIDATAFILES)
 Extensions_reonly : $(PERLDEP) $(DYNALOADER)
 	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(PLMAKE)" --dir=$(CPANDIR) --dir=$(DISTDIR) --dir=$(EXTDIR) --dynamic +re
 
-Extensions_static : ..\make_ext.pl list_static_libs.pl $(CONFIGPM) $(GLOBEXE) $(HAVE_COREDIR)
+Extensions_static : ..\make_ext.pl list_static_libs.pl $(CONFIGPM) $(GLOBEXE) $(HAVE_COREDIR) MakePPPort
 	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(PLMAKE)" --dir=$(CPANDIR) --dir=$(DISTDIR) --dir=$(EXTDIR) --static
 	$(MINIPERL) -I..\lib list_static_libs.pl > Extensions_static
 
@@ -1544,7 +1573,7 @@ utils: $(HAVEMINIPERL) ..\utils\Makefile
 	copy ..\README.tw       ..\pod\perltw.pod
 	copy ..\README.vos      ..\pod\perlvos.pod
 	copy ..\README.win32    ..\pod\perlwin32.pod
-	copy ..\pod\perldelta.pod ..\pod\perl5253delta.pod
+	copy ..\pod\perldelta.pod ..\pod\perl5257delta.pod
 	$(MINIPERL) -I..\lib $(PL2BAT) $(UTILS)
 	$(MINIPERL) -I..\lib ..\autodoc.pl ..
 	$(MINIPERL) -I..\lib ..\pod\perlmodlib.PL -q ..
@@ -1641,7 +1670,7 @@ distclean: realclean
 	-if exist $(LIBDIR)\Win32API rmdir /s /q $(LIBDIR)\Win32API
 	-if exist $(LIBDIR)\XS rmdir /s /q $(LIBDIR)\XS
 	-cd $(PODDIR) && del /f *.html *.bat roffitall \
-	    perl5253delta.pod perlaix.pod perlamiga.pod perlandroid.pod \
+	    perl5257delta.pod perlaix.pod perlamiga.pod perlandroid.pod \
 	    perlapi.pod perlbs2000.pod perlce.pod perlcn.pod perlcygwin.pod \
 	    perldos.pod perlfreebsd.pod perlhaiku.pod perlhpux.pod \
 	    perlhurd.pod perlintern.pod perlirix.pod perljp.pod perlko.pod \
@@ -1769,6 +1798,7 @@ _clean :
 	-@erase $(PERLDLL)
 	-@erase $(CORE_OBJ)
 	-@erase $(GENUUDMAP) $(GENUUDMAP_OBJ) $(GENERATED_HEADERS)
+	-@erase .coreheaders
 	-if exist $(MINIDIR) rmdir /s /q $(MINIDIR)
 	-if exist $(UNIDATADIR1) rmdir /s /q $(UNIDATADIR1)
 	-if exist $(UNIDATADIR2) rmdir /s /q $(UNIDATADIR2)

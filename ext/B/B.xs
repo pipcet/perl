@@ -542,7 +542,7 @@ walkoptree(pTHX_ OP *o, const char *method, SV *ref)
 	    ref = walkoptree(aTHX_ kid, method, ref);
 	}
     }
-    if (o && (cc_opclass(aTHX_ o) == OPc_PMOP) && o->op_type != OP_PUSHRE
+    if (o && (cc_opclass(aTHX_ o) == OPc_PMOP) && o->op_type != OP_SPLIT
            && (kid = PMOP_pmreplroot(cPMOPo)))
     {
 	ref = walkoptree(aTHX_ kid, method, ref);
@@ -894,11 +894,11 @@ CODE:
  int i; 
  IV  result = -1;
  ST(0) = sv_newmortal();
- if (strncmp(name,"pp_",3) == 0)
+ if (strEQs(name,"pp_"))
    name += 3;
  for (i = 0; i < PL_maxo; i++)
   {
-   if (strcmp(name, PL_op_name[i]) == 0)
+   if (strEQ(name, PL_op_name[i]))
     {
      result = i;
      break;
@@ -1128,16 +1128,19 @@ next(o)
 		}
 		break;
 	    case 34: /* B::PMOP::pmreplroot */
-		if (cPMOPo->op_type == OP_PUSHRE) {
-#ifdef USE_ITHREADS
+		if (cPMOPo->op_type == OP_SPLIT) {
 		    ret = sv_newmortal();
-		    sv_setiv(ret, cPMOPo->op_pmreplrootu.op_pmtargetoff);
-#else
-		    GV *const target = cPMOPo->op_pmreplrootu.op_pmtargetgv;
-		    ret = sv_newmortal();
-		    sv_setiv(newSVrv(ret, target ?
-				     svclassnames[SvTYPE((SV*)target)] : "B::SV"),
-			     PTR2IV(target));
+#ifndef USE_ITHREADS
+                    if (o->op_private & OPpSPLIT_LEX)
+#endif
+                        sv_setiv(ret, cPMOPo->op_pmreplrootu.op_pmtargetoff);
+#ifndef USE_ITHREADS
+                    else {
+                        GV *const target = cPMOPo->op_pmreplrootu.op_pmtargetgv;
+                        sv_setiv(newSVrv(ret, target ?
+                                         svclassnames[SvTYPE((SV*)target)] : "B::SV"),
+                                 PTR2IV(target));
+                    }
 #endif
 		}
 		else {
@@ -1325,14 +1328,30 @@ string(o, cv)
 	B::CV  cv
     PREINIT:
 	SV *ret;
+        UNOP_AUX_item *aux;
     PPCODE:
+        aux = cUNOP_AUXo->op_aux;
         switch (o->op_type) {
         case OP_MULTIDEREF:
             ret = multideref_stringify(o, cv);
             break;
+
+        case OP_ARGELEM:
+            ret = sv_2mortal(Perl_newSVpvf(aTHX_ "%"IVdf,
+                            PTR2IV(aux)));
+            break;
+
+        case OP_ARGCHECK:
+            ret = Perl_newSVpvf(aTHX_ "%"IVdf",%"IVdf, aux[0].iv, aux[1].iv);
+            if (aux[2].iv)
+                Perl_sv_catpvf(aTHX_ ret, ",%c", (char)aux[2].iv);
+            ret = sv_2mortal(ret);
+            break;
+
         default:
             ret = sv_2mortal(newSVpvn("", 0));
         }
+
 	ST(0) = ret;
 	XSRETURN(1);
 
@@ -1346,11 +1365,27 @@ void
 aux_list(o, cv)
 	B::OP  o
 	B::CV  cv
+    PREINIT:
+        UNOP_AUX_item *aux;
     PPCODE:
         PERL_UNUSED_VAR(cv); /* not needed on unthreaded builds */
+        aux = cUNOP_AUXo->op_aux;
         switch (o->op_type) {
         default:
             XSRETURN(0); /* by default, an empty list */
+
+        case OP_ARGELEM:
+            XPUSHs(sv_2mortal(newSViv(PTR2IV(aux))));
+            XSRETURN(1);
+            break;
+
+        case OP_ARGCHECK:
+            EXTEND(SP, 3);
+            PUSHs(sv_2mortal(newSViv(aux[0].iv)));
+            PUSHs(sv_2mortal(newSViv(aux[1].iv)));
+            PUSHs(sv_2mortal(aux[2].iv ? Perl_newSVpvf(aTHX_ "%c",
+                                (char)aux[2].iv) : &PL_sv_no));
+            break;
 
         case OP_MULTIDEREF:
 #ifdef USE_ITHREADS

@@ -1,15 +1,19 @@
 # tr.t
 $|=1;
 
-use utf8;
-
 BEGIN {
     chdir 't' if -d 't';
     require './test.pl';
     set_up_inc('../lib');
+    if (is_miniperl()) {
+	eval 'require utf8';
+        if ($@) { skip_all("miniperl, no 'utf8'") }
+    }
 }
 
-plan tests => 164;
+use utf8;
+
+plan tests => 166;
 
 # Test this first before we extend the stack with other operations.
 # This caused an asan failure due to a bad write past the end of the stack.
@@ -166,7 +170,7 @@ like $@, qr\^Using !~ with tr///r doesn't make sense\,
   is $wc, 1, '/r warns just once';
 }
 
-# perlbug [ID 20000511.005]
+# perlbug [ID 20000511.005 (#3237)]
 $_ = 'fred';
 /([a-z]{2})/;
 $1 =~ tr/A-Z//;
@@ -498,7 +502,7 @@ is( ref $x, 'SCALAR', "    doesn't stringify its argument" );
 
 # rt.perl.org 36622.  Perl didn't like a y/// at end of file.  No trailing
 # newline allowed.
-fresh_perl_is(q[$_ = "foo"; y/A-Z/a-z/], '');
+fresh_perl_is(q[$_ = "foo"; y/A-Z/a-z/], '', {}, 'RT #36622 y/// at end of file');
 
 
 { # [perl #38293] chr(65535) should be allowed in regexes
@@ -641,6 +645,15 @@ for ("", nullrocow) {
 	ok(1, "tr///s on PL_Yes does not assert");
 	eval q{ *x =~ tr///d };
 	ok(1, "tr///d on glob does not assert");
+}
+
+{ # [perl #128734
+    my $string = chr utf8::unicode_to_native(0x00e0);
+    $string =~ tr/\N{U+00e0}/A/;
+    is($string, "A", 'tr// of \N{U+...} works for upper-Latin1');
+    my $string = chr utf8::unicode_to_native(0x00e1);
+    $string =~ tr/\N{LATIN SMALL LETTER A WITH ACUTE}/A/;
+    is($string, "A", 'tr// of \N{name} works for upper-Latin1');
 }
 
 1;

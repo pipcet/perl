@@ -522,17 +522,26 @@ Free_t   Perl_mfree (Malloc_t where)
 
 #endif
 
-/* copy a string up to some (non-backslashed) delimiter, if any */
+/* copy a string up to some (non-backslashed) delimiter, if any.
+ * With allow_escape, converts \<delimiter> to <delimiter>, while leaves
+ * \<non-delimiter> as-is.
+ * Returns the position in the src string of the closing delimiter, if
+ * any, or returns fromend otherwise.
+ * This is the internal implementation for Perl_delimcpy and
+ * Perl_delimcpy_no_escape.
+ */
 
-char *
-Perl_delimcpy(char *to, const char *toend, const char *from, const char *fromend, int delim, I32 *retlen)
+static char *
+S_delimcpy_intern(char *to, const char *toend, const char *from,
+	   const char *fromend, int delim, I32 *retlen,
+	   const bool allow_escape)
 {
     I32 tolen;
 
     PERL_ARGS_ASSERT_DELIMCPY;
 
     for (tolen = 0; from < fromend; from++, tolen++) {
-	if (*from == '\\') {
+	if (allow_escape && *from == '\\' && from + 1 < fromend) {
 	    if (from[1] != delim) {
 		if (to < toend)
 		    *to++ = *from;
@@ -549,6 +558,23 @@ Perl_delimcpy(char *to, const char *toend, const char *from, const char *fromend
 	*to = '\0';
     *retlen = tolen;
     return (char *)from;
+}
+
+char *
+Perl_delimcpy(char *to, const char *toend, const char *from, const char *fromend, int delim, I32 *retlen)
+{
+    PERL_ARGS_ASSERT_DELIMCPY;
+
+    return S_delimcpy_intern(to, toend, from, fromend, delim, retlen, 1);
+}
+
+char *
+Perl_delimcpy_no_escape(char *to, const char *toend, const char *from,
+			const char *fromend, int delim, I32 *retlen)
+{
+    PERL_ARGS_ASSERT_DELIMCPY_NO_ESCAPE;
+
+    return S_delimcpy_intern(to, toend, from, fromend, delim, retlen, 0);
 }
 
 /*
@@ -705,21 +731,8 @@ Perl_fbm_compile(pTHX_ SV *sv, U32 flags)
     SvUPGRADE(sv, SVt_PVMG);
     SvIOK_off(sv);
     SvNOK_off(sv);
-    SvVALID_on(sv);
 
-    /* "deep magic", the comment used to add. The use of MAGIC itself isn't
-       really. MAGIC was originally added in 79072805bf63abe5 (perl 5.0 alpha 2)
-       to call SvVALID_off() if the scalar was assigned to.
-
-       The comment itself (and "deeper magic" below) date back to
-       378cc40b38293ffc (perl 2.0). "deep magic" was an annotation on
-       str->str_pok |= 2;
-       where the magic (presumably) was that the scalar had a BM table hidden
-       inside itself.
-
-       As MAGIC is always present on BMs [in Perl 5 :-)], we can use it to store
-       the table instead of the previous (somewhat hacky) approach of co-opting
-       the string buffer and storing it after the string.  */
+    /* add PERL_MAGIC_bm magic holding the FBM lookup table */
 
     assert(!mg_find(sv, PERL_MAGIC_bm));
     mg = sv_magicext(sv, NULL, PERL_MAGIC_bm, &PL_vtbl_bm, NULL, 0);
@@ -754,8 +767,7 @@ Perl_fbm_compile(pTHX_ SV *sv, U32 flags)
 	}
     }
     BmUSEFUL(sv) = 100;			/* Initial value */
-    if (flags & FBMcf_TAIL)
-	SvTAIL_on(sv);
+    ((XPVNV*)SvANY(sv))->xnv_u.xnv_bm_tail = cBOOL(flags & FBMcf_TAIL);
     DEBUG_r(PerlIO_printf(Perl_debug_log, "rarest char %c at %"UVuf"\n",
 			  s[rarest], (UV)rarest));
 }
@@ -799,11 +811,13 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
     const unsigned char *little = (const unsigned char *)SvPV_const(littlestr,l);
     STRLEN littlelen = l;
     const I32 multiline = flags & FBMrf_MULTILINE;
+    bool valid = SvVALID(littlestr);
+    bool tail = valid ? cBOOL(SvTAIL(littlestr)) : FALSE;
 
     PERL_ARGS_ASSERT_FBM_INSTR;
 
     if ((STRLEN)(bigend - big) < littlelen) {
-	if ( SvTAIL(littlestr)
+	if (     tail
 	     && ((STRLEN)(bigend - big) == littlelen - 1)
 	     && (littlelen == 1
 		 || (*big == *little &&
@@ -817,19 +831,19 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	return (char*)big;		/* Cannot be SvTAIL! */
 
     case 1:
-	    if (SvTAIL(littlestr) && !multiline) /* Anchor only! */
+	    if (tail && !multiline) /* Anchor only! */
 		/* [-1] is safe because we know that bigend != big.  */
 		return (char *) (bigend - (bigend[-1] == '\n'));
 
 	    s = (unsigned char *)memchr((void*)big, *little, bigend-big);
             if (s)
                 return (char *)s;
-	    if (SvTAIL(littlestr))
+	    if (tail)
 		return (char *) bigend;
 	    return NULL;
 
     case 2:
-	if (SvTAIL(littlestr) && !multiline) {
+	if (tail && !multiline) {
             /* a littlestr with SvTAIL must be of the form "X\n" (where X
              * is a single char). It is anchored, and can only match
              * "....X\n"  or  "....X" */
@@ -907,7 +921,7 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 
             /* failed to find 2 chars; try anchored match at end without
              * the \n */
-            if (SvTAIL(littlestr) && bigend[0] == little[0])
+            if (tail && bigend[0] == little[0])
                 return (char *)bigend;
             return NULL;
         }
@@ -916,7 +930,7 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	break; /* Only lengths 0 1 and 2 have special-case code.  */
     }
 
-    if (SvTAIL(littlestr) && !multiline) {	/* tail anchored? */
+    if (tail && !multiline) {	/* tail anchored? */
 	s = bigend - littlelen;
 	if (s >= big && bigend[-1] == '\n' && *s == *little
 	    /* Automatically of length > 2 */
@@ -932,12 +946,12 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	return NULL;
     }
 
-    if (!SvVALID(littlestr)) {
+    if (!valid) {
         /* not compiled; use Perl_ninstr() instead */
 	char * const b = ninstr((char*)big,(char*)bigend,
 			 (char*)little, (char*)little + littlelen);
 
-	if (!b && SvTAIL(littlestr)) {	/* Automatically multiline!  */
+	if (!b && tail) {	/* Automatically multiline!  */
 	    /* Chop \n from littlestr: */
 	    s = bigend - littlelen + 1;
 	    if (*s == *little
@@ -1009,7 +1023,7 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	}
       check_end:
 	if ( s == bigend
-	     && SvTAIL(littlestr)
+	     && tail
 	     && memEQ((char *)(bigend - littlelen),
 		      (char *)(oldlittle - littlelen), littlelen) )
 	    return (char*)bigend - littlelen;
@@ -5704,9 +5718,13 @@ Note that C<size> is the full size of the destination buffer and
 the result is guaranteed to be C<NUL>-terminated if there is room.  Note that
 room for the C<NUL> should be included in C<size>.
 
+The return value is the total length that C<dst> would have if C<size> is
+sufficiently large.  Thus it is the initial length of C<dst> plus the length of
+C<src>.  If C<size> is smaller than the return, the excess was not appended.
+
 =cut
 
-Description stolen from http://www.openbsd.org/cgi-bin/man.cgi?query=strlcat
+Description stolen from http://man.openbsd.org/strlcat.3
 */
 #ifndef HAS_STRLCAT
 Size_t
@@ -5735,9 +5753,12 @@ This operates on C C<NUL>-terminated strings.
 C<my_strlcpy()> copies up to S<C<size - 1>> characters from the string C<src>
 to C<dst>, C<NUL>-terminating the result if C<size> is not 0.
 
+The return value is the total length C<src> would be if the copy completely
+succeeded.  If it is larger than C<size>, the excess was not copied.
+
 =cut
 
-Description stolen from http://www.openbsd.org/cgi-bin/man.cgi?query=strlcpy
+Description stolen from http://man.openbsd.org/strlcpy.3
 */
 #ifndef HAS_STRLCPY
 Size_t

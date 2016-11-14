@@ -546,7 +546,8 @@ sub select_a_perl {
 
 
 # Validate the list of perl=label (+ cmdline options) on the command line.
-# Return a list of [ exe, label, cmdline-options ] tuples, ie PUTs
+# Return a list of [ exe, label, cmdline-options ] tuples, i.e.
+# 'perl-under-test's (PUTs)
 
 sub process_puts {
     my @res_puts; # returned, each item is [ perlexe, label, @putargs ]
@@ -559,7 +560,7 @@ sub process_puts {
         my ($perl, $label, $env) = split /[=:,]/, $p, 3;
         $label //= $perl;
         $label = $perl.$label if $label =~ /^\+/;
-        die "$label cannot be used on 2 different PUTs\n" if $seen{$label}++;
+        die "$label cannot be used on 2 different perls under test\n" if $seen{$label}++;
 
         my %env;
         if ($env) {
@@ -572,7 +573,7 @@ sub process_puts {
             warn "Added Perl-Under-Test: [ @{[@{$res_puts[-1]}]} ]\n"
                 if $OPTS{verbose};
 	} else {
-            warn "PUT-args: @putargs + a not-perl: $p $r\n"
+            warn "perl-under-test args: @putargs + a not-perl: $p $r\n"
                 if $OPTS{verbose};
             push @putargs, $p; # not-perl
 	}
@@ -1151,7 +1152,7 @@ sub sorted_test_names {
     unless ($OPTS{average}) {
         if (defined $OPTS{'sort-field'}) {
             my ($field, $perlix) = @OPTS{'sort-field', 'sort-perl'};
-            my $perl = $perls->[$perlix][0];
+            my $perl = $perls->[$perlix][1];
             @names = sort
                 {
                         $results->{$a}{$perl}{$field}
@@ -1335,7 +1336,7 @@ sub grind_print_compact {
     for my $test_name (@test_names) {
         my $doing_ave = ($test_name eq 'AVERAGE');
         my $res = $doing_ave ? $averages : $results->{$test_name};
-        $res = $res->{$perls->[$which_perl][0]};
+        $res = $res->{$perls->[$which_perl][1]};
 
         for my $field (@fields) {
             my $p = $res->{$field};

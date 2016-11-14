@@ -7,7 +7,7 @@ use warnings;
 
 BEGIN { chdir 't' if -d 't'; require './test.pl'; }
 
-plan(tests => 26);
+plan(tests => 34);
 
 {
     no warnings 'deprecated';
@@ -129,7 +129,7 @@ fresh_perl_is(
   '* <null> ident'
 );
 SKIP: {
-    skip "Different output on EBCDIC (presumably)", 2 if $::IS_EBCDIC;
+    skip "Different output on EBCDIC (presumably)", 3 if $::IS_EBCDIC;
     fresh_perl_is(
       qq'"ab}"ax;&\0z\x8Ao}\x82x;', <<gibberish,
 Bareword found where operator expected at - line 1, near ""ab}"ax"
@@ -149,6 +149,13 @@ Unrecognized character \\x8A; marked by <-- HERE after }"ax;&{+z}<-- HERE near c
 gibberish
        { stderr => 1 },
       'gibberish containing &{+z} - used to crash [perl #123753]'
+    );
+    fresh_perl_is(
+      "\@{\327\n", <<\gibberisi,
+Unrecognized character \xD7; marked by <-- HERE after @{<-- HERE near column 3 at - line 1.
+gibberisi
+       { stderr => 1 },
+      '@ { \327 \n - used to garble output (or fail asan) [perl #128951]'
     );
 }
 
@@ -214,5 +221,54 @@ fresh_perl_is(
   '$_ = q-strict.pm-; 1 ? require : die;'
  .' print qq-ok\n- if $INC{q-strict.pm-}',
   "ok\n",
+  {},
   'foo ? require : bar [perl #128307]'
 );
+
+like runperl(prog => 'sub ub(){0} ub ub', stderr=>1), qr/Bareword found/,
+ '[perl #126482] Assert failure when mentioning a constant twice in a row';
+
+fresh_perl_is(
+    "do\0"."000000",
+    "",
+    {},
+    '[perl #129069] - no output and valgrind clean'
+);
+
+fresh_perl_is(
+    "00my sub\0",
+    "Missing name in \"my sub\" at - line 1.\n",
+    {},
+    '[perl #129069] - "Missing name" warning and valgrind clean'
+);
+
+fresh_perl_like(
+    "#!perl -i u\nprint 'OK'",
+    qr/OK/,
+    {},
+    '[perl #129336] - #!perl -i argument handling'
+);
+SKIP:
+{
+    ord("A") == 65
+      or skip "These tests won't work on EBCIDIC", 3;
+    fresh_perl_is(
+        "BEGIN{\$^H=hex ~0}\xF3",
+        "Integer overflow in hexadecimal number at - line 1.\n" .
+        "Malformed UTF-8 character: \\xf3 (too short; got 1 byte, need 4) at - line 1.",
+        {},
+        '[perl #128996] - use of PL_op after op is freed'
+    );
+    fresh_perl_like(
+        qq(BEGIN{\$0="";\$^H=-hex join""=>1}""\xFF),
+        qr/Malformed UTF-8 character: \\xff \(too short; got 1 byte, need 13\) at - line 1\./,
+        {},
+        '[perl #128997] - buffer read overflow'
+    );
+    fresh_perl_like(
+        qq(BEGIN{\$^H=0x800000}\n   0m 0\xB5\xB500\xB5\0),
+        qr/Unrecognized character \\x\{0\}; marked by <-- HERE after    0m.*<-- HERE near column 12 at - line 2./,
+        {},
+        '[perl #129000] read before buffer'
+    );
+}

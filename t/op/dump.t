@@ -4,9 +4,8 @@
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = qw(. ../lib);
     require './test.pl';
-
+    set_up_inc( qw(. ../lib) );
     skip_all_if_miniperl();
 }
 
@@ -24,7 +23,7 @@ skip_all("only tested on devel builds")
 # fork() and waitpid().
 
 skip_all("no point in dumping on $^O")
-  unless $^O =~ /^(linux|.*bsd|solaris)$/;
+  unless $^O =~ /^(linux|.*bsd|solaris|darwin)$/;
 
 skip_all("avoid coredump under ASan")
   if  $Config{ccflags} =~ /-fsanitize=/;

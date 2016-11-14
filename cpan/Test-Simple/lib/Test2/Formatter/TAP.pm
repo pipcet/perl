@@ -1,8 +1,9 @@
 package Test2::Formatter::TAP;
 use strict;
 use warnings;
+require PerlIO;
 
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 
 use Test2::Util::HashBase qw{
@@ -108,8 +109,13 @@ sub write {
 sub _open_handles {
     my $self = shift;
 
-    open( my $out, '>&', STDOUT ) or die "Can't dup STDOUT:  $!";
-    open( my $err, '>&', STDERR ) or die "Can't dup STDERR:  $!";
+    my %seen;
+    open(my $out, '>&', STDOUT) or die "Can't dup STDOUT:  $!";
+    binmode($out, join(":", "", "raw", grep { $_ ne 'unix' and !$seen{$_}++ } PerlIO::get_layers(STDOUT)));
+
+    %seen = ();
+    open(my $err, '>&', STDERR) or die "Can't dup STDERR:  $!";
+    binmode($err, join(":", "", "raw", grep { $_ ne 'unix' and !$seen{$_}++ } PerlIO::get_layers(STDERR)));
 
     _autoflush($out);
     _autoflush($err);
@@ -148,12 +154,34 @@ sub event_ok {
     $out .= "not " unless $e->{pass};
     $out .= "ok";
     $out .= " $num" if defined($num);
+
+    # The regex form is ~250ms, the index form is ~50ms
+    my @extra;
+    defined($name) && (
+        (index($name, "\n") != -1 && (($name, @extra) = split(/\n\r?/, $name, -1))),
+        ((index($name, "#" ) != -1  || substr($name, -1) eq '\\') && (($name =~ s|\\|\\\\|g), ($name =~ s|#|\\#|g)))
+    );
+
+    my $space = @extra ? ' ' x (length($out) + 2) : '';
+
     $out .= " - $name" if defined $name;
     $out .= " # TODO" if $in_todo;
     $out .= " $todo" if defined($todo) && length($todo);
 
     # The primary line of TAP, if the test passed this is all we need.
-    return([OUT_STD, "$out\n"]);
+    return([OUT_STD, "$out\n"]) unless @extra;
+
+    return $self->event_ok_multiline($out, $space, @extra);
+}
+
+sub event_ok_multiline {
+    my $self = shift;
+    my ($out, $space, @extra) = @_;
+
+    return(
+        [OUT_STD, "$out\n"],
+        map {[OUT_STD, "#${space}$_\n"]} @extra,
+    );
 }
 
 sub event_skip {

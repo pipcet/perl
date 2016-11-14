@@ -63,6 +63,7 @@ typedef struct {
     I32 useqq;
     int use_sparse_seen_hash;
     int trailingcomma;
+    int deparse;
 } Style;
 
 static STRLEN num_q (const char *s, STRLEN slen);
@@ -505,6 +506,51 @@ sv_x(pTHX_ SV *sv, const char *str, STRLEN len, I32 n)
     return sv;
 }
 
+static SV *
+deparsed_output(pTHX_ SV *val)
+{
+    SV *text;
+    int n;
+    dSP;
+
+    /* This is passed to load_module(), which decrements its ref count and
+     * modifies it (so we also can't reuse it below) */
+    SV *pkg = newSVpvs("B::Deparse");
+
+    load_module(PERL_LOADMOD_NOIMPORT, pkg, 0);
+
+    SAVETMPS;
+
+    PUSHMARK(SP);
+    mXPUSHs(newSVpvs("B::Deparse"));
+    PUTBACK;
+
+    n = call_method("new", G_SCALAR);
+    SPAGAIN;
+
+    if (n != 1) {
+        croak("B::Deparse->new returned %d items, but expected exactly 1", n);
+    }
+
+    PUSHMARK(SP - n);
+    XPUSHs(val);
+    PUTBACK;
+
+    n = call_method("coderef2text", G_SCALAR);
+    SPAGAIN;
+
+    if (n != 1) {
+        croak("$b_deparse->coderef2text returned %d items, but expected exactly 1", n);
+    }
+
+    text = POPs;
+    SvREFCNT_inc(text);         /* the caller will mortalise this */
+
+    FREETMPS;
+
+    return text;
+}
+
 /*
  * This ought to be split into smaller functions. (it is one long function since
  * it exactly parallels the perl version, which was one long thing for
@@ -886,7 +932,6 @@ DD_dump(pTHX_ SV *val, const char *name, STRLEN namelen, SV *retval, HV *seenhv,
 	    SV *sname;
 	    HE *entry = NULL;
 	    char *key;
-	    STRLEN klen;
 	    SV *hval;
 	    AV *keys = NULL;
 	
@@ -976,6 +1021,7 @@ DD_dump(pTHX_ SV *val, const char *name, STRLEN namelen, SV *retval, HV *seenhv,
                 char *nkey_buffer = NULL;
                 STRLEN nticks = 0;
 		SV* keysv;
+                STRLEN klen;
 		STRLEN keylen;
                 STRLEN nlen;
 		bool do_utf8 = FALSE;
@@ -1029,7 +1075,7 @@ DD_dump(pTHX_ SV *val, const char *name, STRLEN namelen, SV *retval, HV *seenhv,
                 if (style->quotekeys || key_needs_quote(key,keylen)) {
                     if (do_utf8 || style->useqq) {
                         STRLEN ocur = SvCUR(retval);
-                        nlen = esc_q_utf8(aTHX_ retval, key, klen, do_utf8, style->useqq);
+                        klen = nlen = esc_q_utf8(aTHX_ retval, key, klen, do_utf8, style->useqq);
                         nkey = SvPVX(retval) + ocur;
                     }
                     else {
@@ -1095,9 +1141,41 @@ DD_dump(pTHX_ SV *val, const char *name, STRLEN namelen, SV *retval, HV *seenhv,
 	    SvREFCNT_dec(totpad);
 	}
 	else if (realtype == SVt_PVCV) {
-	    sv_catpvs(retval, "sub { \"DUMMY\" }");
-            if (style->purity)
-		warn("Encountered CODE ref, using dummy placeholder");
+            if (style->deparse) {
+                SV *deparsed = sv_2mortal(deparsed_output(aTHX_ val));
+                SV *fullpad = sv_2mortal(newSVsv(style->sep));
+                const char *p;
+                STRLEN plen;
+                I32 i;
+
+                sv_catsv(fullpad, style->pad);
+                sv_catsv(fullpad, apad);
+                for (i = 0; i < level; i++) {
+                    sv_catsv(fullpad, style->xpad);
+                }
+
+                sv_catpvs(retval, "sub ");
+                p = SvPV(deparsed, plen);
+                while (plen > 0) {
+                    const char *nl = (const char *) memchr(p, '\n', plen);
+                    if (!nl) {
+                        sv_catpvn(retval, p, plen);
+                        break;
+                    }
+                    else {
+                        size_t n = nl - p;
+                        sv_catpvn(retval, p, n);
+                        sv_catsv(retval, fullpad);
+                        p += n + 1;
+                        plen -= n + 1;
+                    }
+                }
+            }
+            else {
+                sv_catpvs(retval, "sub { \"DUMMY\" }");
+                if (style->purity)
+                    warn("Encountered CODE ref, using dummy placeholder");
+            }
 	}
 	else {
 	    warn("cannot handle ref type %d", (int)realtype);
@@ -1412,53 +1490,55 @@ Data_Dumper_Dumpxs(href, ...)
 		&& (hv = (HV*)SvRV((SV*)href))
 		&& SvTYPE(hv) == SVt_PVHV)		{
 
-		if ((svp = hv_fetch(hv, "seen", 4, FALSE)) && SvROK(*svp))
+		if ((svp = hv_fetchs(hv, "seen", FALSE)) && SvROK(*svp))
 		    seenhv = (HV*)SvRV(*svp);
                 else
                     style.use_sparse_seen_hash = 1;
-		if ((svp = hv_fetch(hv, "noseen", 6, FALSE)))
+		if ((svp = hv_fetchs(hv, "noseen", FALSE)))
                     style.use_sparse_seen_hash = (SvOK(*svp) && SvIV(*svp) != 0);
-		if ((svp = hv_fetch(hv, "todump", 6, FALSE)) && SvROK(*svp))
+		if ((svp = hv_fetchs(hv, "todump", FALSE)) && SvROK(*svp))
 		    todumpav = (AV*)SvRV(*svp);
-		if ((svp = hv_fetch(hv, "names", 5, FALSE)) && SvROK(*svp))
+		if ((svp = hv_fetchs(hv, "names", FALSE)) && SvROK(*svp))
 		    namesav = (AV*)SvRV(*svp);
-		if ((svp = hv_fetch(hv, "indent", 6, FALSE)))
+		if ((svp = hv_fetchs(hv, "indent", FALSE)))
                     style.indent = SvIV(*svp);
-		if ((svp = hv_fetch(hv, "purity", 6, FALSE)))
+		if ((svp = hv_fetchs(hv, "purity", FALSE)))
                     style.purity = SvIV(*svp);
-		if ((svp = hv_fetch(hv, "terse", 5, FALSE)))
+		if ((svp = hv_fetchs(hv, "terse", FALSE)))
 		    terse = SvTRUE(*svp);
-		if ((svp = hv_fetch(hv, "useqq", 5, FALSE)))
+		if ((svp = hv_fetchs(hv, "useqq", FALSE)))
                     style.useqq = SvTRUE(*svp);
-		if ((svp = hv_fetch(hv, "pad", 3, FALSE)))
+		if ((svp = hv_fetchs(hv, "pad", FALSE)))
                     style.pad = *svp;
-		if ((svp = hv_fetch(hv, "xpad", 4, FALSE)))
+		if ((svp = hv_fetchs(hv, "xpad", FALSE)))
                     style.xpad = *svp;
-		if ((svp = hv_fetch(hv, "apad", 4, FALSE)))
+		if ((svp = hv_fetchs(hv, "apad", FALSE)))
 		    apad = *svp;
-		if ((svp = hv_fetch(hv, "sep", 3, FALSE)))
+		if ((svp = hv_fetchs(hv, "sep", FALSE)))
                     style.sep = *svp;
-		if ((svp = hv_fetch(hv, "pair", 4, FALSE)))
+		if ((svp = hv_fetchs(hv, "pair", FALSE)))
                     style.pair = *svp;
-		if ((svp = hv_fetch(hv, "varname", 7, FALSE)))
+		if ((svp = hv_fetchs(hv, "varname", FALSE)))
 		    varname = *svp;
-		if ((svp = hv_fetch(hv, "freezer", 7, FALSE)))
+		if ((svp = hv_fetchs(hv, "freezer", FALSE)))
                     style.freezer = *svp;
-		if ((svp = hv_fetch(hv, "toaster", 7, FALSE)))
+		if ((svp = hv_fetchs(hv, "toaster", FALSE)))
                     style.toaster = *svp;
-		if ((svp = hv_fetch(hv, "deepcopy", 8, FALSE)))
+		if ((svp = hv_fetchs(hv, "deepcopy", FALSE)))
                     style.deepcopy = SvTRUE(*svp);
-		if ((svp = hv_fetch(hv, "quotekeys", 9, FALSE)))
+		if ((svp = hv_fetchs(hv, "quotekeys", FALSE)))
                     style.quotekeys = SvTRUE(*svp);
-                if ((svp = hv_fetch(hv, "trailingcomma", 13, FALSE)))
+                if ((svp = hv_fetchs(hv, "trailingcomma", FALSE)))
                     style.trailingcomma = SvTRUE(*svp);
-		if ((svp = hv_fetch(hv, "bless", 5, FALSE)))
+                if ((svp = hv_fetchs(hv, "deparse", FALSE)))
+                    style.deparse = SvTRUE(*svp);
+		if ((svp = hv_fetchs(hv, "bless", FALSE)))
                     style.bless = *svp;
-		if ((svp = hv_fetch(hv, "maxdepth", 8, FALSE)))
+		if ((svp = hv_fetchs(hv, "maxdepth", FALSE)))
                     style.maxdepth = SvIV(*svp);
-		if ((svp = hv_fetch(hv, "maxrecurse", 10, FALSE)))
+		if ((svp = hv_fetchs(hv, "maxrecurse", FALSE)))
                     style.maxrecurse = SvIV(*svp);
-		if ((svp = hv_fetch(hv, "sortkeys", 8, FALSE))) {
+		if ((svp = hv_fetchs(hv, "sortkeys", FALSE))) {
                     SV *sv = *svp;
                     if (! SvTRUE(sv))
                         style.sortkeys = NULL;
@@ -1525,7 +1605,7 @@ Data_Dumper_Dumpxs(href, ...)
 		    }
 		    else {
 			STRLEN nchars;
-			sv_setpvn(name, "$", 1);
+			sv_setpvs(name, "$");
 			sv_catsv(name, varname);
 			nchars = my_snprintf(tmpbuf, sizeof(tmpbuf), "%"IVdf, (IV)(i+1));
 			sv_catpvn(name, tmpbuf, nchars);
@@ -1575,7 +1655,7 @@ Data_Dumper_Dumpxs(href, ...)
 			sv_catpvs(retval, ";");
                         sv_catsv(retval, style.sep);
 		    }
-		    sv_setpvn(valstr, "", 0);
+		    SvPVCLEAR(valstr);
 		    if (gimme == G_ARRAY) {
 			XPUSHs(sv_2mortal(retval));
 			if (i < imax)	/* not the last time thro ? */

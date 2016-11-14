@@ -28,6 +28,16 @@
 #   include "config.h"
 #endif
 
+/* this is used for functions which take a depth trailing
+ * argument under debugging */
+#ifdef DEBUGGING
+#define _pDEPTH ,U32 depth
+#define _aDEPTH ,depth
+#else
+#define _pDEPTH
+#define _aDEPTH
+#endif
+
 /* NOTE 1: that with gcc -std=c89 the __STDC_VERSION__ is *not* defined
  * because the __STDC_VERSION__ became a thing only with C90.  Therefore,
  * with gcc, HAS_C99 will never become true as long as we use -std=c89.
@@ -729,6 +739,10 @@
 #   include <locale.h>
 #endif
 
+#ifdef I_XLOCALE
+#   include <xlocale.h>
+#endif
+
 #if !defined(NO_LOCALE) && defined(HAS_SETLOCALE)
 #   define USE_LOCALE
 #   define HAS_SKIP_LOCALE_INIT /* Solely for XS code to test for this
@@ -756,10 +770,6 @@
 #       define my_setlocale(a,b) setlocale(a,b)
 #   endif
 #endif /* !NO_LOCALE && HAS_SETLOCALE */
-
-/* Is $^ENCODING set, or are we under the encoding pragma? */
-#define IN_ENCODING UNLIKELY(PL_encoding                                      \
-                             || (PL_lex_encoding && _get_encoding() != NULL))
 
 #include <setjmp.h>
 
@@ -1041,9 +1051,8 @@ EXTERN_C int usleep(unsigned int);
 #    endif
 #  endif
 #else
-#   ifndef memcmp
-#	define memcmp 	my_memcmp
-#   endif
+#   undef memcmp
+#   define memcmp   my_memcmp
 #endif /* HAS_MEMCMP && HAS_SANE_MEMCMP */
 
 #ifndef memzero
@@ -1271,14 +1280,13 @@ EXTERN_C char *crypt(const char *, const char *);
 #define CLEAR_ERRSV() STMT_START {					\
     SV ** const svp = &GvSV(PL_errgv);					\
     if (!*svp) {							\
-	goto clresv_newemptypv;						\
+        *svp = newSVpvs("");                                            \
     } else if (SvREADONLY(*svp)) {					\
 	SvREFCNT_dec_NN(*svp);						\
-	clresv_newemptypv:						\
 	*svp = newSVpvs("");						\
     } else {								\
 	SV *const errsv = *svp;						\
-	sv_setpvs(errsv, "");						\
+        SvPVCLEAR(errsv);                                               \
 	SvPOK_only(errsv);						\
 	if (SvMAGICAL(errsv)) {						\
 	    mg_free(errsv);						\
@@ -2022,6 +2030,12 @@ extern long double Perl_my_frexpl(long double x, int *e);
 #   define Perl_isinf(x) isinfq(x)
 #   define Perl_isnan(x) isnanq(x)
 #   define Perl_isfinite(x) !(isnanq(x) || isinfq(x))
+#   define Perl_fp_class(x) ((x) == 0.0Q ? 0 : isinfq(x) ? 3 : isnanq(x) ? 4 : PERL_ABS(x) < FLT128_MIN ? 2 : 1)
+#   define Perl_fp_class_inf(x)    (Perl_fp_class(x) == 3)
+#   define Perl_fp_class_nan(x)    (Perl_fp_class(x) == 4)
+#   define Perl_fp_class_norm(x)   (Perl_fp_class(x) == 1)
+#   define Perl_fp_class_denorm(x) (Perl_fp_class(x) == 2)
+#   define Perl_fp_class_zero(x)   (Perl_fp_class(x) == 0)
 #else
 #   define NV_DIG DBL_DIG
 #   ifdef DBL_MANT_DIG
@@ -3069,6 +3083,8 @@ freeing any remaining Perl interpreters.
  */
 #if defined(USE_ITHREADS) && defined(I_PTHREAD) && \
     defined(__clang__) && \
+    !defined(PERL_GLOBAL_STRUCT) && \
+    !defined(PERL_GLOBAL_STRUCT_PRIVATE) && \
     !defined(SWIG) && \
   ((!defined(__apple_build_version__) &&               \
     ((__clang_major__ == 3 && __clang_minor__ >= 6) || \
@@ -3794,6 +3810,14 @@ UNION_ANY_DEFINITION;
 #else
 union any {
     void*	any_ptr;
+    SV*         any_sv;
+    SV**        any_svp;
+    GV*         any_gv;
+    AV*         any_av;
+    HV*         any_hv;
+    OP*         any_op;
+    char*       any_pv;
+    char**      any_pvp;
     I32		any_i32;
     U32		any_u32;
     IV		any_iv;
@@ -3877,12 +3901,6 @@ typedef        struct crypt_data {     /* straight from /usr/include/crypt.h */
 #  define USE_HASH_SEED
 #endif
 
-/* Win32 defines a type 'WORD' in windef.h, and AmigaOS in exec/types.h.
- * This conflicts with the enumerator 'WORD' defined in perly.h.
- * The yytokentype enum is only a debugging aid, so it's not really needed. */
-#if defined(WIN32) || defined(__amigaos4__)
-#  define YYTOKENTYPE
-#endif
 #include "perly.h"
 
 
@@ -3922,14 +3940,6 @@ typedef        struct crypt_data {     /* straight from /usr/include/crypt.h */
 #undef _XPV_HEAD
 #undef _XPVMG_HEAD
 #undef _XPVCV_COMMON
-
-typedef struct _sublex_info SUBLEXINFO;
-struct _sublex_info {
-    U8 super_state;	/* lexer state to save */
-    U16 sub_inwhat;	/* "lex_inwhat" to use */
-    OP *sub_op;		/* "lex_op" to use */
-    SV *repl;		/* replacement of s/// or y/// */
-};
 
 #include "parser.h"
 
@@ -4182,34 +4192,34 @@ Gid_t getegid (void);
 #define DEBUG_DB_RECURSE_FLAG	0x40000000
 #define DEBUG_TOP_FLAG		0x80000000 /* -D was given --> PL_debug |= FLAG */
 
-#  define DEBUG_p_TEST_ (PL_debug & DEBUG_p_FLAG)
-#  define DEBUG_s_TEST_ (PL_debug & DEBUG_s_FLAG)
-#  define DEBUG_l_TEST_ (PL_debug & DEBUG_l_FLAG)
-#  define DEBUG_t_TEST_ (PL_debug & DEBUG_t_FLAG)
-#  define DEBUG_o_TEST_ (PL_debug & DEBUG_o_FLAG)
-#  define DEBUG_c_TEST_ (PL_debug & DEBUG_c_FLAG)
-#  define DEBUG_P_TEST_ (PL_debug & DEBUG_P_FLAG)
-#  define DEBUG_m_TEST_ (PL_debug & DEBUG_m_FLAG)
-#  define DEBUG_f_TEST_ (PL_debug & DEBUG_f_FLAG)
-#  define DEBUG_r_TEST_ (PL_debug & DEBUG_r_FLAG)
-#  define DEBUG_x_TEST_ (PL_debug & DEBUG_x_FLAG)
-#  define DEBUG_u_TEST_ (PL_debug & DEBUG_u_FLAG)
-#  define DEBUG_U_TEST_ (PL_debug & DEBUG_U_FLAG)
-#  define DEBUG_H_TEST_ (PL_debug & DEBUG_H_FLAG)
-#  define DEBUG_X_TEST_ (PL_debug & DEBUG_X_FLAG)
-#  define DEBUG_D_TEST_ (PL_debug & DEBUG_D_FLAG)
-#  define DEBUG_S_TEST_ (PL_debug & DEBUG_S_FLAG)
-#  define DEBUG_T_TEST_ (PL_debug & DEBUG_T_FLAG)
-#  define DEBUG_R_TEST_ (PL_debug & DEBUG_R_FLAG)
-#  define DEBUG_J_TEST_ (PL_debug & DEBUG_J_FLAG)
-#  define DEBUG_v_TEST_ (PL_debug & DEBUG_v_FLAG)
-#  define DEBUG_C_TEST_ (PL_debug & DEBUG_C_FLAG)
-#  define DEBUG_A_TEST_ (PL_debug & DEBUG_A_FLAG)
-#  define DEBUG_q_TEST_ (PL_debug & DEBUG_q_FLAG)
-#  define DEBUG_M_TEST_ (PL_debug & DEBUG_M_FLAG)
-#  define DEBUG_B_TEST_ (PL_debug & DEBUG_B_FLAG)
-#  define DEBUG_L_TEST_ (PL_debug & DEBUG_L_FLAG)
-#  define DEBUG_i_TEST_ (PL_debug & DEBUG_i_FLAG)
+#  define DEBUG_p_TEST_ UNLIKELY(PL_debug & DEBUG_p_FLAG)
+#  define DEBUG_s_TEST_ UNLIKELY(PL_debug & DEBUG_s_FLAG)
+#  define DEBUG_l_TEST_ UNLIKELY(PL_debug & DEBUG_l_FLAG)
+#  define DEBUG_t_TEST_ UNLIKELY(PL_debug & DEBUG_t_FLAG)
+#  define DEBUG_o_TEST_ UNLIKELY(PL_debug & DEBUG_o_FLAG)
+#  define DEBUG_c_TEST_ UNLIKELY(PL_debug & DEBUG_c_FLAG)
+#  define DEBUG_P_TEST_ UNLIKELY(PL_debug & DEBUG_P_FLAG)
+#  define DEBUG_m_TEST_ UNLIKELY(PL_debug & DEBUG_m_FLAG)
+#  define DEBUG_f_TEST_ UNLIKELY(PL_debug & DEBUG_f_FLAG)
+#  define DEBUG_r_TEST_ UNLIKELY(PL_debug & DEBUG_r_FLAG)
+#  define DEBUG_x_TEST_ UNLIKELY(PL_debug & DEBUG_x_FLAG)
+#  define DEBUG_u_TEST_ UNLIKELY(PL_debug & DEBUG_u_FLAG)
+#  define DEBUG_U_TEST_ UNLIKELY(PL_debug & DEBUG_U_FLAG)
+#  define DEBUG_H_TEST_ UNLIKELY(PL_debug & DEBUG_H_FLAG)
+#  define DEBUG_X_TEST_ UNLIKELY(PL_debug & DEBUG_X_FLAG)
+#  define DEBUG_D_TEST_ UNLIKELY(PL_debug & DEBUG_D_FLAG)
+#  define DEBUG_S_TEST_ UNLIKELY(PL_debug & DEBUG_S_FLAG)
+#  define DEBUG_T_TEST_ UNLIKELY(PL_debug & DEBUG_T_FLAG)
+#  define DEBUG_R_TEST_ UNLIKELY(PL_debug & DEBUG_R_FLAG)
+#  define DEBUG_J_TEST_ UNLIKELY(PL_debug & DEBUG_J_FLAG)
+#  define DEBUG_v_TEST_ UNLIKELY(PL_debug & DEBUG_v_FLAG)
+#  define DEBUG_C_TEST_ UNLIKELY(PL_debug & DEBUG_C_FLAG)
+#  define DEBUG_A_TEST_ UNLIKELY(PL_debug & DEBUG_A_FLAG)
+#  define DEBUG_q_TEST_ UNLIKELY(PL_debug & DEBUG_q_FLAG)
+#  define DEBUG_M_TEST_ UNLIKELY(PL_debug & DEBUG_M_FLAG)
+#  define DEBUG_B_TEST_ UNLIKELY(PL_debug & DEBUG_B_FLAG)
+#  define DEBUG_L_TEST_ UNLIKELY(PL_debug & DEBUG_L_FLAG)
+#  define DEBUG_i_TEST_ UNLIKELY(PL_debug & DEBUG_i_FLAG)
 #  define DEBUG_Xv_TEST_ (DEBUG_X_TEST_ && DEBUG_v_TEST_)
 #  define DEBUG_Uv_TEST_ (DEBUG_U_TEST_ && DEBUG_v_TEST_)
 #  define DEBUG_Pv_TEST_ (DEBUG_P_TEST_ && DEBUG_v_TEST_)
@@ -4264,21 +4274,30 @@ Gid_t getegid (void);
      /* Temporarily turn off memory debugging in case the a
       * does memory allocation, either directly or indirectly. */
 #  define DEBUG_m(a)  \
-    STMT_START {							\
-        if (PERL_GET_INTERP) { dTHX; if (DEBUG_m_TEST) {PL_debug&=~DEBUG_m_FLAG; a; PL_debug|=DEBUG_m_FLAG;} } \
+    STMT_START {					                \
+        if (PERL_GET_INTERP) {                                          \
+                                dTHX;                                   \
+                                if (DEBUG_m_TEST) {                     \
+                                    PL_debug &= ~DEBUG_m_FLAG;          \
+                                    a;                                  \
+                                    PL_debug |= DEBUG_m_FLAG;           \
+                                }                                       \
+                              }                                         \
     } STMT_END
 
-#  define DEBUG__(t, a) \
-	STMT_START { \
-		if (t) STMT_START {a;} STMT_END; \
-	} STMT_END
+#  define DEBUG__(t, a)                                                 \
+        STMT_START {                                                    \
+                if (t) STMT_START {a;} STMT_END;                        \
+        } STMT_END
 
 #  define DEBUG_f(a) DEBUG__(DEBUG_f_TEST, a)
+
 #ifndef PERL_EXT_RE_BUILD
 #  define DEBUG_r(a) DEBUG__(DEBUG_r_TEST, a)
 #else
 #  define DEBUG_r(a) STMT_START {a;} STMT_END
 #endif /* PERL_EXT_RE_BUILD */
+
 #  define DEBUG_x(a) DEBUG__(DEBUG_x_TEST, a)
 #  define DEBUG_u(a) DEBUG__(DEBUG_u_TEST, a)
 #  define DEBUG_U(a) DEBUG__(DEBUG_U_TEST, a)
@@ -5289,9 +5308,11 @@ EXTCONST char *const PL_phase_names[];
 #  define PL_dirty cBOOL(PL_phase == PERL_PHASE_DESTRUCT)
 
 #  define PL_amagic_generation PL_na
+#  define PL_encoding ((SV *)NULL)
 #endif /* !PERL_CORE */
 
 #define PL_hints PL_compiling.cop_hints
+#define PL_maxo  MAXO
 
 END_EXTERN_C
 
@@ -5326,6 +5347,8 @@ typedef enum {
     XTERMORDORDOR /* evil hack */
     /* update exp_name[] in toke.c if adding to this enum */
 } expectation;
+
+#define KEY_sigvar 0xFFFF /* fake keyword representing a signature var */
 
 /* Hints are now stored in a dedicated U32, so the bottom 8 bits are no longer
    special and there is no need for HINT_PRIVATE_MASK for COPs
@@ -5714,6 +5737,7 @@ EXTCONST bool PL_valid_types_NV_set[];
 
 /* In C99 we could use designated (named field) union initializers.
  * In C89 we need to initialize the member declared first.
+ * In C++ we need extern C initializers.
  *
  * With the U8_NV version you will want to have inner braces,
  * while with the NV_U8 use just the NV.*/
@@ -5811,23 +5835,12 @@ INFNAN_NV_U8_DECL PL_nan = { 0.0/0.0 }; /* keep last */
 
 GCC_DIAG_RESTORE
 
+#ifdef __cplusplus
+#define INFNAN_U8_NV_DECL EXTERN_C const union { U8 u8[NVSIZE]; NV nv; }
+#define INFNAN_NV_U8_DECL EXTERN_C const union { NV nv; U8 u8[NVSIZE]; }
 #else
-
-INFNAN_NV_U8_DECL PL_inf;
-INFNAN_NV_U8_DECL PL_nan;
-
-#endif
-
-/* If you have not defined NV_INF/NV_NAN (like for example win32/win32.h),
- * we will define NV_INF/NV_NAN as the nv part of the global const
- * PL_inf/PL_nan.  Note, however, that the preexisting NV_INF/NV_NAN
- * might not be a compile-time constant, in which case it cannot be
- * used to initialize PL_inf/PL_nan above. */
-#ifndef NV_INF
-#  define NV_INF PL_inf.nv
-#endif
-#ifndef NV_NAN
-#  define NV_NAN PL_nan.nv
+#define INFNAN_U8_NV_DECL EXTCONST union { U8 u8[NVSIZE]; NV nv; }
+#define INFNAN_NV_U8_DECL EXTCONST union { NV nv; U8 u8[NVSIZE]; }
 #endif
 
 /* if these never got defined, they need defaults */
@@ -5967,14 +5980,31 @@ typedef struct am_table_short AMTS;
 /* These locale things are all subject to change */
 
 #   define LOCALE_INIT   MUTEX_INIT(&PL_locale_mutex)
-#   define LOCALE_TERM   MUTEX_DESTROY(&PL_locale_mutex)
+
+#   ifdef USE_THREAD_SAFE_LOCALE
+#       define LOCALE_TERM                                                  \
+                    STMT_START {                                            \
+                        MUTEX_DESTROY(&PL_locale_mutex);                    \
+                        if (PL_C_locale_obj) {                              \
+                            /* Make sure we aren't using the locale         \
+                             * space we are about to free */                \
+                            uselocale(LC_GLOBAL_LOCALE);                    \
+                            freelocale(PL_C_locale_obj);                    \
+                            PL_C_locale_obj = (locale_t) NULL;              \
+                        }                                                   \
+                     } STMT_END
+    }
+#   else
+#       define LOCALE_TERM   MUTEX_DESTROY(&PL_locale_mutex)
+#   endif
 
 #   define LOCALE_LOCK   MUTEX_LOCK(&PL_locale_mutex)
 #   define LOCALE_UNLOCK MUTEX_UNLOCK(&PL_locale_mutex)
 
 /* Returns TRUE if the plain locale pragma without a parameter is in effect
  */
-#   define IN_LOCALE_RUNTIME	cBOOL(CopHINTS_get(PL_curcop) & HINT_LOCALE)
+#   define IN_LOCALE_RUNTIME	(PL_curcop \
+                                && CopHINTS_get(PL_curcop) & HINT_LOCALE)
 
 /* Returns TRUE if either form of the locale pragma is in effect */
 #   define IN_SOME_LOCALE_FORM_RUNTIME   \
@@ -5995,7 +6025,7 @@ typedef struct am_table_short AMTS;
 
 #   define IN_LC_PARTIAL_COMPILETIME   cBOOL(PL_hints & HINT_LOCALE_PARTIAL)
 #   define IN_LC_PARTIAL_RUNTIME  \
-                        cBOOL(CopHINTS_get(PL_curcop) & HINT_LOCALE_PARTIAL)
+               (PL_curcop && CopHINTS_get(PL_curcop) & HINT_LOCALE_PARTIAL)
 
 #   define IN_LC_COMPILETIME(category)                                       \
        (IN_LC_ALL_COMPILETIME || (IN_LC_PARTIAL_COMPILETIME                  \
@@ -6053,6 +6083,20 @@ typedef struct am_table_short AMTS;
         }  STMT_END
 
 #   endif   /* PERL_CORE or PERL_IN_XSUB_RE */
+
+#if      defined(USE_ITHREADS)              \
+    &&   defined(HAS_NEWLOCALE)             \
+    &&   defined(LC_ALL_MASK)               \
+    &&   defined(HAS_FREELOCALE)            \
+    &&   defined(HAS_USELOCALE)             \
+    && ! defined(NO_THREAD_SAFE_USELOCALE)
+
+    /* The code is written for simplicity to assume that any platform advanced
+     * enough to have the Posix 2008 locale functions has LC_ALL.  The test
+     * above makes sure that assumption is valid */
+
+#   define USE_THREAD_SAFE_LOCALE
+#endif
 
 #else   /* No locale usage */
 #   define LOCALE_INIT
@@ -6743,6 +6787,14 @@ extern void moncontrol(int);
 #define PERL_PV_PRETTY_DUMP  PERL_PV_PRETTY_ELLIPSES|PERL_PV_PRETTY_QUOTE
 #define PERL_PV_PRETTY_REGPROP PERL_PV_PRETTY_ELLIPSES|PERL_PV_PRETTY_LTGT|PERL_PV_ESCAPE_RE|PERL_PV_ESCAPE_NONASCII
 
+#if DOUBLEKIND == DOUBLE_IS_VAX_F_FLOAT || \
+    DOUBLEKIND == DOUBLE_IS_VAX_D_FLOAT || \
+    DOUBLEKIND == DOUBLE_IS_VAX_G_FLOAT
+#  define DOUBLE_IS_VAX_FLOAT
+#else
+#  define DOUBLE_IS_IEEE_FORMAT
+#endif
+
 #if DOUBLEKIND == DOUBLE_IS_IEEE_754_32_BIT_LITTLE_ENDIAN || \
     DOUBLEKIND == DOUBLE_IS_IEEE_754_64_BIT_LITTLE_ENDIAN || \
     DOUBLEKIND == DOUBLE_IS_IEEE_754_128_BIT_LITTLE_ENDIAN
@@ -6760,11 +6812,77 @@ extern void moncontrol(int);
 #  define DOUBLE_MIX_ENDIAN
 #endif
 
-/* All the basic IEEE formats have the implicit bit,
- * except for the 80-bit extended formats, which will undef this. */
-#define NV_IMPLICIT_BIT
+/* The VAX fp formats are neither consistently little-endian nor
+ * big-endian, and neither are they really IEEE-mixed endian like
+ * the mixed-endian ARM IEEE formats (with swapped bytes).
+ * Ultimately, the VAX format came from the PDP-11.
+ *
+ * The ordering of the parts in VAX floats is quite vexing.
+ * In the below the fraction_n are the mantissa bits.
+ *
+ * The fraction_1 is the most significant (numbering as by DEC/Digital),
+ * while the rightmost bit in each fraction is the least significant:
+ * in other words, big-endian bit order within the fractions.
+ *
+ * The fraction segments themselves would be big-endianly, except that
+ * within 32 bit segments the less significant half comes first, the more
+ * significant after, except that in the format H (used for long doubles)
+ * the first fraction segment is alone, because the exponent is wider.
+ * This means for example that both the most and the least significant
+ * bits can be in the middle of the floats, not at either end.
+ *
+ * References:
+ * http://nssdc.gsfc.nasa.gov/nssdc/formats/VAXFloatingPoint.htm
+ * http://www.quadibloc.com/comp/cp0201.htm
+ * http://h71000.www7.hp.com/doc/82final/6443/6443pro_028.html
+ * (somebody at HP should be fired for the URLs)
+ *
+ * F   fraction_2:16 sign:1 exp:8  fraction_1:7
+ *     (exponent bias 128, hidden first one-bit)
+ *
+ * D   fraction_2:16 sign:1 exp:8  fraction_1:7
+ *     fraction_4:16               fraction_3:16
+ *     (exponent bias 128, hidden first one-bit)
+ *
+ * G   fraction_2:16 sign:1 exp:11 fraction_1:4
+ *     fraction_4:16               fraction_3:16
+ *     (exponent bias 1024, hidden first one-bit)
+ *
+ * H   fraction_1:16 sign:1 exp:15
+ *     fraction_3:16               fraction_2:16
+ *     fraction_5:16               fraction_4:16
+ *     fraction_7:16               fraction_6:16
+ *     (exponent bias 16384, hidden first one-bit)
+ *     (available only on VAX, and only on Fortran?)
+ *
+ * The formats S, T and X are available on the Alpha (and Itanium,
+ * also known as I64/IA64) and are equivalent with the IEEE-754 formats
+ * binary32, binary64, and binary128 (commonly: float, double, long double).
+ *
+ * S   sign:1 exp:8 mantissa:23
+ *     (exponent bias 127, hidden first one-bit)
+ *
+ * T   sign:1 exp:11 mantissa:52
+ *     (exponent bias 1022, hidden first one-bit)
+ *
+ * X   sign:1 exp:15 mantissa:112
+ *     (exponent bias 16382, hidden first one-bit)
+ *
+ */
 
-#ifdef LONG_DOUBLEKIND
+#ifdef DOUBLE_IS_VAX_FLOAT
+#  define DOUBLE_VAX_ENDIAN
+#endif
+
+#ifdef DOUBLE_IS_IEEE_FORMAT
+/* All the basic IEEE formats have the implicit bit,
+ * except for the x86 80-bit extended formats, which will undef this.
+ * Also note that the IEEE 754 subnormals (formerly known as denormals)
+ * do not have the implicit bit of one. */
+#  define NV_IMPLICIT_BIT
+#endif
+
+#if defined(LONG_DOUBLEKIND) && LONG_DOUBLEKIND != LONG_DOUBLE_IS_DOUBLE
 
 #  if LONG_DOUBLEKIND == LONG_DOUBLE_IS_IEEE_754_128_BIT_LITTLE_ENDIAN || \
       LONG_DOUBLEKIND == LONG_DOUBLE_IS_X86_80_BIT_LITTLE_ENDIAN || \
@@ -6788,6 +6906,7 @@ extern void moncontrol(int);
 #    define LONGDOUBLE_X86_80_BIT
 #    ifdef USE_LONG_DOUBLE
 #      undef NV_IMPLICIT_BIT
+#      define NV_X86_80_BIT
 #    endif
 #  endif
 
@@ -6796,6 +6915,10 @@ extern void moncontrol(int);
       LONG_DOUBLEKIND == LONG_DOUBLE_IS_DOUBLEDOUBLE_128_BIT_LE_BE || \
       LONG_DOUBLEKIND == LONG_DOUBLE_IS_DOUBLEDOUBLE_128_BIT_BE_LE
 #    define LONGDOUBLE_DOUBLEDOUBLE
+#  endif
+
+#  if LONG_DOUBLEKIND == LONG_DOUBLE_IS_VAX_H_FLOAT
+#    define LONGDOUBLE_VAX_ENDIAN
 #  endif
 
 #endif /* LONG_DOUBLEKIND */
@@ -6818,6 +6941,9 @@ extern void moncontrol(int);
 #  ifdef DOUBLE_MIX_ENDIAN
 #    define NV_MIX_ENDIAN
 #  endif
+#  ifdef DOUBLE_VAX_ENDIAN
+#    define NV_VAX_ENDIAN
+#  endif
 #elif NVSIZE == LONG_DOUBLESIZE
 #  ifdef LONGDOUBLE_LITTLE_ENDIAN
 #    define NV_LITTLE_ENDIAN
@@ -6828,6 +6954,132 @@ extern void moncontrol(int);
 #  ifdef LONGDOUBLE_MIX_ENDIAN
 #    define NV_MIX_ENDIAN
 #  endif
+#  ifdef LONGDOUBLE_VAX_ENDIAN
+#    define NV_VAX_ENDIAN
+#  endif
+#endif
+
+#ifdef DOUBLE_IS_IEEE_FORMAT
+#  define DOUBLE_HAS_INF
+#  define DOUBLE_HAS_NAN
+#endif
+
+#ifdef DOUBLE_HAS_NAN
+
+#ifdef DOINIT
+
+/* PL_inf and PL_nan initialization.
+ *
+ * For inf and nan initialization the ultimate fallback is dividing
+ * one or zero by zero: however, some compilers will warn or even fail
+ * on divide-by-zero, but hopefully something earlier will work.
+ *
+ * If you are thinking of using HUGE_VAL for infinity, or using
+ * <math.h> functions to generate NV_INF (e.g. exp(1e9), log(-1.0)),
+ * stop.  Neither will work portably: HUGE_VAL can be just DBL_MAX,
+ * and the math functions might be just generating DBL_MAX, or even zero.
+ *
+ * Also, do NOT try doing NV_NAN based on NV_INF and trying (NV_INF-NV_INF).
+ * Though logically correct, some compilers (like Visual C 2003)
+ * falsely misoptimize that to zero (x-x is always zero, right?)
+ *
+ * Finally, note that not all floating point formats define Inf (or NaN).
+ * For the infinity a large number may be used instead.  Operations that
+ * under the IEEE floating point would return Inf or NaN may return
+ * either large numbers (positive or negative), or they may cause
+ * a floating point exception or some other fault.
+ */
+
+/* The quadmath literals are anon structs which -Wc++-compat doesn't like. */
+GCC_DIAG_IGNORE(-Wc++-compat)
+
+#  ifdef USE_QUADMATH
+/* Cannot use HUGE_VALQ for PL_inf because not a compile-time
+ * constant. */
+INFNAN_NV_U8_DECL PL_inf = { 1.0Q/0.0Q };
+#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLINFBYTES)
+INFNAN_U8_NV_DECL PL_inf = { { LONGDBLINFBYTES } };
+#  elif NVSIZE == DOUBLESIZE && defined(DOUBLEINFBYTES)
+INFNAN_U8_NV_DECL PL_inf = { { DOUBLEINFBYTES } };
+#  else
+#    if NVSIZE == LONG_DOUBLESIZE && defined(USE_LONG_DOUBLE)
+#      if defined(LDBL_INFINITY)
+INFNAN_NV_U8_DECL PL_inf = { LDBL_INFINITY };
+#      elif defined(LDBL_INF)
+INFNAN_NV_U8_DECL PL_inf = { LDBL_INF };
+#      elif defined(INFINITY)
+INFNAN_NV_U8_DECL PL_inf = { (NV)INFINITY };
+#      elif defined(INF)
+INFNAN_NV_U8_DECL PL_inf = { (NV)INF };
+#      else
+INFNAN_NV_U8_DECL PL_inf = { 1.0L/0.0L }; /* keep last */
+#      endif
+#    else
+#      if defined(DBL_INFINITY)
+INFNAN_NV_U8_DECL PL_inf = { DBL_INFINITY };
+#      elif defined(DBL_INF)
+INFNAN_NV_U8_DECL PL_inf = { DBL_INF };
+#      elif defined(INFINITY) /* C99 */
+INFNAN_NV_U8_DECL PL_inf = { (NV)INFINITY };
+#      elif defined(INF)
+INFNAN_NV_U8_DECL PL_inf = { (NV)INF };
+#      else
+INFNAN_NV_U8_DECL PL_inf = { 1.0/0.0 }; /* keep last */
+#      endif
+#    endif
+#  endif
+
+#  ifdef USE_QUADMATH
+/* Cannot use nanq("0") for PL_nan because not a compile-time
+ * constant. */
+INFNAN_NV_U8_DECL PL_nan = { 0.0Q/0.0Q };
+#  elif NVSIZE == LONG_DOUBLESIZE && defined(LONGDBLNANBYTES)
+INFNAN_U8_NV_DECL PL_nan = { { LONGDBLNANBYTES } };
+#  elif NVSIZE == DOUBLESIZE && defined(DOUBLENANBYTES)
+INFNAN_U8_NV_DECL PL_nan = { { DOUBLENANBYTES } };
+#  else
+#    if NVSIZE == LONG_DOUBLESIZE && defined(USE_LONG_DOUBLE)
+#      if defined(LDBL_NAN)
+INFNAN_NV_U8_DECL PL_nan = { LDBL_NAN };
+#      elif defined(LDBL_QNAN)
+INFNAN_NV_U8_DECL PL_nan = { LDBL_QNAN };
+#      elif defined(NAN)
+INFNAN_NV_U8_DECL PL_nan = { (NV)NAN };
+#      else
+INFNAN_NV_U8_DECL PL_nan = { 0.0L/0.0L }; /* keep last */
+#      endif
+#    else
+#      if defined(DBL_NAN)
+INFNAN_NV_U8_DECL PL_nan = { DBL_NAN };
+#      elif defined(DBL_QNAN)
+INFNAN_NV_U8_DECL PL_nan = { DBL_QNAN };
+#      elif defined(NAN) /* C99 */
+INFNAN_NV_U8_DECL PL_nan = { (NV)NAN };
+#      else
+INFNAN_NV_U8_DECL PL_nan = { 0.0/0.0 }; /* keep last */
+#      endif
+#    endif
+#  endif
+
+GCC_DIAG_RESTORE
+
+#else
+
+INFNAN_NV_U8_DECL PL_inf;
+INFNAN_NV_U8_DECL PL_nan;
+
+#endif
+
+/* If you have not defined NV_INF/NV_NAN (like for example win32/win32.h),
+ * we will define NV_INF/NV_NAN as the nv part of the global const
+ * PL_inf/PL_nan.  Note, however, that the preexisting NV_INF/NV_NAN
+ * might not be a compile-time constant, in which case it cannot be
+ * used to initialize PL_inf/PL_nan above. */
+#ifndef NV_INF
+#  define NV_INF PL_inf.nv
+#endif
+#ifndef NV_NAN
+#  define NV_NAN PL_nan.nv
 #endif
 
 /* NaNs (not-a-numbers) can carry payload bits, in addition to
@@ -6980,6 +7232,8 @@ extern void moncontrol(int);
 #  elif DOUBLEKIND == DOUBLE_IS_IEEE_754_64_BIT_MIXED_ENDIAN_BE_LE
 #    define NV_NAN_QS_BYTE_OFFSET 5 /* bytes 3 2 1 0 7 6 5 4 (MSB 7) */
 #  else
+/* For example the VAX formats should never
+ * get here because they do not have NaN. */
 #    error "Unexpected double format"
 #  endif
 #endif
@@ -7182,6 +7436,10 @@ extern void moncontrol(int);
 #    error "Unexpected double format"
 #  endif
 #endif
+
+#endif /* DOUBLE_HAS_NAN */
+
+
 /*
 
    (KEEP THIS LAST IN perl.h!)

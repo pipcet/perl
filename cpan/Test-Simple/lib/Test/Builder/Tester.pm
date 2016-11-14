@@ -1,7 +1,7 @@
 package Test::Builder::Tester;
 
 use strict;
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 use Test::Builder;
 use Symbol;
@@ -436,17 +436,26 @@ sub color {
 
 =head1 BUGS
 
+Test::Builder::Tester does not handle plans well. It has never done anything
+special with plans. This means that plans from outside Test::Builder::Tester
+will effect Test::Builder::Tester, worse plans when using Test::Builder::Tester
+will effect overall testing. At this point there are no plans to fix this bug
+as people have come to depend on it, and Test::Builder::Tester is now
+discouraged in favor of C<Test2::API::intercept()>. See
+L<https://github.com/Test-More/test-more/issues/667>
+
 Calls C<< Test::Builder->no_ending >> turning off the ending tests.
 This is needed as otherwise it will trip out because we've run more
 tests than we strictly should have and it'll register any failures we
 had that we were testing for as real failures.
 
 The color function doesn't work unless L<Term::ANSIColor> is
-compatible with your terminal.
+compatible with your terminal. Additionally, L<Win32::Console::ANSI>
+must be installed on windows platforms for color output.
 
 Bugs (and requests for new features) can be reported to the author
-though the CPAN RT system:
-L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Test-Builder-Tester>
+though GitHub:
+L<https://github.com/Test-More/test-more/issues>
 
 =head1 AUTHOR
 
@@ -552,6 +561,8 @@ sub complaint {
         # get color
         eval { require Term::ANSIColor };
         unless($@) {
+            eval { require Win32::Console::ANSI } if 'MSWin32' eq $^O;  # support color on windows platforms
+
             # colours
 
             my $green = Term::ANSIColor::color("black") . Term::ANSIColor::color("on_green");

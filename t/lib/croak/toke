@@ -70,6 +70,13 @@ Can't find string terminator "foo" anywhere before EOF at (eval 1) line 1.
 EXPECT
 Can't find string terminator "foo" anywhere before EOF at - line 1.
 ########
+# NAME Unterminated here-doc with non-Latin-1 terminator
+BEGIN { binmode STDERR, ":utf8" }
+use utf8;
+<<옷옷
+EXPECT
+Can't find string terminator "옷옷" anywhere before EOF at - line 3.
+########
 # NAME Unterminated qw//
 qw/
 EXPECT
@@ -84,6 +91,20 @@ Can't find string terminator "/" anywhere before EOF at - line 1.
 '
 EXPECT
 Can't find string terminator "'" anywhere before EOF at - line 1.
+########
+# NAME Unterminated q// with non-ASCII delimiter, under utf8
+BEGIN { binmode STDERR, ":utf8" }
+use utf8;
+q«
+EXPECT
+Can't find string terminator "«" anywhere before EOF at - line 3.
+########
+# NAME Unterminated q// with non-Latin-1 delimiter
+BEGIN { binmode STDERR, ":utf8" }
+use utf8;
+q 옷
+EXPECT
+Can't find string terminator "옷" anywhere before EOF at - line 3.
 ########
 # NAME /\N{/
 /\N{/
@@ -308,4 +329,24 @@ EXPECT
 Version control conflict marker at - line 1, near "<<<<<<<"
 Version control conflict marker at - line 3, near "======="
 Version control conflict marker at - line 5, near ">>>>>>>"
+Execution of - aborted due to compilation errors.
+########
+# NAME (Might be a runaway multi-line...) with Latin-1 delimiters in utf8
+BEGIN { binmode STDERR, ':utf8' }
+use utf8;
+q«
+« time
+EXPECT
+syntax error at - line 4, near "« time"
+  (Might be a runaway multi-line «« string starting on line 3)
+Execution of - aborted due to compilation errors.
+########
+# NAME (Might be a runaway multi-line...) with non-Latin-1 delimiters
+BEGIN { binmode STDERR, ':utf8' }
+use utf8;
+q ϡ
+ϡ time
+EXPECT
+syntax error at - line 4, near "ϡ time"
+  (Might be a runaway multi-line ϡϡ string starting on line 3)
 Execution of - aborted due to compilation errors.

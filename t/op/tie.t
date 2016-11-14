@@ -10,8 +10,8 @@
 #
 
 chdir 't' if -d 't';
-@INC = '../lib';
 require './test.pl';
+set_up_inc('../lib');
 
 $|=1;
 
@@ -284,7 +284,7 @@ EXPECT
 2
 ########
 
-#  [20020716.007] - nested FETCHES
+#  [20020716.007 (#10080)] - nested FETCHES
 
 sub F1::TIEARRAY { bless [], 'F1' }
 sub F1::FETCH { 1 }
@@ -930,7 +930,17 @@ sub IO::File::TIEARRAY {
 }
 fileno FOO; tie @a, "FOO"
 EXPECT
-Can't locate object method "TIEARRAY" via package "FOO" at - line 5.
+Can't locate object method "TIEARRAY" via package "FOO" (perhaps you forgot to load "FOO"?) at - line 5.
+########
+# tie into empty package name
+tie $foo, "";
+EXPECT
+Can't locate object method "TIESCALAR" via package "main" at - line 2.
+########
+# tie into undef package name
+tie $foo, undef;
+EXPECT
+Can't locate object method "TIESCALAR" via package "main" at - line 2.
 ########
 #
 # STORE freeing tie'd AV
@@ -1473,3 +1483,19 @@ print "b is $b\n";
 EXPECT
 a is 3
 b is 7
+########
+# when assigning to array/hash, ensure get magic is processed first
+use Tie::Hash;
+my %tied;
+tie %tied, "Tie::StdHash";
+%tied = qw(a foo);
+my @a = values %tied;
+%tied = qw(b bar); # overwrites @a's contents unless magic was called
+print "$a[0]\n";
+my %h = ("x", values %tied);
+%tied = qw(c baz); # overwrites @a's contents unless magic was called
+print "$h{x}\n";
+
+EXPECT
+foo
+bar

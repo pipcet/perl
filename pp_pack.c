@@ -2674,7 +2674,7 @@ S_pack_rec(pTHX_ SV *cat, tempsym_t* symptr, SV **beglist, SV **endlist )
 		NV anv;
 		fromstr = NEXTFROM;
 		anv = SvNV(fromstr);
-# if defined(VMS) && !defined(_IEEE_FP)
+# if (defined(VMS) && !defined(_IEEE_FP)) || defined(DOUBLE_IS_VAX_FLOAT)
 		/* IEEE fp overflow shenanigans are unavailable on VAX and optional
 		 * on Alpha; fake it if we don't have them.
 		 */
@@ -2684,15 +2684,17 @@ S_pack_rec(pTHX_ SV *cat, tempsym_t* symptr, SV **beglist, SV **endlist )
 		    afloat = -FLT_MAX;
 		else afloat = (float)anv;
 # else
-#if defined(NAN_COMPARE_BROKEN) && defined(Perl_isnan)
+#  if defined(NAN_COMPARE_BROKEN) && defined(Perl_isnan)
 		if(Perl_isnan(anv))
 		    afloat = (float)NV_NAN;
 		else
-#endif
+#  endif
+#  ifdef NV_INF
                 /* a simple cast to float is undefined if outside
                  * the range of values that can be represented */
 		afloat = (float)(anv >  FLT_MAX ?  NV_INF :
                                  anv < -FLT_MAX ? -NV_INF : anv);
+#  endif
 # endif
                 PUSH_VAR(utf8, cur, afloat, needs_swap);
 	    }
@@ -2703,7 +2705,7 @@ S_pack_rec(pTHX_ SV *cat, tempsym_t* symptr, SV **beglist, SV **endlist )
 		NV anv;
 		fromstr = NEXTFROM;
 		anv = SvNV(fromstr);
-# if defined(VMS) && !defined(_IEEE_FP)
+# if (defined(VMS) && !defined(_IEEE_FP)) || defined(DOUBLE_IS_VAX_FLOAT)
 		/* IEEE fp overflow shenanigans are unavailable on VAX and optional
 		 * on Alpha; fake it if we don't have them.
 		 */
@@ -3040,7 +3042,8 @@ S_pack_rec(pTHX_ SV *cat, tempsym_t* symptr, SV **beglist, SV **endlist )
 		     * of pack() (and all copies of the result) are
 		     * gone.
 		     */
-		    if ((SvTEMP(fromstr) || (SvPADTMP(fromstr) &&
+		    if (((SvTEMP(fromstr) && SvREFCNT(fromstr) == 1)
+			 || (SvPADTMP(fromstr) &&
 			     !SvREADONLY(fromstr)))) {
 			Perl_ck_warner(aTHX_ packWARN(WARN_PACK),
 				       "Attempt to pack pointer to temporary value");
@@ -3122,7 +3125,7 @@ PP(pp_pack)
     const char *patend = pat + fromlen;
 
     MARK++;
-    sv_setpvs(cat, "");
+    SvPVCLEAR(cat);
     SvUTF8_off(cat);
 
     packlist(cat, pat, patend, MARK, SP + 1);

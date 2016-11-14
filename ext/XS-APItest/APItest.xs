@@ -3,6 +3,9 @@
 /* We want to be able to test things that aren't API yet. */
 #define PERL_EXT
 
+/* Do *not* define PERL_NO_GET_CONTEXT.  This is the one place where we get
+   to test implicit Perl_get_context().  */
+
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
@@ -90,7 +93,19 @@ typedef struct {
 
 START_MY_CXT
 
+int
+S_myset_set(pTHX_ SV* sv, MAGIC* mg)
+{
+    SV *isv = (SV*)mg->mg_ptr;
+
+    PERL_UNUSED_ARG(sv);
+    SvIVX(isv)++;
+    return 0;
+}
+
 MGVTBL vtbl_foo, vtbl_bar;
+MGVTBL vtbl_myset = { 0, S_myset_set, 0, 0, 0, 0, 0, 0 };
+
 
 /* indirect functions to test the [pa]MY_CXT macros */
 
@@ -154,8 +169,8 @@ test_freeent(freeent_function *f) {
 #else
     /* Storing then deleting something should ensure that a hash entry is
        available.  */
-    (void) hv_store(test_hash, "", 0, &PL_sv_yes, 0);
-    (void) hv_delete(test_hash, "", 0, 0);
+    (void) hv_stores(test_hash, "", &PL_sv_yes);
+    (void) hv_deletes(test_hash, "", 0);
 
     /* We need to "inline" new_he here as it's static, and the functions we
        test expect to be able to call del_HE on the HE  */
@@ -1145,84 +1160,84 @@ static int THX_keyword_active(pTHX_ SV *hintkey_sv)
 static int my_keyword_plugin(pTHX_
     char *keyword_ptr, STRLEN keyword_len, OP **op_ptr)
 {
-    if(keyword_len == 3 && strnEQ(keyword_ptr, "rpn", 3) &&
+    if(keyword_len == 3 && strEQs(keyword_ptr, "rpn") &&
 		    keyword_active(hintkey_rpn_sv)) {
 	*op_ptr = parse_keyword_rpn();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 7 && strnEQ(keyword_ptr, "calcrpn", 7) &&
+    } else if(keyword_len == 7 && strEQs(keyword_ptr, "calcrpn") &&
 		    keyword_active(hintkey_calcrpn_sv)) {
 	*op_ptr = parse_keyword_calcrpn();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 9 && strnEQ(keyword_ptr, "stufftest", 9) &&
+    } else if(keyword_len == 9 && strEQs(keyword_ptr, "stufftest") &&
 		    keyword_active(hintkey_stufftest_sv)) {
 	*op_ptr = parse_keyword_stufftest();
 	return KEYWORD_PLUGIN_STMT;
     } else if(keyword_len == 12 &&
-		    strnEQ(keyword_ptr, "swaptwostmts", 12) &&
+		    strEQs(keyword_ptr, "swaptwostmts") &&
 		    keyword_active(hintkey_swaptwostmts_sv)) {
 	*op_ptr = parse_keyword_swaptwostmts();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 8 && strnEQ(keyword_ptr, "looprest", 8) &&
+    } else if(keyword_len == 8 && strEQs(keyword_ptr, "looprest") &&
 		    keyword_active(hintkey_looprest_sv)) {
 	*op_ptr = parse_keyword_looprest();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 14 && strnEQ(keyword_ptr, "scopelessblock", 14) &&
+    } else if(keyword_len == 14 && strEQs(keyword_ptr, "scopelessblock") &&
 		    keyword_active(hintkey_scopelessblock_sv)) {
 	*op_ptr = parse_keyword_scopelessblock();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 10 && strnEQ(keyword_ptr, "stmtasexpr", 10) &&
+    } else if(keyword_len == 10 && strEQs(keyword_ptr, "stmtasexpr") &&
 		    keyword_active(hintkey_stmtasexpr_sv)) {
 	*op_ptr = parse_keyword_stmtasexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 11 && strnEQ(keyword_ptr, "stmtsasexpr", 11) &&
+    } else if(keyword_len == 11 && strEQs(keyword_ptr, "stmtsasexpr") &&
 		    keyword_active(hintkey_stmtsasexpr_sv)) {
 	*op_ptr = parse_keyword_stmtsasexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 9 && strnEQ(keyword_ptr, "loopblock", 9) &&
+    } else if(keyword_len == 9 && strEQs(keyword_ptr, "loopblock") &&
 		    keyword_active(hintkey_loopblock_sv)) {
 	*op_ptr = parse_keyword_loopblock();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 11 && strnEQ(keyword_ptr, "blockasexpr", 11) &&
+    } else if(keyword_len == 11 && strEQs(keyword_ptr, "blockasexpr") &&
 		    keyword_active(hintkey_blockasexpr_sv)) {
 	*op_ptr = parse_keyword_blockasexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 9 && strnEQ(keyword_ptr, "swaplabel", 9) &&
+    } else if(keyword_len == 9 && strEQs(keyword_ptr, "swaplabel") &&
 		    keyword_active(hintkey_swaplabel_sv)) {
 	*op_ptr = parse_keyword_swaplabel();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 10 && strnEQ(keyword_ptr, "labelconst", 10) &&
+    } else if(keyword_len == 10 && strEQs(keyword_ptr, "labelconst") &&
 		    keyword_active(hintkey_labelconst_sv)) {
 	*op_ptr = parse_keyword_labelconst();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 13 && strnEQ(keyword_ptr, "arrayfullexpr", 13) &&
+    } else if(keyword_len == 13 && strEQs(keyword_ptr, "arrayfullexpr") &&
 		    keyword_active(hintkey_arrayfullexpr_sv)) {
 	*op_ptr = parse_keyword_arrayfullexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 13 && strnEQ(keyword_ptr, "arraylistexpr", 13) &&
+    } else if(keyword_len == 13 && strEQs(keyword_ptr, "arraylistexpr") &&
 		    keyword_active(hintkey_arraylistexpr_sv)) {
 	*op_ptr = parse_keyword_arraylistexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 13 && strnEQ(keyword_ptr, "arraytermexpr", 13) &&
+    } else if(keyword_len == 13 && strEQs(keyword_ptr, "arraytermexpr") &&
 		    keyword_active(hintkey_arraytermexpr_sv)) {
 	*op_ptr = parse_keyword_arraytermexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 14 && strnEQ(keyword_ptr, "arrayarithexpr", 14) &&
+    } else if(keyword_len == 14 && strEQs(keyword_ptr, "arrayarithexpr") &&
 		    keyword_active(hintkey_arrayarithexpr_sv)) {
 	*op_ptr = parse_keyword_arrayarithexpr();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 14 && strnEQ(keyword_ptr, "arrayexprflags", 14) &&
+    } else if(keyword_len == 14 && strEQs(keyword_ptr, "arrayexprflags") &&
 		    keyword_active(hintkey_arrayexprflags_sv)) {
 	*op_ptr = parse_keyword_arrayexprflags();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 5 && strnEQ(keyword_ptr, "DEFSV", 5) &&
+    } else if(keyword_len == 5 && strEQs(keyword_ptr, "DEFSV") &&
 		    keyword_active(hintkey_DEFSV_sv)) {
 	*op_ptr = parse_keyword_DEFSV();
 	return KEYWORD_PLUGIN_EXPR;
-    } else if(keyword_len == 9 && strnEQ(keyword_ptr, "with_vars", 9) &&
+    } else if(keyword_len == 9 && strEQs(keyword_ptr, "with_vars") &&
 		    keyword_active(hintkey_with_vars_sv)) {
 	*op_ptr = parse_keyword_with_vars();
 	return KEYWORD_PLUGIN_STMT;
-    } else if(keyword_len == 15 && strnEQ(keyword_ptr, "join_with_space", 15) &&
+    } else if(keyword_len == 15 && strEQs(keyword_ptr, "join_with_space") &&
 		    keyword_active(hintkey_join_with_space_sv)) {
 	*op_ptr = parse_join_with_space();
 	return KEYWORD_PLUGIN_EXPR;
@@ -1359,7 +1374,7 @@ bytes_cmp_utf8(bytes, utf8)
 	RETVAL
 
 AV *
-test_utf8n_to_uvchr(s, len, flags)
+test_utf8n_to_uvchr_error(s, len, flags)
 
         SV *s
         SV *len
@@ -1368,20 +1383,25 @@ test_utf8n_to_uvchr(s, len, flags)
         STRLEN retlen;
         UV ret;
         STRLEN slen;
+        U32 errors;
 
     CODE:
-        /* Call utf8n_to_uvchr() with the inputs.  It always asks for the
-         * actual length to be returned
+        /* Now that utf8n_to_uvchr() is a trivial wrapper for
+         * utf8n_to_uvchr_error(), call the latter with the inputs.  It always
+         * asks for the actual length to be returned and errors to be returned
          *
          * Length to assume <s> is; not checked, so could have buffer overflow
          */
         RETVAL = newAV();
         sv_2mortal((SV*)RETVAL);
 
-        ret
-         = utf8n_to_uvchr((U8*) SvPV(s, slen), SvUV(len), &retlen, SvUV(flags));
+        ret = utf8n_to_uvchr_error((U8*) SvPV(s, slen),
+                                         SvUV(len),
+                                         &retlen,
+                                         SvUV(flags),
+                                         &errors);
 
-        /* Returns the return value in [0]; <retlen> in [1] */
+        /* Returns the return value in [0]; <retlen> in [1], <errors> in [2] */
         av_push(RETVAL, newSVuv(ret));
         if (retlen == (STRLEN) -1) {
             av_push(RETVAL, newSViv(-1));
@@ -1389,6 +1409,7 @@ test_utf8n_to_uvchr(s, len, flags)
         else {
             av_push(RETVAL, newSVuv(retlen));
         }
+        av_push(RETVAL, newSVuv(errors));
 
     OUTPUT:
         RETVAL
@@ -2396,6 +2417,23 @@ call_pv(subname, flags, ...)
 	PUSHs(sv_2mortal(newSViv(i)));
 
 void
+call_argv(subname, flags, ...)
+    char* subname
+    I32 flags
+    PREINIT:
+	I32 i;
+	char *tmpary[4];
+    PPCODE:
+	for (i=0; i<items-2; i++)
+	    tmpary[i] = SvPV_nolen(ST(i+2)); /* ignore first two args */
+	tmpary[i] = NULL;
+	PUTBACK;
+	i = call_argv(subname, flags, tmpary);
+	SPAGAIN;
+	EXTEND(SP, 1);
+	PUSHs(sv_2mortal(newSViv(i)));
+
+void
 call_method(methname, flags, ...)
     char* methname
     I32 flags
@@ -2551,6 +2589,9 @@ gv_fetchmethod_flags_type(stash, methname, type, flags)
                gv = gv_fetchmethod_pvn_flags(stash, name, len, flags | SvUTF8(methname));
                break;
             }
+           case 4:
+               gv = gv_fetchmethod_pvn_flags(stash, SvPV_nolen(methname),
+                                             flags, SvUTF8(methname));
         }
 	XPUSHs( gv ? (SV*)gv : &PL_sv_undef);
 
@@ -4196,6 +4237,18 @@ CODE:
     } else
         Perl_croak(aTHX_ "load_module can't yet support %"IVdf" items", (IV)items);
 
+SV *
+string_without_null(SV *sv)
+    CODE:
+    {
+        STRLEN len;
+        const char *s = SvPV(sv, len);
+        RETVAL = newSVpvn_flags(s, len, SvUTF8(sv));
+        *SvEND(RETVAL) = 0xff;
+    }
+    OUTPUT:
+        RETVAL
+
 MODULE = XS::APItest PACKAGE = XS::APItest::AUTOLOADtest
 
 int
@@ -4297,6 +4350,18 @@ test_get_vtbl()
 	RETVAL = PTR2UV(get_vtbl(-1));
     OUTPUT:
 	RETVAL
+
+
+    # attach ext magic to the SV pointed to by rsv that only has set magic,
+    # where that magic's job is to increment thingy
+
+void
+sv_magic_myset(SV *rsv, SV *thingy)
+CODE:
+    sv_magicext(SvRV(rsv), NULL, PERL_MAGIC_ext, &vtbl_myset,
+        (const char *)thingy, 0);
+
+
 
 bool
 test_isBLANK_uni(UV ord)
@@ -4687,6 +4752,20 @@ bool
 test_isDIGIT_LC(UV ord)
     CODE:
         RETVAL = isDIGIT_LC(ord);
+    OUTPUT:
+        RETVAL
+
+bool
+test_isOCTAL_A(UV ord)
+    CODE:
+        RETVAL = isOCTAL_A(ord);
+    OUTPUT:
+        RETVAL
+
+bool
+test_isOCTAL_L1(UV ord)
+    CODE:
+        RETVAL = isOCTAL_L1(ord);
     OUTPUT:
         RETVAL
 
@@ -5268,6 +5347,231 @@ bool
 test_isUTF8_POSSIBLY_PROBLEMATIC(char ch)
     CODE:
         RETVAL = isUTF8_POSSIBLY_PROBLEMATIC(ch);
+    OUTPUT:
+        RETVAL
+
+STRLEN
+test_isUTF8_CHAR(char *s, STRLEN len)
+    CODE:
+        RETVAL = isUTF8_CHAR((U8 *) s, (U8 *) s + len);
+    OUTPUT:
+        RETVAL
+
+STRLEN
+test_isUTF8_CHAR_flags(char *s, STRLEN len, U32 flags)
+    CODE:
+        RETVAL = isUTF8_CHAR_flags((U8 *) s, (U8 *) s + len, flags);
+    OUTPUT:
+        RETVAL
+
+STRLEN
+test_isSTRICT_UTF8_CHAR(char *s, STRLEN len)
+    CODE:
+        RETVAL = isSTRICT_UTF8_CHAR((U8 *) s, (U8 *) s + len);
+    OUTPUT:
+        RETVAL
+
+STRLEN
+test_isC9_STRICT_UTF8_CHAR(char *s, STRLEN len)
+    CODE:
+        RETVAL = isC9_STRICT_UTF8_CHAR((U8 *) s, (U8 *) s + len);
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_utf8_valid_partial_char_flags(char *s, STRLEN len, U32 flags)
+    CODE:
+        /* RETVAL should be bool (here and in tests below), but making it IV
+         * allows us to test it returning 0 or 1 */
+        RETVAL = is_utf8_valid_partial_char_flags((U8 *) s, (U8 *) s + len, flags);
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_utf8_string(char *s, STRLEN len)
+    CODE:
+        RETVAL = is_utf8_string((U8 *) s, len);
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_string_loc(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_string_loc((U8 *) s, len, &ep)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_string_loclen(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        STRLEN ret_len;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_string_loclen((U8 *) s, len, &ep, &ret_len)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        av_push(av, newSVuv(ret_len));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_utf8_string_flags(char *s, STRLEN len, U32 flags)
+    CODE:
+        RETVAL = is_utf8_string_flags((U8 *) s, len, flags);
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_string_loc_flags(char *s, STRLEN len, U32 flags)
+    PREINIT:
+        AV *av;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_string_loc_flags((U8 *) s, len, &ep, flags)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_string_loclen_flags(char *s, STRLEN len, U32 flags)
+    PREINIT:
+        AV *av;
+        STRLEN ret_len;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_string_loclen_flags((U8 *) s, len, &ep, &ret_len, flags)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        av_push(av, newSVuv(ret_len));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_strict_utf8_string(char *s, STRLEN len)
+    CODE:
+        RETVAL = is_strict_utf8_string((U8 *) s, len);
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_strict_utf8_string_loc(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_strict_utf8_string_loc((U8 *) s, len, &ep)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_strict_utf8_string_loclen(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        STRLEN ret_len;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_strict_utf8_string_loclen((U8 *) s, len, &ep, &ret_len)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        av_push(av, newSVuv(ret_len));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_c9strict_utf8_string(char *s, STRLEN len)
+    CODE:
+        RETVAL = is_c9strict_utf8_string((U8 *) s, len);
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_c9strict_utf8_string_loc(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_c9strict_utf8_string_loc((U8 *) s, len, &ep)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_c9strict_utf8_string_loclen(char *s, STRLEN len)
+    PREINIT:
+        AV *av;
+        STRLEN ret_len;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_c9strict_utf8_string_loclen((U8 *) s, len, &ep, &ret_len)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        av_push(av, newSVuv(ret_len));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+IV
+test_is_utf8_fixed_width_buf_flags(char *s, STRLEN len, U32 flags)
+    CODE:
+        RETVAL = is_utf8_fixed_width_buf_flags((U8 *) s, len, flags);
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_fixed_width_buf_loc_flags(char *s, STRLEN len, U32 flags)
+    PREINIT:
+        AV *av;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_fixed_width_buf_loc_flags((U8 *) s, len, &ep, flags)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+AV *
+test_is_utf8_fixed_width_buf_loclen_flags(char *s, STRLEN len, U32 flags)
+    PREINIT:
+        AV *av;
+        STRLEN ret_len;
+        const U8 * ep;
+    CODE:
+        av = newAV();
+        av_push(av, newSViv(is_utf8_fixed_width_buf_loclen_flags((U8 *) s, len, &ep, &ret_len, flags)));
+        av_push(av, newSViv(ep - (U8 *) s));
+        av_push(av, newSVuv(ret_len));
+        RETVAL = av;
+    OUTPUT:
+        RETVAL
+
+IV
+test_utf8_hop_safe(SV *s_sv, STRLEN s_off, IV off)
+    PREINIT:
+        STRLEN len;
+        U8 *p;
+        U8 *r;
+    CODE:
+        p = (U8 *)SvPV(s_sv, len);
+        r = utf8_hop_safe(p + s_off, off, p, p + len);
+        RETVAL = r - p;
     OUTPUT:
         RETVAL
 

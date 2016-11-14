@@ -71,7 +71,8 @@ values only, not array values.
     left	and
     left	or xor
 
-In the following sections, these operators are covered in precedence order.
+In the following sections, these operators are covered in detail, in the
+same order in which they appear in the table above.
 
 Many operators can be overloaded for objects.  See L<overload>.
 
@@ -1675,8 +1676,8 @@ X<qr> X</i> X</m> X</o> X</s> X</x> X</p>
 
 This operator quotes (and possibly compiles) its I<STRING> as a regular
 expression.  I<STRING> is interpolated the same way as I<PATTERN>
-in C<m/I<PATTERN>/>.  If C<"'"> is used as the delimiter, no interpolation
-is done.  Returns a Perl value which may be used instead of the
+in C<m/I<PATTERN>/>.  If C<"'"> is used as the delimiter, no variable
+interpolation is done.  Returns a Perl value which may be used instead of the
 corresponding C</I<STRING>/msixpodualn> expression.  The returned value is a
 normalized version of the original pattern.  It magically differs from
 a string containing the same characters: C<ref(qr/x/)> returns "Regexp";
@@ -1785,7 +1786,7 @@ as delimiters.  This is particularly useful for matching path names
 that contain C<"/">, to avoid LTS (leaning toothpick syndrome).  If C<"?"> is
 the delimiter, then a match-only-once rule applies,
 described in C<m?I<PATTERN>?> below.  If C<"'"> (single quote) is the delimiter,
-no interpolation is performed on the I<PATTERN>.
+no variable interpolation is performed on the I<PATTERN>.
 When using a delimiter character valid in an identifier, whitespace is required
 after the C<m>.
 
@@ -2069,7 +2070,7 @@ the string specified must be a scalar variable, an array element, a
 hash element, or an assignment to one of those; that is, some sort of
 scalar lvalue.
 
-If the delimiter chosen is a single quote, no interpolation is
+If the delimiter chosen is a single quote, no variable interpolation is
 done on either the I<PATTERN> or the I<REPLACEMENT>.  Otherwise, if the
 I<PATTERN> contains a C<$> that looks like a variable rather than an
 end-of-string test, the variable will be interpolated into the pattern
@@ -2376,25 +2377,27 @@ of those; in other words, an lvalue.
 A character range may be specified with a hyphen, so C<tr/A-J/0-9/>
 does the same replacement as C<tr/ACEGIBDFHJ/0246813579/>.
 For B<sed> devotees, C<y> is provided as a synonym for C<tr>.  If the
-I<SEARCHLIST> is delimited by bracketing quotes, the I<REPLACEMENTLIST> has
-its own pair of quotes, which may or may not be bracketing quotes;
-for example, C<tr[aeiouy][yuoiea]> or C<tr(+\-*/)/ABCD/>.
+I<SEARCHLIST> is delimited by bracketing quotes, the I<REPLACEMENTLIST>
+must have its own pair of quotes, which may or may not be bracketing
+quotes; for example, C<tr[aeiouy][yuoiea]> or C<tr(+\-*/)/ABCD/>.
 
 Characters may be literals or any of the escape sequences accepted in
-double-quoted strings.  But there is no interpolation, so C<"$"> and
-C<"@"> are treated as literals.  A hyphen at the beginning or end, or
+double-quoted strings.  But there is no variable interpolation, so C<"$">
+and C<"@"> are treated as literals.  A hyphen at the beginning or end, or
 preceded by a backslash is considered a literal.  Escape sequence
 details are in L<the table near the beginning of this section|/Quote and
 Quote-like Operators>.
 
 Note that C<tr> does B<not> do regular expression character classes such as
 C<\d> or C<\pL>.  The C<tr> operator is not equivalent to the C<L<tr(1)>>
-utility.  If you want to map strings between lower/upper cases, see
-L<perlfunc/lc> and L<perlfunc/uc>, and in general consider using the C<s>
-operator if you need regular expressions.  The C<\U>, C<\u>, C<\L>, and
-C<\l> string-interpolation escapes on the right side of a substitution
-operator will perform correct case-mappings, but C<tr[a-z][A-Z]> will not
-(except sometimes on legacy 7-bit data).
+utility.  C<tr[a-z][A-Z]> will uppercase the 26 letters "a" through "z",
+but for case changing not confined to ASCII, use
+L<C<lc>|perlfunc/lc>, L<C<uc>|perlfunc/uc>,
+L<C<lcfirst>|perlfunc/lcfirst>, L<C<ucfirst>|perlfunc/ucfirst>
+(all documented in L<perlfunc>), or the
+L<substitution operator C<sE<sol>I<PATTERN>E<sol>I<REPLACEMENT>E<sol>>|/sE<sol>PATTERNE<sol>REPLACEMENTE<sol>msixpodualngcer>
+(with C<\U>, C<\u>, C<\L>, and C<\l> string-interpolation escapes in the
+I<REPLACEMENT> portion).
 
 Most ranges are unportable between character sets, but certain ones
 signal Perl to do special handling to make them portable.  There are two
@@ -2429,7 +2432,7 @@ controls and characters which have no ASCII equivalents.
 But, even for portable ranges, it is not generally obvious what is
 included without having to look things up.  A sound principle is to use
 only ranges that begin from and end at either ASCII alphabetics of equal
-case (C<b-e>, C<b-E>), or digits (C<1-4>).  Anything else is unclear
+case (C<b-e>, C<B-E>), or digits (C<1-4>).  Anything else is unclear
 (and unportable unless C<\N{...}> is used).  If in doubt, spell out the
 character sets in full.
 
@@ -2508,6 +2511,9 @@ syntax.  Following a C<< << >> you specify a string to terminate
 the quoted material, and all lines following the current line down to
 the terminating string are the value of the item.
 
+Prefixing the terminating string with a C<~> specifies that you
+want to use L</Indented Here-docs> (see below).
+
 The terminating string may be either an identifier (a word), or some
 quoted text.  An unquoted identifier works like double quotes.
 There may not be a space between the C<< << >> and the identifier,
@@ -2568,6 +2574,55 @@ the results of the execution returned.
        print << `EOC`; # execute command and get results
     echo hi there
     EOC
+
+=back
+
+=over 4
+
+=item Indented Here-docs
+
+The here-doc modifier C<~> allows you to indent your here-docs to make
+the code more readable:
+
+    if ($some_var) {
+      print <<~EOF;
+        This is a here-doc
+        EOF
+    }
+
+This will print...
+
+    This is a here-doc
+
+...with no leading whitespace.
+
+The delimiter is used to determine the B<exact> whitespace to
+remove from the beginning of each line.  All lines B<must> have
+at least the same starting whitespace (except lines only
+containing a newline) or perl will croak.  Tabs and spaces can
+be mixed, but are matched exactly.  One tab will not be equal to
+8 spaces!
+
+Additional beginning whitespace (beyond what preceded the
+delimiter) will be preserved:
+
+    print <<~EOF;
+      This text is not indented
+        This text is indented with two spaces
+      		This text is indented with two tabs
+      EOF
+
+Finally, the modifier may be used with all of the forms
+mentioned above:
+
+    <<~\EOF;
+    <<~'EOF'
+    <<~"EOF"
+    <<~`EOF`
+
+And whitespace may be used between the C<~> and quoted delimiters:
+
+    <<~ 'EOF'; # ... "EOF", `EOF`
 
 =back
 

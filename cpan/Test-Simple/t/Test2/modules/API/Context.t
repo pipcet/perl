@@ -67,7 +67,10 @@ wrap {
 my $end_ctx;
 { # Simulate an END block...
     local *END = sub { local *__ANON__ = 'END'; context() };
-    my $ctx = END(); $frame = [ __PACKAGE__, __FILE__, __LINE__, 'main::END' ];
+    my $ctx = END();
+    $frame = [ __PACKAGE__, __FILE__, __LINE__ - 1, 'main::END' ];
+    # "__LINE__ - 1" on the preceding line forces the value to be an IV
+    # (even though __LINE__ on its own is a PV), just as (caller)[2] is.
     $end_ctx = $ctx->snapshot;
     $ctx->release;
 }
@@ -333,10 +336,15 @@ sub {
 }->();
 
 {
+    {
+        package An::Info::Thingy;
+        sub render { 'zzz' }
+    }
+
     my ($e1, $e2);
     my $events = intercept {
         my $ctx = context();
-        $e1 = $ctx->ok(0, 'foo', ['xxx']);
+        $e1 = $ctx->ok(0, 'foo', ['xxx', sub { 'yyy' }, bless({}, 'An::Info::Thingy')]);
         $e2 = $ctx->ok(0, 'foo');
         $ctx->release;
     };
@@ -345,9 +353,19 @@ sub {
     ok($e2->isa('Test2::Event::Ok'), "returned ok event");
 
     is($events->[0], $e1, "got ok event 1");
-    is($events->[3], $e2, "got ok event 2");
 
     is($events->[2]->message, 'xxx', "event 1 diag 2");
+    ok($events->[2]->isa('Test2::Event::Diag'), "event 1 diag 2 is diag");
+
+    is($events->[3]->summary,     'yyy', "event 1 info 1");
+    is($events->[3]->diagnostics, 1,     "event 1 info 1 is diagnostics");
+    ok($events->[3]->isa('Test2::Event::Info'), "event 1 info 1 is an info");
+
+    is($events->[4]->summary,     'zzz', "event 1 info 2");
+    is($events->[4]->diagnostics, 1,     "event 1 info 2 is diagnostics");
+    ok($events->[4]->isa('Test2::Event::Info'), "event 2 info 1 is an info");
+
+    is($events->[5], $e2, "got ok event 2");
 }
 
 sub {

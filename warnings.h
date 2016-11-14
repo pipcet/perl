@@ -111,12 +111,18 @@
 #define WARN_MISSING			 64
 #define WARN_REDUNDANT			 65
 
+/* Warnings Categories added in Perl 5.025 */
+
+#define WARN_EXPERIMENTAL__DECLARED_REFS 66
+
 #define WARNsize			 17
 #define WARN_ALLstring			 "\125\125\125\125\125\125\125\125\125\125\125\125\125\125\125\125\125"
 #define WARN_NONEstring			 "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
 
-#define isLEXWARN_on 	cBOOL(PL_curcop->cop_warnings != pWARN_STD)
-#define isLEXWARN_off	cBOOL(PL_curcop->cop_warnings == pWARN_STD)
+#define isLEXWARN_on \
+	cBOOL(PL_curcop && PL_curcop->cop_warnings != pWARN_STD)
+#define isLEXWARN_off \
+	cBOOL(!PL_curcop || PL_curcop->cop_warnings == pWARN_STD)
 #define isWARN_ONCE	(PL_dowarn & (G_WARN_ON|G_WARN_ONCE))
 #define isWARN_on(c,x)	(IsSet((U8 *)(c + 1), 2*(x)))
 #define isWARNf_on(c,x)	(IsSet((U8 *)(c + 1), 2*(x)+1))

@@ -70,7 +70,7 @@ BEGIN {
 }
 use constant PLATFORM => $ARGS{PLATFORM};
 
-require "$ARGS{TARG_DIR}regen/embed_lib.pl";
+require "./$ARGS{TARG_DIR}regen/embed_lib.pl";
 
 # Is the following guard strictly necessary? Added during refactoring
 # to keep the same behaviour when merging other code into here.
@@ -206,6 +206,7 @@ if ($ARGS{PLATFORM} ne 'os2') {
         ++$skip{Perl_my_symlink} unless $Config{d_symlink};
     } else {
 	++$skip{PL_statusvalue_vms};
+	++$skip{PL_perllib_sep};
 	if ($ARGS{PLATFORM} ne 'aix') {
 	    ++$skip{$_} foreach qw(
 				PL_DBcv
@@ -396,6 +397,14 @@ unless ($define{'USE_ITHREADS'}) {
 		    Perl_regdupe_internal
 		    Perl_newPADOP
 			 );
+}
+
+unless (   $define{'USE_ITHREADS'}
+        && $define{'HAS_NEWLOCALE'})
+{
+    ++$skip{$_} foreach qw(
+        PL_C_locale_obj
+    );
 }
 
 unless ($define{'PERL_IMPLICIT_CONTEXT'}) {

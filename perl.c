@@ -295,9 +295,9 @@ perl_construct(pTHXx)
     PL_fdpid = newAV();			/* for remembering popen pids by fd */
     PL_modglobal = newHV();		/* pointers to per-interpreter module globals */
     PL_errors = newSVpvs("");
-    sv_setpvs(PERL_DEBUG_PAD(0), "");	/* For regex debugging. */
-    sv_setpvs(PERL_DEBUG_PAD(1), "");	/* ext/re needs these */
-    sv_setpvs(PERL_DEBUG_PAD(2), "");	/* even without DEBUGGING. */
+    SvPVCLEAR(PERL_DEBUG_PAD(0));        /* For regex debugging. */
+    SvPVCLEAR(PERL_DEBUG_PAD(1));        /* ext/re needs these */
+    SvPVCLEAR(PERL_DEBUG_PAD(2));        /* even without DEBUGGING. */
 #ifdef USE_ITHREADS
     /* First entry is a list of empty elements. It needs to be initialised
        else all hell breaks loose in S_find_uninit_var().  */
@@ -420,6 +420,9 @@ perl_construct(pTHXx)
     PL_SB_invlist = _new_invlist_C_array(_Perl_SB_invlist);
     PL_WB_invlist = _new_invlist_C_array(_Perl_WB_invlist);
     PL_LB_invlist = _new_invlist_C_array(_Perl_LB_invlist);
+#ifdef USE_THREAD_SAFE_LOCALE
+    PL_C_locale_obj = newlocale(LC_ALL_MASK, "C", NULL);
+#endif
 
     ENTER;
 }
@@ -618,8 +621,9 @@ perl_destruct(pTHXx)
         PerlIO *stdo = PerlIO_stdout();
         if (*stdo && PerlIO_flush(stdo)) {
             PerlIO_restore_errno(stdo);
-            PerlIO_printf(PerlIO_stderr(), "Unable to flush stdout: %s",
-                          Strerror(errno));
+            if (errno)
+                PerlIO_printf(PerlIO_stderr(), "Unable to flush stdout: %s",
+                    Strerror(errno));
             if (!STATUS_UNIX)
                 STATUS_ALL_FAILURE;
         }
@@ -1135,7 +1139,7 @@ perl_destruct(pTHXx)
 
     hv = PL_defstash;
     /* break ref loop  *:: <=> %:: */
-    (void)hv_delete(hv, "main::", 6, G_DISCARD);
+    (void)hv_deletes(hv, "main::", G_DISCARD);
     PL_defstash = 0;
     SvREFCNT_dec(hv);
     SvREFCNT_dec(PL_curstname);
@@ -2296,6 +2300,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 
     /* PL_unicode is turned on by -C, or by $ENV{PERL_UNICODE},
      * or explicitly in some platforms.
+     * PL_utf8locale is conditionally turned on by
      * locale.c:Perl_init_i18nl10n() if the environment
      * look like the user wants to use UTF-8. */
 #if defined(__SYMBIAN32__)
@@ -2835,7 +2840,7 @@ Perl_call_sv(pTHX_ SV *sv, VOL I32 flags)
 	(void)POPMARK;
         old_cxix = cxstack_ix;
 	create_eval_scope(NULL, flags|G_FAKINGEVAL);
-	(void)INCMARK;
+	INCMARK;
 
 	JMPENV_PUSH(ret);
 
@@ -3221,8 +3226,7 @@ Perl_moreswitches(pTHX_ const char *s)
 		   s--;
 	      }
 	      PL_rs = newSVpvs("");
-	      SvGROW(PL_rs, (STRLEN)(UVCHR_SKIP(rschar) + 1));
-	      tmps = (U8*)SvPVX(PL_rs);
+	      tmps = (U8*) SvGROW(PL_rs, (STRLEN)(UVCHR_SKIP(rschar) + 1));
 	      uvchr_to_utf8(tmps, rschar);
 	      SvCUR_set(PL_rs, UVCHR_SKIP(rschar));
 	      SvUTF8_on(PL_rs);
@@ -3344,11 +3348,6 @@ Perl_moreswitches(pTHX_ const char *s)
 		++s;
 
 	    PL_inplace = savepvn(start, s - start);
-	}
-	if (*s) {
-	    ++s;
-	    if (*s == '-')	/* Additional switches on #! line. */
-		s++;
 	}
 	return s;
     case 'I':	/* -I handled both here and in parse_body() */
@@ -3731,7 +3730,7 @@ S_init_main_stash(pTHX)
        because otherwise all we do is delete "main" from it as a consequence
        of the SvREFCNT_dec, only to add it again with hv_name_set */
     SvREFCNT_dec(GvHV(gv));
-    hv_name_set(PL_defstash, "main", 4, 0);
+    hv_name_sets(PL_defstash, "main", 0);
     GvHV(gv) = MUTABLE_HV(SvREFCNT_inc_simple(PL_defstash));
     SvREADONLY_on(gv);
     PL_incgv = gv_HVadd(gv_AVadd(gv_fetchpvs("INC", GV_ADD|GV_NOTQUAL,
@@ -3783,7 +3782,7 @@ S_open_script(pTHX_ const char *scriptname, bool dosearch, bool *suidscript)
 	/* if find_script() returns, it returns a malloc()-ed value */
 	scriptname = PL_origfilename = find_script(scriptname, dosearch, NULL, 1);
 
-	if (strnEQ(scriptname, "/dev/fd/", 8)
+	if (strEQs(scriptname, "/dev/fd/")
             && isDIGIT(scriptname[8])
             && grok_atoUV(scriptname + 8, &uv, &s)
             && uv <= PERL_INT_MAX
@@ -3964,7 +3963,7 @@ S_find_beginning(pTHX_ SV* linestr_sv, PerlIO *rsfp)
     if (*s++ == '-') {
 	while (isDIGIT(s2[-1]) || s2[-1] == '-' || s2[-1] == '.'
 	       || s2[-1] == '_') s2--;
-	if (strnEQ(s2-4,"perl",4))
+	if (strEQs(s2-4,"perl"))
 	    while ((s = moreswitches(s)))
 		;
     }
@@ -4346,9 +4345,9 @@ S_init_postdump_symbols(pTHX_ int argc, char **argv, char **env)
     PERL_ARGS_ASSERT_INIT_POSTDUMP_SYMBOLS;
 
     PL_toptarget = newSV_type(SVt_PVIV);
-    sv_setpvs(PL_toptarget, "");
+    SvPVCLEAR(PL_toptarget);
     PL_bodytarget = newSV_type(SVt_PVIV);
-    sv_setpvs(PL_bodytarget, "");
+    SvPVCLEAR(PL_bodytarget);
     PL_formtarget = PL_bodytarget;
 
     TAINT;
@@ -4645,15 +4644,20 @@ S_init_perllib(pTHX)
 #endif
 #endif /* !PERL_IS_MINIPERL */
 
-    if (!TAINTING_get)
-	S_incpush(aTHX_ STR_WITH_LEN("."), 0);
+    if (!TAINTING_get) {
+#if !defined(PERL_IS_MINIPERL) && defined(DEFAULT_INC_EXCLUDES_DOT)
+        const char * const unsafe = PerlEnv_getenv("PERL_USE_UNSAFE_INC");
+        if (unsafe && strEQ(unsafe, "1"))
+#endif
+          S_incpush(aTHX_ STR_WITH_LEN("."), 0);
+    }
 }
 
 #if defined(DOSISH) || defined(__SYMBIAN32__)
 #    define PERLLIB_SEP ';'
 #else
-#  if defined(VMS)
-#    define PERLLIB_SEP '|'
+#  if defined(__VMS)
+#    define PERLLIB_SEP PL_perllib_sep
 #  else
 #    define PERLLIB_SEP ':'
 #  endif
@@ -4778,7 +4782,7 @@ S_mayberelocate(pTHX_ const char *const dir, STRLEN len, U32 flags)
 		if (lastslash) {
 		    SV *tempsv;
 		    while ((*lastslash = '\0'), /* Do that, come what may.  */
-			   (libpath_len >= 3 && memEQ(libpath, "../", 3)
+                           (libpath_len >= 3 && _memEQs(libpath, "../")
 			    && (lastslash = strrchr(prefix, '/')))) {
 			if (lastslash[1] == '\0'
 			    || (lastslash[1] == '.'

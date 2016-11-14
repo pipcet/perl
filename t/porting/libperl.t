@@ -129,7 +129,7 @@ if (defined $nm_style) {
     }
 }
 
-if ($^O eq 'linux' && $Config{archname} !~ /^x86/) {
+if ($^O eq 'linux' && $Config{archname} !~ /^(?:x|i6)86/) {
     # For example in ppc most (but not all!) code symbols are placed
     # in 'D' (data), not in ' T '.  We cannot work under such conditions.
     skip_all "linux but archname $Config{archname} not x86*";
@@ -539,13 +539,6 @@ for my $symbol (sort keys %unexpected) {
         @o == 1 && $o[0] eq 'sv.o') {
       SKIP: {
         skip("uses sprintf for Gconvert in sv.o");
-      }
-    }
-    elsif (   $symbol eq 'strcat'
-           && @o == 1 && $o[0] eq 'locale.o')
-    {
-      SKIP: {
-        skip("locale.o legitimately uses strcat");
       }
     } else {
         is(@o, 0, "uses no $symbol (@o)");

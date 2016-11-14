@@ -2,7 +2,7 @@ package Test2::Hub;
 use strict;
 use warnings;
 
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 
 use Carp qw/carp croak confess/;
@@ -23,6 +23,7 @@ use Test2::Util::HashBase qw{
     _context_init
     _context_release
 
+    active
     count
     failed
     ended
@@ -52,6 +53,8 @@ sub init {
         $ipc->add_hub($self->{+HID});
     }
 }
+
+sub is_subtest { 0 }
 
 sub reset_state {
     my $self = shift;
@@ -299,7 +302,10 @@ sub process {
     return $e if $is_ok || $no_fail;
 
     my $code = $e->terminate;
-    $self->terminate($code, $e) if defined $code;
+    if (defined $code) {
+        $self->{+_FORMATTER}->terminate($e) if $self->{+_FORMATTER};
+        $self->terminate($code, $e);
+    }
 
     return $e;
 }
@@ -329,9 +335,13 @@ sub finalize {
     my $plan   = $self->{+_PLAN};
     my $count  = $self->{+COUNT};
     my $failed = $self->{+FAILED};
+    my $active = $self->{+ACTIVE};
 
-    # return if NOTHING was done.
-    return unless $do_plan || defined($plan) || $count || $failed;
+	# return if NOTHING was done.
+	unless ($active || $do_plan || defined($plan) || $count || $failed) {
+		$self->{+_FORMATTER}->finalize($plan, $count, $failed, 0, $self->is_subtest) if $self->{+_FORMATTER};
+		return;
+	}
 
     unless ($self->{+ENDED}) {
         if ($self->{+_FOLLOW_UPS}) {
@@ -367,7 +377,11 @@ Second End: $sfile line $sline
     }
 
     $self->{+ENDED} = $frame;
-    $self->is_passing(); # Generate the final boolean.
+    my $pass = $self->is_passing(); # Generate the final boolean.
+
+	$self->{+_FORMATTER}->finalize($plan, $count, $failed, $pass, $self->is_subtest) if $self->{+_FORMATTER};
+
+    return $pass;
 }
 
 sub is_passing {
@@ -476,7 +490,7 @@ handle thread/fork sync, filters, listeners, TAP output, etc.
 
 =head2 ALTERING OR REMOVING EVENTS
 
-You can use either C<filter()> or C<pre_filter()>, which one depends on your
+You can use either C<filter()> or C<pre_filter()>, depending on your
 needs. Both have identical syntax, so only C<filter()> is shown here.
 
     $hub->filter(sub {
@@ -499,7 +513,7 @@ needs. Both have identical syntax, so only C<filter()> is shown here.
         die "Should not happen";
     });
 
-By default filters are not inherited by child hubs, that means if you start a
+By default, filters are not inherited by child hubs. That means if you start a
 subtest, the subtest will not inherit the filter. You can change this behavior
 with the C<inherit> parameter:
 
@@ -515,7 +529,7 @@ with the C<inherit> parameter:
         # return is ignored
     });
 
-By default listeners are not inherited by child hubs, that means if you start a
+By default listeners are not inherited by child hubs. That means if you start a
 subtest, the subtest will not inherit the listener. You can change this behavior
 with the C<inherit> parameter:
 
@@ -532,7 +546,7 @@ with the C<inherit> parameter:
         # Return is ignored
     });
 
-follow_up subs are called only once, ether when done_testing is called, or in
+follow_up subs are called only once, either when done_testing is called, or in
 an END block.
 
 =head2 SETTING THE FORMATTER
@@ -543,7 +557,7 @@ By default an instance of L<Test2::Formatter::TAP> is created and used.
 
 Setting the formatter will REPLACE any existing formatter. You may set the
 formatter to undef to prevent output. The old formatter will be returned if one
-was already set. Only 1 formatter is allowed at a time.
+was already set. Only one formatter is allowed at a time.
 
 =head1 METHODS
 
@@ -718,6 +732,15 @@ Get the IPC object used by the hub.
 This can be used to disable auto-ending behavior for a hub. The auto-ending
 behavior is triggered by an end block and is used to cull IPC events, and
 output the final plan if the plan was 'no_plan'.
+
+=item $bool = $hub->active
+
+=item $hub->set_active($bool)
+
+These are used to get/set the 'active' attribute. When true this attribute will
+force C<< hub->finalize() >> to take action even if there is no plan, and no
+tests have been run. This flag is useful for plugins that add follow-up
+behaviors that need to run even if no events are seen.
 
 =back
 

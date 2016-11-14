@@ -292,6 +292,13 @@ cpan/CPAN/t/02nox.t		See if CPAN::Nox works
 cpan/CPAN/t/03pkgs.t		See if CPAN::Version works
 cpan/CPAN/t/10version.t		See if CPAN the module works
 cpan/CPAN/t/11mirroredby.t		See if CPAN::Mirrored::By works
+cpan/CPAN-Meta/corpus/BadMETA.yml
+cpan/CPAN-Meta/corpus/bareyaml.meta
+cpan/CPAN-Meta/corpus/CL018_yaml.meta
+cpan/CPAN-Meta/corpus/json.meta
+cpan/CPAN-Meta/corpus/META-VR.json
+cpan/CPAN-Meta/corpus/META-VR.yml
+cpan/CPAN-Meta/corpus/yaml.meta
 cpan/CPAN-Meta/lib/CPAN/Meta.pm
 cpan/CPAN-Meta/lib/CPAN/Meta/Converter.pm
 cpan/CPAN-Meta/lib/CPAN/Meta/Feature.pm
@@ -305,6 +312,7 @@ cpan/CPAN-Meta/lib/CPAN/Meta/Merge.pm
 cpan/CPAN-Meta/lib/CPAN/Meta/Prereqs.pm
 cpan/CPAN-Meta/lib/CPAN/Meta/Spec.pm
 cpan/CPAN-Meta/lib/CPAN/Meta/Validator.pm
+cpan/CPAN-Meta/lib/Parse/CPAN/Meta.pm
 cpan/CPAN-Meta/t/converter.t
 cpan/CPAN-Meta/t/converter-bad.t
 cpan/CPAN-Meta/t/converter-fail.t
@@ -351,21 +359,31 @@ cpan/CPAN-Meta/t/data-test/unicode.yml
 cpan/CPAN-Meta/t/data-test/version-not-normal.json
 cpan/CPAN-Meta/t/data-test/version-ranges-1_4.yml
 cpan/CPAN-Meta/t/data-test/version-ranges-2.json
+cpan/CPAN-Meta/t/data-test/x_deprecated-META.json
 cpan/CPAN-Meta/t/data-valid/1122575719-META.yml
 cpan/CPAN-Meta/t/data-valid/1206545041-META.yml
 cpan/CPAN-Meta/t/data-valid/1985684504-META.yml
 cpan/CPAN-Meta/t/data-valid/476602558-META.yml
 cpan/CPAN-Meta/t/data-valid/META-1_0.yml
 cpan/CPAN-Meta/t/data-valid/META-1_1.yml
+cpan/CPAN-Meta/t/data-valid/META-1_4.yml
+cpan/CPAN-Meta/t/data-valid/META-2.json
 cpan/CPAN-Meta/t/data-valid/scalar-meta-spec.yml
+cpan/CPAN-Meta/t/data-valid/x_deprecated-META.yml
+cpan/CPAN-Meta/t/lib/Parse/CPAN/Meta/Test.pm
 cpan/CPAN-Meta/t/load-bad.t
 cpan/CPAN-Meta/t/merge.t
 cpan/CPAN-Meta/t/meta-obj.t
 cpan/CPAN-Meta/t/no-index.t
 cpan/CPAN-Meta/t/optional_feature-merge.t
+cpan/CPAN-Meta/t/parse-cpan-meta/02_api.t
+cpan/CPAN-Meta/t/parse-cpan-meta/03_functions.t
+cpan/CPAN-Meta/t/parse-cpan-meta/04_export.t
+cpan/CPAN-Meta/t/parse-cpan-meta/05_errors.t
 cpan/CPAN-Meta/t/prereqs.t
 cpan/CPAN-Meta/t/prereqs-finalize.t
 cpan/CPAN-Meta/t/prereqs-merge.t
+cpan/CPAN-Meta/t/README-data.txt
 cpan/CPAN-Meta/t/repository.t
 cpan/CPAN-Meta/t/save-load.t
 cpan/CPAN-Meta/t/validator.t
@@ -1309,6 +1327,7 @@ cpan/HTTP-Tiny/t/000_load.t
 cpan/HTTP-Tiny/t/001_api.t
 cpan/HTTP-Tiny/t/002_croakage.t
 cpan/HTTP-Tiny/t/003_agent.t
+cpan/HTTP-Tiny/t/004_timeout.t
 cpan/HTTP-Tiny/t/010_url.t
 cpan/HTTP-Tiny/t/020_headers.t
 cpan/HTTP-Tiny/t/030_response.t
@@ -1706,6 +1725,7 @@ cpan/Math-BigInt/t/isa.t		Test for Math::BigInt inheritance
 cpan/Math-BigInt/t/lib_load.t		Test sane lib names
 cpan/Math-BigInt/t/Math/BigFloat/Subclass.pm	Empty subclass of BigFloat for test
 cpan/Math-BigInt/t/Math/BigInt/BareCalc.pm	Bigint's simulation of Calc
+cpan/Math-BigInt/t/Math/BigInt/Lib/TestUtil.pm	Test Math::BigInt
 cpan/Math-BigInt/t/Math/BigInt/Scalar.pm	Pure Perl module to support Math::BigInt
 cpan/Math-BigInt/t/Math/BigInt/Subclass.pm	Empty subclass of BigInt for test
 cpan/Math-BigInt/t/mbf_ali.t		Tests for BigFloat
@@ -1870,18 +1890,7 @@ cpan/parent/t/parent-classfromclassfile.t	tests for parent.pm
 cpan/parent/t/parent-classfromfile.t		tests for parent.pm
 cpan/parent/t/parent-pmc.t			tests for parent.pm
 cpan/parent/t/parent-returns-false.t		tests for parent.pm
-cpan/Parse-CPAN-Meta/corpus/BadMETA.yml
-cpan/Parse-CPAN-Meta/corpus/bareyaml.meta
-cpan/Parse-CPAN-Meta/corpus/json.meta
-cpan/Parse-CPAN-Meta/corpus/META-VR.json
-cpan/Parse-CPAN-Meta/corpus/META-VR.yml
-cpan/Parse-CPAN-Meta/corpus/yaml.meta
-cpan/Parse-CPAN-Meta/lib/Parse/CPAN/Meta.pm
-cpan/Parse-CPAN-Meta/t/02_api.t
-cpan/Parse-CPAN-Meta/t/03_functions.t
-cpan/Parse-CPAN-Meta/t/04_export.t
-cpan/Parse-CPAN-Meta/t/05_errors.t
-cpan/Parse-CPAN-Meta/t/lib/Parse/CPAN/Meta/Test.pm
+cpan/parent/t/rt62341.t.disabled		test files for parent.pm
 cpan/Perl-OSType/lib/Perl/OSType.pm			Perl::OSType
 cpan/Perl-OSType/t/OSType.t			Perl::OSType
 cpan/perlfaq/lib/perlfaq.pm	Perl frequently asked questions
@@ -1974,7 +1983,8 @@ cpan/Pod-Perldoc/lib/Pod/Perldoc/ToTk.pm	convert POD via Tk::Pod
 cpan/Pod-Perldoc/lib/Pod/Perldoc/ToXml.pm	convert POD to XML
 cpan/Pod-Perldoc/Makefile.PL
 cpan/Pod-Perldoc/perldoc.pod
-cpan/Pod-Perldoc/t/load.t			test file for Pod-Perldoc
+cpan/Pod-Perldoc/t/00_load.t			test file for Pod-Perldoc
+cpan/Pod-Perldoc/t/01_about_verbose.t		test file for Pod-Perldoc
 cpan/Pod-Perldoc/t/man/_get_columns.t		test file for Pod-Perldoc
 cpan/Pod-Perldoc/t/pod.t			test file for Pod-Perldoc
 cpan/Pod-Simple/lib/Pod/Simple.pm			Pod made simple
@@ -2211,9 +2221,54 @@ cpan/podlators/t/data/basic.ovr			podlators test
 cpan/podlators/t/data/basic.pod			podlators test
 cpan/podlators/t/data/basic.txt			podlators test
 cpan/podlators/t/data/perl.conf			podlators test
-cpan/podlators/t/data/snippets/man/cpp			podlators test
-cpan/podlators/t/data/snippets/man/utf8-nonbreaking			podlators test
-cpan/podlators/t/data/snippets/man/utf8-verbatim			podlators test
+cpan/podlators/t/data/snippets/man/agrave
+cpan/podlators/t/data/snippets/man/backslash-man-ref
+cpan/podlators/t/data/snippets/man/bullet-after-nonbullet
+cpan/podlators/t/data/snippets/man/bullets
+cpan/podlators/t/data/snippets/man/c-in-header
+cpan/podlators/t/data/snippets/man/c-in-name
+cpan/podlators/t/data/snippets/man/cpp
+cpan/podlators/t/data/snippets/man/dollar-magic
+cpan/podlators/t/data/snippets/man/error-die
+cpan/podlators/t/data/snippets/man/error-none
+cpan/podlators/t/data/snippets/man/error-normal
+cpan/podlators/t/data/snippets/man/error-pod
+cpan/podlators/t/data/snippets/man/error-stderr
+cpan/podlators/t/data/snippets/man/error-stderr-opt
+cpan/podlators/t/data/snippets/man/eth
+cpan/podlators/t/data/snippets/man/fixed-font
+cpan/podlators/t/data/snippets/man/fixed-font-in-item
+cpan/podlators/t/data/snippets/man/for-blocks
+cpan/podlators/t/data/snippets/man/hyphen-in-s
+cpan/podlators/t/data/snippets/man/iso-8859-1
+cpan/podlators/t/data/snippets/man/item-fonts
+cpan/podlators/t/data/snippets/man/link-quoting
+cpan/podlators/t/data/snippets/man/link-to-url
+cpan/podlators/t/data/snippets/man/long-quote
+cpan/podlators/t/data/snippets/man/lquote-and-quote
+cpan/podlators/t/data/snippets/man/lquote-rquote
+cpan/podlators/t/data/snippets/man/markup-in-name
+cpan/podlators/t/data/snippets/man/multiline-x
+cpan/podlators/t/data/snippets/man/name-guesswork
+cpan/podlators/t/data/snippets/man/nested-lists
+cpan/podlators/t/data/snippets/man/newlines-in-c
+cpan/podlators/t/data/snippets/man/non-ascii
+cpan/podlators/t/data/snippets/man/not-bullet
+cpan/podlators/t/data/snippets/man/not-numbers
+cpan/podlators/t/data/snippets/man/nourls
+cpan/podlators/t/data/snippets/man/paired-quotes
+cpan/podlators/t/data/snippets/man/periods
+cpan/podlators/t/data/snippets/man/quote-escaping
+cpan/podlators/t/data/snippets/man/rquote-none
+cpan/podlators/t/data/snippets/man/small-caps-magic
+cpan/podlators/t/data/snippets/man/soft-hyphens
+cpan/podlators/t/data/snippets/man/trailing-space
+cpan/podlators/t/data/snippets/man/true-false
+cpan/podlators/t/data/snippets/man/uppercase-license
+cpan/podlators/t/data/snippets/man/utf8-nonbreaking
+cpan/podlators/t/data/snippets/man/utf8-verbatim
+cpan/podlators/t/data/snippets/man/x-whitespace
+cpan/podlators/t/data/snippets/man/x-whitespace-entry
 cpan/podlators/t/data/snippets/README			podlators test
 cpan/podlators/t/data/snippets/text/cpp			podlators test
 cpan/podlators/t/data/termcap			podlators test
@@ -2227,13 +2282,13 @@ cpan/podlators/t/lib/Test/Podlators.pm			podlators test
 cpan/podlators/t/lib/Test/RRA.pm			podlators test
 cpan/podlators/t/lib/Test/RRA/Config.pm			podlators test
 cpan/podlators/t/lib/Test/RRA/ModuleVersion.pm		podlators test
-cpan/podlators/t/man/basic.t			podlators test
 cpan/podlators/t/man/devise-date.t			podlators test
 cpan/podlators/t/man/devise-title.t			podlators test
 cpan/podlators/t/man/empty.t			podlators test
 cpan/podlators/t/man/heading.t			podlators test
+cpan/podlators/t/man/iso-8859-1.t		podlators test
 cpan/podlators/t/man/no-encode.t		podlators test
-cpan/podlators/t/man/options.t			podlators test
+cpan/podlators/t/man/snippets.t			podlators test
 cpan/podlators/t/man/utf8-io.t			podlators test
 cpan/podlators/t/parselink/basic.t			podlators test
 cpan/podlators/t/style/minimum-version.t			podlators test
@@ -2548,6 +2603,7 @@ cpan/Test-Simple/lib/Test2/Event/Bail.pm
 cpan/Test-Simple/lib/Test2/Event/Diag.pm
 cpan/Test-Simple/lib/Test2/Event/Exception.pm
 cpan/Test-Simple/lib/Test2/Event/Generic.pm
+cpan/Test-Simple/lib/Test2/Event/Info.pm
 cpan/Test-Simple/lib/Test2/Event/Note.pm
 cpan/Test-Simple/lib/Test2/Event/Ok.pm
 cpan/Test-Simple/lib/Test2/Event/Plan.pm
@@ -2665,6 +2721,7 @@ cpan/Test-Simple/t/Legacy/subtest/for_do_t.test
 cpan/Test-Simple/t/Legacy/subtest/fork.t
 cpan/Test-Simple/t/Legacy/subtest/implicit_done.t
 cpan/Test-Simple/t/Legacy/subtest/line_numbers.t
+cpan/Test-Simple/t/Legacy/subtest/plan.t
 cpan/Test-Simple/t/Legacy/subtest/predicate.t
 cpan/Test-Simple/t/Legacy/subtest/singleton.t
 cpan/Test-Simple/t/Legacy/subtest/threads.t
@@ -2697,6 +2754,7 @@ cpan/Test-Simple/t/lib/MyOverload.pm
 cpan/Test-Simple/t/lib/MyTest.pm
 cpan/Test-Simple/t/lib/NoExporter.pm
 cpan/Test-Simple/t/lib/SigDie.pm
+cpan/Test-Simple/t/lib/SkipAll.pm
 cpan/Test-Simple/t/lib/SmallTest.pm
 cpan/Test-Simple/t/lib/Test/Builder/NoOutput.pm
 cpan/Test-Simple/t/lib/Test/Simple/Catch.pm
@@ -2720,6 +2778,9 @@ cpan/Test-Simple/t/lib/TieOut.pm
 cpan/Test-Simple/t/regression/642_persistent_end.t
 cpan/Test-Simple/t/regression/662-tbt-no-plan.t
 cpan/Test-Simple/t/regression/684-nested_todo_diag.t
+cpan/Test-Simple/t/regression/694_note_diag_return_values.t
+cpan/Test-Simple/t/regression/696-intercept_skip_all.t
+cpan/Test-Simple/t/regression/721-nested-streamed-subtest.t
 cpan/Test-Simple/t/regression/no_name_in_subtest.t
 cpan/Test-Simple/t/Test2/acceptance/try_it_done_testing.t
 cpan/Test-Simple/t/Test2/acceptance/try_it_fork.t
@@ -2729,12 +2790,15 @@ cpan/Test-Simple/t/Test2/acceptance/try_it_skip.t
 cpan/Test-Simple/t/Test2/acceptance/try_it_threads.t
 cpan/Test-Simple/t/Test2/acceptance/try_it_todo.t
 cpan/Test-Simple/t/Test2/behavior/err_var.t
+cpan/Test-Simple/t/Test2/behavior/Formatter.t
 cpan/Test-Simple/t/Test2/behavior/init_croak.t
 cpan/Test-Simple/t/Test2/behavior/nested_context_exception.t
 cpan/Test-Simple/t/Test2/behavior/no_load_api.t
 cpan/Test-Simple/t/Test2/behavior/run_subtest_inherit.t
+cpan/Test-Simple/t/Test2/behavior/special_names.t
 cpan/Test-Simple/t/Test2/behavior/Subtest_buffer_formatter.t
 cpan/Test-Simple/t/Test2/behavior/Subtest_events.t
+cpan/Test-Simple/t/Test2/behavior/Subtest_plan.t
 cpan/Test-Simple/t/Test2/behavior/Taint.t
 cpan/Test-Simple/t/Test2/legacy/TAP.t
 cpan/Test-Simple/t/Test2/modules/API.t
@@ -2747,6 +2811,7 @@ cpan/Test-Simple/t/Test2/modules/Event/Bail.t
 cpan/Test-Simple/t/Test2/modules/Event/Diag.t
 cpan/Test-Simple/t/Test2/modules/Event/Exception.t
 cpan/Test-Simple/t/Test2/modules/Event/Generic.t
+cpan/Test-Simple/t/Test2/modules/Event/Info.t
 cpan/Test-Simple/t/Test2/modules/Event/Note.t
 cpan/Test-Simple/t/Test2/modules/Event/Ok.t
 cpan/Test-Simple/t/Test2/modules/Event/Plan.t
@@ -2765,6 +2830,7 @@ cpan/Test-Simple/t/Test2/modules/Util.t
 cpan/Test-Simple/t/Test2/modules/Util/ExternalMeta.t
 cpan/Test-Simple/t/Test2/modules/Util/HashBase.t
 cpan/Test-Simple/t/Test2/modules/Util/Trace.t
+cpan/Test-Simple/t/Test2/regression/693_ipc_ordering.t
 cpan/Test-Simple/t/Test2/regression/gh_16.t
 cpan/Test-Simple/t/Test2/regression/ipc_files_abort_exit.t
 cpan/Test-Simple/t/tools.pl
@@ -2836,12 +2902,12 @@ cpan/Unicode-Collate/Collate/Locale/ar.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/as.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/az.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/be.pl	Unicode::Collate
-cpan/Unicode-Collate/Collate/Locale/bg.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/bn.pl		Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ca.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/cs.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/cy.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/da.pl			Unicode::Collate
+cpan/Unicode-Collate/Collate/Locale/de_at_ph.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/de_phone.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ee.pl
 cpan/Unicode-Collate/Collate/Locale/eo.pl			Unicode::Collate
@@ -2853,7 +2919,7 @@ cpan/Unicode-Collate/Collate/Locale/fi.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/fi_phone.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/fil.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/fo.pl			Unicode::Collate
-cpan/Unicode-Collate/Collate/Locale/fr.pl			Unicode::Collate
+cpan/Unicode-Collate/Collate/Locale/fr_ca.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/gu.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ha.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/haw.pl			Unicode::Collate
@@ -2884,7 +2950,6 @@ cpan/Unicode-Collate/Collate/Locale/or.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/pa.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/pl.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ro.pl			Unicode::Collate
-cpan/Unicode-Collate/Collate/Locale/ru.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/sa.pl		Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/se.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/si.pl	Unicode::Collate
@@ -2901,6 +2966,7 @@ cpan/Unicode-Collate/Collate/Locale/th.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/tn.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/to.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/tr.pl			Unicode::Collate
+cpan/Unicode-Collate/Collate/Locale/ug_cyrl.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/uk.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ur.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/vi.pl			Unicode::Collate
@@ -2953,6 +3019,7 @@ cpan/Unicode-Collate/t/loc_cy.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_cyrl.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_da.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_de.t			Unicode::Collate
+cpan/Unicode-Collate/t/loc_deat.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_deph.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_ee.t
 cpan/Unicode-Collate/t/loc_eo.t			Unicode::Collate
@@ -2965,6 +3032,7 @@ cpan/Unicode-Collate/t/loc_fil.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_fiph.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_fo.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_fr.t			Unicode::Collate
+cpan/Unicode-Collate/t/loc_frca.t		Unicode::Collate
 cpan/Unicode-Collate/t/loc_gu.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_ha.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_haw.t			Unicode::Collate
@@ -2987,6 +3055,7 @@ cpan/Unicode-Collate/t/loc_lt.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_lv.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_mk.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_ml.t	Unicode::Collate
+cpan/Unicode-Collate/t/loc_mncy.t		Unicode::Collate
 cpan/Unicode-Collate/t/loc_mr.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_mt.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_nb.t			Unicode::Collate
@@ -3017,6 +3086,7 @@ cpan/Unicode-Collate/t/loc_th.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_tn.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_to.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_tr.t			Unicode::Collate
+cpan/Unicode-Collate/t/loc_ugcy.t		Unicode::Collate
 cpan/Unicode-Collate/t/loc_uk.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_ur.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_vi.t			Unicode::Collate
@@ -3042,22 +3112,6 @@ cpan/Unicode-Collate/t/trailwt.t		Unicode::Collate
 cpan/Unicode-Collate/t/variable.t		Unicode::Collate
 cpan/Unicode-Collate/t/version.t		Unicode::Collate
 cpan/Unicode-Collate/t/view.t			Unicode::Collate
-cpan/Unicode-Normalize/Makefile.PL	Unicode::Normalize
-cpan/Unicode-Normalize/mkheader		Unicode::Normalize
-cpan/Unicode-Normalize/Normalize.pm	Unicode::Normalize
-cpan/Unicode-Normalize/Normalize.xs	Unicode::Normalize
-cpan/Unicode-Normalize/t/fcdc.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/form.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/func.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/illegal.t	Unicode::Normalize
-cpan/Unicode-Normalize/t/norm.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/null.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/partial1.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/partial2.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/proto.t	Unicode::Normalize
-cpan/Unicode-Normalize/t/split.t	Unicode::Normalize
-cpan/Unicode-Normalize/t/test.t		Unicode::Normalize
-cpan/Unicode-Normalize/t/tie.t		Unicode::Normalize
 cpan/version/lib/version.pm		Support for version objects
 cpan/version/lib/version.pod		Documentation of the version module
 cpan/version/lib/version/Internals.pod	Description of the internals of version objects
@@ -3156,6 +3210,7 @@ dist/base/t/fields.t		See if fields work
 dist/base/t/fields-5_6_0.t	See if fields work
 dist/base/t/fields-5_8_0.t	See if fields work
 dist/base/t/fields-base.t	See if fields work
+dist/base/t/incdot.t		Test how base.pm handles '.' in @INC
 dist/base/t/isa.t		See if base's behaviour doesn't change
 dist/base/t/lib/Broken.pm	Test module for base.pm
 dist/base/t/lib/Dummy.pm	Test module for base.pm
@@ -3332,6 +3387,7 @@ dist/Filter-Simple/t/lib/Filter/Simple/ExportTest.pm		Helper file for Filter::Si
 dist/Filter-Simple/t/lib/Filter/Simple/FilterOnlyTest.pm	Helper file for Filter::Simple tests
 dist/Filter-Simple/t/lib/Filter/Simple/FilterTest.pm		Helper file for Filter::Simple tests
 dist/Filter-Simple/t/lib/Filter/Simple/ImportTest.pm		Helper file for Filter::Simple tests
+dist/Filter-Simple/t/no.t					See if Filter::Simple works
 dist/I18N-Collate/lib/I18N/Collate.pm		Routines to do strxfrm-based collation
 dist/I18N-Collate/t/I18N-Collate.t		See if I18N::Collate works
 dist/I18N-LangTags/ChangeLog			I18N::LangTags
@@ -3433,7 +3489,9 @@ dist/Module-CoreList/t/pod.t			Module::CoreList tests
 dist/Module-CoreList/t/utils.t			Module::CoreList tests
 dist/Net-Ping/Changes			Net::Ping
 dist/Net-Ping/lib/Net/Ping.pm		Hello, anybody home?
-dist/Net-Ping/t/100_load.t		Ping Net::Ping
+dist/Net-Ping/t/000_load.t
+dist/Net-Ping/t/001_new.t
+dist/Net-Ping/t/010_pingecho.t
 dist/Net-Ping/t/110_icmp_inst.t		Ping Net::Ping
 dist/Net-Ping/t/120_udp_inst.t		Ping Net::Ping
 dist/Net-Ping/t/130_tcp_inst.t		Ping Net::Ping
@@ -3592,6 +3650,7 @@ dist/Thread-Semaphore/t/02_errs.t		Thread::Semaphore tests
 dist/Thread-Semaphore/t/03_nothreads.t		Thread::Semaphore tests
 dist/Thread-Semaphore/t/04_nonblocking.t	Thread::Semaphore tests
 dist/Thread-Semaphore/t/05_force.t	Thread::Semaphore tests
+dist/Thread-Semaphore/t/06_timed.t	Thread::Semaphore tests
 dist/threads/hints/hpux.pl	Hint file for HPUX
 dist/threads/hints/linux.pl	Hint file for Linux
 dist/threads/lib/threads.pm		ithreads
@@ -3705,8 +3764,25 @@ dist/Time-HiRes/t/time.t		Test for Time::HiRes
 dist/Time-HiRes/t/tv_interval.t		Test for Time::HiRes
 dist/Time-HiRes/t/ualarm.t		Test for Time::HiRes
 dist/Time-HiRes/t/usleep.t		Test for Time::HiRes
+dist/Time-HiRes/t/utime.t		Test for Time::HiRes
 dist/Time-HiRes/t/Watchdog.pm		Test for Time::HiRes
 dist/Time-HiRes/typemap			Time::HiRes extension
+dist/Unicode-Normalize/Makefile.PL	Unicode::Normalize
+dist/Unicode-Normalize/mkheader		Unicode::Normalize
+dist/Unicode-Normalize/Normalize.pm	Unicode::Normalize
+dist/Unicode-Normalize/Normalize.xs	Unicode::Normalize
+dist/Unicode-Normalize/t/fcdc.t		Unicode::Normalize
+dist/Unicode-Normalize/t/form.t		Unicode::Normalize
+dist/Unicode-Normalize/t/func.t		Unicode::Normalize
+dist/Unicode-Normalize/t/illegal.t	Unicode::Normalize
+dist/Unicode-Normalize/t/norm.t		Unicode::Normalize
+dist/Unicode-Normalize/t/null.t		Unicode::Normalize
+dist/Unicode-Normalize/t/partial1.t		Unicode::Normalize
+dist/Unicode-Normalize/t/partial2.t		Unicode::Normalize
+dist/Unicode-Normalize/t/proto.t	Unicode::Normalize
+dist/Unicode-Normalize/t/split.t	Unicode::Normalize
+dist/Unicode-Normalize/t/test.t		Unicode::Normalize
+dist/Unicode-Normalize/t/tie.t		Unicode::Normalize
 dist/XSLoader/Makefile.PL	Dynamic Loader makefile writer
 dist/XSLoader/t/XSLoader.t	See if XSLoader works
 dist/XSLoader/XSLoader_pm.PL	Simple XS Loader perl module
@@ -4407,11 +4483,13 @@ lib/h2ph.t			See if h2ph works like it should
 lib/h2xs.t			See if h2xs produces expected lists of files
 lib/integer.pm			For "use integer"
 lib/integer.t			For "use integer" testing
+lib/Internals.pod		Document the Internals namespace (implemented by universal.c)
 lib/Internals.t			For Internals::* testing
 lib/less.pm			For "use less"
 lib/less.t			See if less support works
 lib/locale.pm			For "use locale"
 lib/locale.t			See if locale support works
+lib/locale_threads.t		Tes locale and threads interactions
 lib/meta_notation.pm		Helper for certain /lib .pm's
 lib/meta_notation.t		See if meta_notation.t works
 lib/Net/hostent.pm		By-name interface to Perl's builtin gethost*
@@ -4804,6 +4882,10 @@ pod/perl5240delta.pod		Perl changes in version 5.24.0
 pod/perl5250delta.pod		Perl changes in version 5.25.0
 pod/perl5251delta.pod		Perl changes in version 5.25.1
 pod/perl5252delta.pod		Perl changes in version 5.25.2
+pod/perl5253delta.pod		Perl changes in version 5.25.3
+pod/perl5254delta.pod		Perl changes in version 5.25.4
+pod/perl5255delta.pod		Perl changes in version 5.25.5
+pod/perl5256delta.pod		Perl changes in version 5.25.6
 pod/perl561delta.pod		Perl changes in version 5.6.1
 pod/perl56delta.pod		Perl changes in version 5.6
 pod/perl581delta.pod		Perl changes in version 5.8.1
@@ -4946,6 +5028,7 @@ Porting/git-find-p4-change	Find the change for a p4 change number
 Porting/git-make-p4-refs	Output git refs for each p4 change number, suitable for appending to .git/packed-refs
 Porting/GitUtils.pm		Generate the contents of a .patch file
 Porting/Glossary		Glossary of config.sh variables
+Porting/harness-timer-report.pl	Analyze the timings from the test harness
 Porting/how_to_write_a_perldelta.pod	Bluffer's guide to writing a perldelta.
 Porting/leakfinder.pl		Hacky script for finding memory leaks
 Porting/Maintainers		Program to pretty print info in Maintainers.pl
@@ -4958,6 +5041,7 @@ Porting/make_snapshot.pl	Make a tgz snapshot of our tree with a .patch file in i
 Porting/makemeta		Create the top-level META.yml
 Porting/makerel			Release making utility
 Porting/manicheck		Check against MANIFEST
+Porting/manifest_lib.pl		Library for checking and sorting the MANIFEST
 Porting/manisort		Sort the MANIFEST
 Porting/new-perldelta.pl	Generate a new perldelta
 Porting/newtests-perldelta.pl	Generate Perldelta stub for newly added tests
@@ -5396,6 +5480,7 @@ t/op/cproto.t			Check builtin prototypes
 t/op/crypt.t			See if crypt works
 t/op/current_sub.t		__SUB__ tests
 t/op/dbm.t			See if dbmopen/dbmclose work
+t/op/decl-refs.t		See if my \$foo works
 t/op/defined.t			See if defined() edge cases work
 t/op/defins.t			See if auto-insert of defined() works
 t/op/delete.t			See if delete works
@@ -5608,9 +5693,10 @@ t/porting/podcheck.t		Test the POD of shipped modules is well formed
 t/porting/re_context.t		Check assumptions made by save_re_context()
 t/porting/readme.t		Check that all files in Porting/ are mentioned in Porting/README.pod
 t/porting/regen.t		Check that regen.pl doesn't need running
-t/porting/ss_dup.t		Check that sv.c:ss_dup handle everything
+t/porting/ss_dup.t		Check that sv.c:ss_dup handles everything
 t/porting/test_bootstrap.t	Test that the instructions for test bootstrapping aren't accidentally overlooked.
 t/porting/utils.t		Check that utility scripts still compile
+t/re/anyof.t			See if bracketed char classes [...] compile properly
 t/re/charset.t			See if regex modifiers like /d, /u work properly
 t/re/fold_grind.t		See if case folding works properly
 t/re/no_utf8_pm.t		Verify utf8.pm doesn't get loaded unless required
@@ -5650,6 +5736,7 @@ t/re/regex_sets.t		Test (?[ ])
 t/re/regex_sets_compat.t	Test (?[ ]) is compatible with old [ ]
 t/re/regexp.t			See if regular expressions work
 t/re/regexp_noamp.t		See if regular expressions work with optimizations
+t/re/regexp_nonull.t		See if regexps work without trailing nulls
 t/re/regexp_notrie.t		See if regular expressions work without trie optimisation
 t/re/regexp_qr.t		See if regular expressions work as qr//
 t/re/regexp_qr_embed.t		See if regular expressions work with embedded qr//
@@ -5665,7 +5752,16 @@ t/re/subst.t			See if substitution works
 t/re/subst_amp.t		See if $&-related substitution works
 t/re/subst_wamp.t		See if substitution works with $& present
 t/re/substT.t			See if substitution works with -T
-t/re/uniprops.t			Test unicode \p{} regex constructs
+t/re/uniprops01.t		Test unicode \p{} regex constructs
+t/re/uniprops02.t		Test unicode \p{} regex constructs
+t/re/uniprops03.t		Test unicode \p{} regex constructs
+t/re/uniprops04.t		Test unicode \p{} regex constructs
+t/re/uniprops05.t		Test unicode \p{} regex constructs
+t/re/uniprops06.t		Test unicode \p{} regex constructs
+t/re/uniprops07.t		Test unicode \p{} regex constructs
+t/re/uniprops08.t		Test unicode \p{} regex constructs
+t/re/uniprops09.t		Test unicode \p{} regex constructs
+t/re/uniprops10.t		Test unicode \p{} regex constructs
 t/README			Instructions for regression tests
 t/run/cloexec.t			Test close-on-exec.
 t/run/dtrace.pl			For dtrace.t
@@ -5711,7 +5807,6 @@ t/uni/cache.t			See if Unicode swash caching works
 t/uni/caller.t			See if Unicode doesn't get mangled in caller()
 t/uni/case.pl			See if Unicode casing works
 t/uni/chomp.t			See if Unicode chomp works
-t/uni/chr.t			See if Unicode chr works
 t/uni/class.t			See if Unicode classes work (\p)
 t/uni/eval.t			See if Unicode hints don't affect eval()
 t/uni/fold.t			See if Unicode folding works
@@ -5734,9 +5829,6 @@ t/uni/sprintf.t			See if Unicode sprintf works
 t/uni/stash.t			See if Unicode stashes work
 t/uni/tie.t			See if Unicode tie works
 t/uni/title.t			See if Unicode casing works
-t/uni/tr_7jis.t			See if Unicode tr/// in 7jis works
-t/uni/tr_eucjp.t		See if Unicode tr/// in eucjp works
-t/uni/tr_sjis.t			See if Unicode tr/// in sjis works
 t/uni/tr_utf8.t			See if Unicode tr/// in utf8 works
 t/uni/universal.t		See if Unicode in calls to UNIVERSAL works
 t/uni/upper.t			See if Unicode casing works

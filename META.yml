@@ -4,7 +4,7 @@ author:
   - perl5-porters@perl.org
 build_requires: {}
 dynamic_config: 1
-generated_by: 'CPAN::Meta version 2.150005, CPAN::Meta::Converter version 2.150005'
+generated_by: 'CPAN::Meta version 2.150010, CPAN::Meta::Converter version 2.150010'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -49,6 +49,7 @@ no_index:
     - dist/threads-shared
     - dist/Tie-File
     - dist/Time-HiRes
+    - dist/Unicode-Normalize
     - dist/XSLoader
     - lib/perl5db
     - win32
@@ -111,5 +112,5 @@ resources:
   homepage: http://www.perl.org/
   license: http://dev.perl.org/licenses/
   repository: http://perl5.git.perl.org/
-version: '5.025003'
+version: '5.025007'
 x_serialization_backend: 'CPAN::Meta::YAML version 0.018'

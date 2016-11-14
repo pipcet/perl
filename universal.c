@@ -184,6 +184,10 @@ The SV can be a Perl object or the name of a Perl class.
 
 #include "XSUB.h"
 
+/* a special string address whose value is "isa", but whicb perl knows
+ * to treat as if it were really "DOES" */
+char PL_isa_DOES[] = "isa";
+
 bool
 Perl_sv_does_sv(pTHX_ SV *sv, SV *namesv, U32 flags)
 {
@@ -222,11 +226,14 @@ Perl_sv_does_sv(pTHX_ SV *sv, SV *namesv, U32 flags)
     PUSHs(namesv);
     PUTBACK;
 
-    methodname = newSVpvs_flags("isa", SVs_TEMP);
-    /* ugly hack: use the SvSCREAM flag so S_method_common
-     * can figure out we're calling DOES() and not isa(),
-     * and report eventual errors correctly. --rgs */
-    SvSCREAM_on(methodname);
+    /* create a PV with value "isa", but with a special address
+     * so that perl knows were' realling doing "DOES" instead */
+    methodname = newSV_type(SVt_PV);
+    SvLEN(methodname) = 0;
+    SvCUR(methodname) = strlen(PL_isa_DOES);
+    SvPVX(methodname) = PL_isa_DOES;
+    SvPOK_on(methodname);
+    sv_2mortal(methodname);
     call_sv(methodname, G_SCALAR | G_METHOD);
     SPAGAIN;
 
@@ -665,19 +672,19 @@ XS(XS_PerlIO_get_layers)
 
 		  switch (*key) {
 		  case 'i':
-		       if (klen == 5 && memEQ(key, "input", 5)) {
+                       if (memEQs(key, klen, "input")) {
 			    input = SvTRUE(*valp);
 			    break;
 		       }
 		       goto fail;
 		  case 'o': 
-		       if (klen == 6 && memEQ(key, "output", 6)) {
+                       if (memEQs(key, klen, "output")) {
 			    input = !SvTRUE(*valp);
 			    break;
 		       }
 		       goto fail;
 		  case 'd':
-		       if (klen == 7 && memEQ(key, "details", 7)) {
+                       if (memEQs(key, klen, "details")) {
 			    details = SvTRUE(*valp);
 			    break;
 		       }
@@ -766,68 +773,6 @@ XS(XS_PerlIO_get_layers)
     XSRETURN(0);
 }
 
-XS(XS_hash_util_bucket_ratio); /* prototype to pass -Wmissing-prototypes */
-XS(XS_hash_util_bucket_ratio)
-{
-    dXSARGS;
-    SV *rhv;
-    PERL_UNUSED_VAR(cv);
-
-    if (items != 1)
-        croak_xs_usage(cv, "hv");
-
-    rhv= ST(0);
-    if (SvROK(rhv)) {
-        rhv= SvRV(rhv);
-        if ( SvTYPE(rhv)==SVt_PVHV ) {
-            SV *ret= Perl_hv_bucket_ratio(aTHX_ (HV*)rhv);
-            ST(0)= ret;
-            XSRETURN(1);
-        }
-    }
-    XSRETURN_UNDEF;
-}
-
-XS(XS_hash_util_num_buckets); /* prototype to pass -Wmissing-prototypes */
-XS(XS_hash_util_num_buckets)
-{
-    dXSARGS;
-    SV *rhv;
-    PERL_UNUSED_VAR(cv);
-
-    if (items != 1)
-        croak_xs_usage(cv, "hv");
-
-    rhv= ST(0);
-    if (SvROK(rhv)) {
-        rhv= SvRV(rhv);
-        if ( SvTYPE(rhv)==SVt_PVHV ) {
-            XSRETURN_UV(HvMAX((HV*)rhv)+1);
-        }
-    }
-    XSRETURN_UNDEF;
-}
-
-XS(XS_hash_util_used_buckets); /* prototype to pass -Wmissing-prototypes */
-XS(XS_hash_util_used_buckets)
-{
-    dXSARGS;
-    SV *rhv;
-    PERL_UNUSED_VAR(cv);
-
-    if (items != 1)
-        croak_xs_usage(cv, "hv");
-
-    rhv= ST(0);
-    if (SvROK(rhv)) {
-        rhv= SvRV(rhv);
-        if ( SvTYPE(rhv)==SVt_PVHV ) {
-            XSRETURN_UV(HvFILL((HV*)rhv));
-        }
-    }
-    XSRETURN_UNDEF;
-}
-
 XS(XS_re_is_regexp); /* prototype to pass -Wmissing-prototypes */
 XS(XS_re_is_regexp)
 {
@@ -853,9 +798,6 @@ XS(XS_re_regnames_count)
 
     if (items != 0)
 	croak_xs_usage(cv, "");
-
-    SP -= items;
-    PUTBACK;
 
     if (!rx)
         XSRETURN_UNDEF;
@@ -1080,13 +1022,10 @@ static const struct xsub_details details[] = {
     {"utf8::native_to_unicode", XS_utf8_native_to_unicode, NULL},
     {"utf8::unicode_to_native", XS_utf8_unicode_to_native, NULL},
     {"Internals::SvREADONLY", XS_Internals_SvREADONLY, "\\[$%@];$"},
-    {"constant::_make_const", XS_constant__make_const, "\\[$@]"},
     {"Internals::SvREFCNT", XS_Internals_SvREFCNT, "\\[$%@];$"},
     {"Internals::hv_clear_placeholders", XS_Internals_hv_clear_placehold, "\\%"},
+    {"constant::_make_const", XS_constant__make_const, "\\[$@]"},
     {"PerlIO::get_layers", XS_PerlIO_get_layers, "*;@"},
-    {"Hash::Util::bucket_ratio", XS_hash_util_bucket_ratio, "\\%"},
-    {"Hash::Util::num_buckets", XS_hash_util_num_buckets, "\\%"},
-    {"Hash::Util::used_buckets", XS_hash_util_used_buckets, "\\%"},
     {"re::is_regexp", XS_re_is_regexp, "$"},
     {"re::regname", XS_re_regname, ";$$"},
     {"re::regnames", XS_re_regnames, ";$"},

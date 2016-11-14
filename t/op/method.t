@@ -6,8 +6,8 @@
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = qw(. ../lib lib ../dist/base/lib);
     require "./test.pl";
+    set_up_inc( qw(. ../lib lib ../dist/base/lib) );
 }
 
 use strict;
@@ -311,7 +311,7 @@ is( Foo->boogie(), "yes, sir!");
 eval 'sub AUTOLOAD { "ok ", shift, "\n"; }';
 ok(1);
 
-# Bug ID 20010902.002
+# Bug ID 20010902.002 (#7609)
 is(
     eval q[
 	my $x = 'x'; # Lexical or package variable, 5.6.1 panics.
@@ -336,7 +336,7 @@ is(
     is($w, '');
 }
 
-# [ID 20020305.025] PACKAGE::SUPER doesn't work anymore
+# [ID 20020305.025 (#8788)] PACKAGE::SUPER doesn't work anymore
 
 package main;
 our @X;
@@ -543,7 +543,7 @@ like $@,
      qr/^Can't call method "squeak" on unblessed reference/,
     'method call on \*typeglob';
 *stdout2 = *STDOUT;  # stdout2 now stringifies as *main::STDOUT
-sub IO::Handle::self { $_[0] }
+ sub IO::Handle::self { $_[0] }
 # This used to stringify the glob:
 is *stdout2->self, (\*stdout2)->self,
   '*glob->method is equiv to (\*glob)->method';

@@ -2,7 +2,7 @@ package Test2::Event::Ok;
 use strict;
 use warnings;
 
-our $VERSION = '1.302035';
+our $VERSION = '1.302062';
 
 
 BEGIN { require Test2::Event; our @ISA = qw(Test2::Event) }
@@ -16,10 +16,6 @@ sub init {
     # Do not store objects here, only true or false
     $self->{+PASS} = $self->{+PASS} ? 1 : 0;
     $self->{+EFFECTIVE_PASS} = $self->{+PASS} || (defined($self->{+TODO}) ? 1 : 0);
-
-    my $name = $self->{+NAME} or return;
-    return unless index($name, '#') != -1 || index($name, "\n") != -1;
-    $self->trace->throw("'$name' is not a valid name, names must not contain '#' or newlines.")
 }
 
 {
@@ -84,7 +80,6 @@ or:
         'Ok',
         pass => $bool,
         name => $name,
-        diag => \@diag
     );
 
 =head1 ACCESSORS
@@ -99,10 +94,6 @@ reduced down to 1 or 0).
 =item $name = $e->name
 
 Name of the test.
-
-=item $diag = $e->diag
-
-An arrayref full of diagnostics strings to print in the event of a failure.
 
 =item $b = $e->effective_pass
 

@@ -10,7 +10,7 @@
 package Data::Dumper;
 
 BEGIN {
-    $VERSION = '2.160'; # Don't forget to set version and release
+    $VERSION = '2.164'; # Don't forget to set version and release
 }               # date in POD below!
 
 #$| = 1;
@@ -227,7 +227,6 @@ sub DESTROY {}
 sub Dump {
     return &Dumpxs
     unless $Data::Dumper::Useperl || (ref($_[0]) && $_[0]->{useperl})
-        || $Data::Dumper::Deparse || (ref($_[0]) && $_[0]->{deparse})
 
             # Use pure perl version on earlier releases on EBCDIC platforms
         || (! $IS_ASCII && $] lt 5.021_010);
@@ -487,7 +486,7 @@ sub _dump {
         require B::Deparse;
         my $sub =  'sub ' . (B::Deparse->new)->coderef2text($val);
         $pad    =  $s->{sep} . $s->{pad} . $s->{apad} . $s->{xpad} x ($s->{level} - 1);
-        $sub    =~ s/\n/$pad/gse;
+        $sub    =~ s/\n/$pad/gs;
         $out   .=  $sub;
       }
       else {
@@ -1212,9 +1211,10 @@ $Data::Dumper::Deparse  I<or>  $I<OBJ>->Deparse(I<[NEWVAL]>)
 
 Can be set to a boolean value to control whether code references are
 turned into perl source code. If set to a true value, C<B::Deparse>
-will be used to get the source of the code reference. Using this option
-will force using the Perl implementation of the dumper, since the fast
-XSUB implementation doesn't support it.
+will be used to get the source of the code reference. In older versions,
+using this option imposed a significant performance penalty when dumping
+parts of a data structure other than code references, but that is no
+longer the case.
 
 Caution : use this option only if you know that your coderefs will be
 properly reconstructed by C<B::Deparse>.
@@ -1435,15 +1435,9 @@ the C<Deparse> flag), an anonymous subroutine that
 contains the string '"DUMMY"' will be inserted in its place, and a warning
 will be printed if C<Purity> is set.  You can C<eval> the result, but bear
 in mind that the anonymous sub that gets created is just a placeholder.
-Someday, perl will have a switch to cache-on-demand the string
-representation of a compiled piece of code, I hope.  If you have prior
-knowledge of all the code refs that your data structures are likely
-to have, you can use the C<Seen> method to pre-seed the internal reference
-table and make the dumped output point to them, instead.  See L</EXAMPLES>
-above.
-
-The C<Deparse> flag makes Dump() run slower, since the XSUB
-implementation does not support it.
+Even using the C<Deparse> flag will in some cases produce results that
+behave differently after being passed to C<eval>; see the documentation
+for L<B::Deparse>.
 
 SCALAR objects have the weirdest looking C<bless> workaround.
 
@@ -1466,13 +1460,13 @@ be to use the C<Sortkeys> filter of Data::Dumper.
 
 Gurusamy Sarathy        gsar@activestate.com
 
-Copyright (c) 1996-2014 Gurusamy Sarathy. All rights reserved.
+Copyright (c) 1996-2016 Gurusamy Sarathy. All rights reserved.
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
 =head1 VERSION
 
-Version 2.160  (January 12 2016)
+Version 2.164  (November 12 2016)
 
 =head1 SEE ALSO
 

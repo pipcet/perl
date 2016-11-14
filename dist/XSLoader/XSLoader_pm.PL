@@ -11,7 +11,7 @@ print OUT <<'EOT';
 
 package XSLoader;
 
-$VERSION = "0.21";
+$VERSION = "0.24";
 
 #use strict;
 
@@ -91,6 +91,43 @@ print OUT <<'EOT';
     my $modpname = join('/',@modparts);
     my $c = () = split(/::/,$caller,-1);
     $modlibname =~ s,[\\/][^\\/]+$,, while $c--;    # Q&D basename
+EOT
+
+my $to_print = <<'EOT';
+    # Does this look like a relative path?
+    if ($modlibname !~ m{regexp}) {
+EOT
+
+$to_print =~ s~regexp~
+    $^O eq 'MSWin32' || $^O eq 'os2' || $^O eq 'cygwin' || $^O eq 'amigaos'
+        ? '^(?:[A-Za-z]:)?[\\\/]' # Optional drive letter
+        : '^/'
+~e;
+
+print OUT $to_print, <<'EOT';
+        # Someone may have a #line directive that changes the file name, or
+        # may be calling XSLoader::load from inside a string eval.  We cer-
+        # tainly do not want to go loading some code that is not in @INC,
+        # as it could be untrusted.
+        #
+        # We could just fall back to DynaLoader here, but then the rest of
+        # this function would go untested in the perl core, since all @INC
+        # paths are relative during testing.  That would be a time bomb
+        # waiting to happen, since bugs could be introduced into the code.
+        #
+        # So look through @INC to see if $modlibname is in it.  A rela-
+        # tive $modlibname is not a common occurrence, so this block is
+        # not hot code.
+        FOUND: {
+            for (@INC) {
+                if ($_ eq $modlibname) {
+                    last FOUND;
+                }
+            }
+            # Not found.  Fall back to DynaLoader.
+            goto \&XSLoader::bootstrap_inherit;
+        }
+    }
 EOT
 
 my $dl_dlext = quotemeta($Config::Config{'dlext'});
@@ -218,7 +255,7 @@ XSLoader - Dynamically load C libraries into Perl code
 
 =head1 VERSION
 
-Version 0.17
+Version 0.24
 
 =head1 SYNOPSIS
 

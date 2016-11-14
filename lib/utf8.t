@@ -40,7 +40,7 @@ no utf8; # Ironic, no?
 #
 
 {
-    # bug id 20001009.001
+    # bug id 20001009.001 (#4409)
 
     my ($a, $b);
 
@@ -56,7 +56,7 @@ no utf8; # Ironic, no?
 
 
 {
-    # bug id 20000730.004
+    # bug id 20000730.004 (#3599)
 
     my $smiley = "\x{263a}";
 
@@ -165,7 +165,7 @@ no utf8; # Ironic, no?
     use utf8; %a = ("\xE1\xA0"=>"sterling");
     print 'start'; printf '%x,', ord \$_ foreach keys %a; print "end\n";
 BANG
-	      qr/^Malformed UTF-8 character \(\d bytes?, need \d, .+\).*start\d+,end$/sm
+	      qr/^Malformed UTF-8 character: .*? \(too short; got \d bytes?, need \d\).*start\d+,end$/sm
 	     ],
             );
     foreach (@tests) {

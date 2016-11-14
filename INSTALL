@@ -581,7 +581,7 @@ The directories set up by Configure fall into three broad categories.
 
 =item Directories for the perl distribution
 
-By default, Configure will use the following directories for 5.25.3.
+By default, Configure will use the following directories for 5.25.7.
 $version is the full perl version number, including subversion, e.g.
 5.12.3, and $archname is a string like sun4-sunos,
 determined by Configure.  The full definitions of all Configure
@@ -930,46 +930,47 @@ You can run perl scripts under the perl debugger at any time with
 B<perl -d your_script>.  If, however, you want to debug perl itself,
 you probably want to have support for perl internal debugging code
 (activated by adding -DDEBUGGING to ccflags), and/or support for the
-system debugger by adding -g to the optimisation flags. For that,
-use the parameter:
+system debugger by adding -g to the optimisation flags.
 
-	sh Configure -DDEBUGGING
+A perl compiled with the DEBUGGING C preprocessor macro will support the
+C<-D> perl command-line switch, have assertions enabled, and have many
+extra checks compiled into the code; but will execute much more slowly
+(typically 2-3x) and the binary will be much larger (typically 2-3x).
 
-or
-
-	sh Configure -DDEBUGGING=<mode>
-
-For a more eye appealing call, -DEBUGGING is defined to be an alias
-for -DDEBUGGING. For both, the -U calls are also supported, in order
-to be able to overrule the hints or Policy.sh settings.
+As a convenience, debugging code (-DDEBUGGING) and debugging symbols (-g)
+can be enabled jointly or separately using a Configure switch, also
+(somewhat confusingly) named -DDEBUGGING.  For a more eye appealing call,
+-DEBUGGING is defined to be an alias for -DDEBUGGING. For both, the -U
+calls are also supported, in order to be able to overrule the hints or
+Policy.sh settings.
 
 Here are the DEBUGGING modes:
 
 =over 4
 
-=item -DDEBUGGING
+=item Configure -DDEBUGGING
 
-=item -DEBUGGING
+=item Configure -DEBUGGING
 
-=item -DEBUGGING=both
+=item Configure -DEBUGGING=both
 
 Sets both -DDEBUGGING in the ccflags, and adds -g to optimize.
 
 You can actually specify -g and -DDEBUGGING independently (see below),
 but usually it's convenient to have both.
 
-=item -DEBUGGING=-g
+=item Configure -DEBUGGING=-g
 
-=item -Doptimize=-g
+=item Configure -Doptimize=-g
 
 Adds -g to optimize, but does not set -DDEBUGGING.
 
 (Note:  Your system may actually require something like cc -g2.
 Check your man pages for cc(1) and also any hint file for your system.)
 
-=item -DEBUGGING=none
+=item Configure -DEBUGGING=none
 
-=item -UDEBUGGING
+=item Configure -UDEBUGGING
 
 Removes -g from optimize, and -DDEBUGGING from ccflags.
 
@@ -2285,12 +2286,11 @@ under $archlib so that any user may later build new modules, run the
 optional Perl compiler, or embed the perl interpreter into another
 program even if the Perl source is no longer available.
 
-=head2 Installing only version-specific parts
+=head2 Installing with a version-specific suffix
 
-Sometimes you only want to install the version-specific parts of the perl
-installation.  For example, you may wish to install a newer version of
-perl alongside an already installed production version without
-disabling installation of new modules for the production version.
+Sometimes you only want to install the perl distribution with a
+version-specific suffix.  For example, you may wish to install a newer
+version of perl alongside an already installed production version.
 To only install the version-specific parts of the perl installation, run
 
 	Configure -Dversiononly
@@ -2436,7 +2436,7 @@ http://www.chiark.greenend.org.uk/~sgtatham/bugs.html
 
 =head1 Coexistence with earlier versions of perl 5
 
-Perl 5.25.3 is not binary compatible with earlier versions of Perl.
+Perl 5.25.7 is not binary compatible with earlier versions of Perl.
 In other words, you will have to recompile your XS modules.
 
 In general, you can usually safely upgrade from one version of Perl
@@ -2511,9 +2511,9 @@ won't interfere with another version.  (The defaults guarantee this for
 libraries after 5.6.0, but not for executables. TODO?)  One convenient
 way to do this is by using a separate prefix for each version, such as
 
-	sh Configure -Dprefix=/opt/perl5.25.3
+	sh Configure -Dprefix=/opt/perl5.25.7
 
-and adding /opt/perl5.25.3/bin to the shell PATH variable.  Such users
+and adding /opt/perl5.25.7/bin to the shell PATH variable.  Such users
 may also wish to add a symbolic link /usr/local/bin/perl so that
 scripts can still start with #!/usr/local/bin/perl.
 
@@ -2528,11 +2528,11 @@ yet.
 
 =head2 Upgrading from 5.25.2 or earlier
 
-B<Perl 5.25.3 may not be binary compatible with Perl 5.25.2 or
+B<Perl 5.25.7 may not be binary compatible with Perl 5.25.3 or
 earlier Perl releases.>  Perl modules having binary parts
 (meaning that a C compiler is used) will have to be recompiled to be
-used with 5.25.3.  If you find you do need to rebuild an extension with
-5.25.3, you may safely do so without disturbing the older
+used with 5.25.7.  If you find you do need to rebuild an extension with
+5.25.7, you may safely do so without disturbing the older
 installations.  (See L<"Coexistence with earlier versions of perl 5">
 above.)
 
@@ -2565,15 +2565,15 @@ Firstly, the bare minimum to run this script
      print("$f\n");
   }
 
-in Linux with perl-5.25.3 is as follows (under $Config{prefix}):
+in Linux with perl-5.25.7 is as follows (under $Config{prefix}):
 
   ./bin/perl
-  ./lib/perl5/5.25.3/strict.pm
-  ./lib/perl5/5.25.3/warnings.pm
-  ./lib/perl5/5.25.3/i686-linux/File/Glob.pm
-  ./lib/perl5/5.25.3/feature.pm
-  ./lib/perl5/5.25.3/XSLoader.pm
-  ./lib/perl5/5.25.3/i686-linux/auto/File/Glob/Glob.so
+  ./lib/perl5/5.25.7/strict.pm
+  ./lib/perl5/5.25.7/warnings.pm
+  ./lib/perl5/5.25.7/i686-linux/File/Glob.pm
+  ./lib/perl5/5.25.7/feature.pm
+  ./lib/perl5/5.25.7/XSLoader.pm
+  ./lib/perl5/5.25.7/i686-linux/auto/File/Glob/Glob.so
 
 Secondly, for perl-5.10.1, the Debian perl-base package contains 591
 files, (of which 510 are for lib/unicore) totaling about 3.5MB in its
