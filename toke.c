@@ -2290,12 +2290,12 @@ S_tokeq(pTHX_ SV *sv)
  * Pattern matching will set PL_lex_op to the pattern-matching op to
  * make (we return THING if pl_yylval.ival is OP_NULL, PMFUNC otherwise).
  *
- * OP_CONST and OP_READLINE are easy--just make the new op and return.
+ * OP_CONST is easy--just make the new op and return.
  *
  * Everything else becomes a FUNC.
  *
- * Sets PL_lex_state to LEX_INTERPPUSH unless (ival was OP_NULL or we
- * had an OP_CONST or OP_READLINE).  This just sets us up for a
+ * Sets PL_lex_state to LEX_INTERPPUSH unless ival was OP_NULL or we
+ * had an OP_CONST.  This just sets us up for a
  * call to S_sublex_push().
  */
 
@@ -9905,6 +9905,7 @@ S_scan_heredoc(pTHX_ char *s)
 	    if (*ss == '\n') {
 		sv_catpv(newstr,"\n");
 		ss++;
+		linecount++;
 
 	    /* Found our indentation? Strip it */
 	    } else if (se - ss >= indent_len
@@ -9928,8 +9929,6 @@ S_scan_heredoc(pTHX_ char *s)
 		    (int)linecount
 		);
 	    }
-
-	    linecount++;
 	}
 
 	sv_setsv(tmpstr,newstr);
