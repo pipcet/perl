@@ -16173,6 +16173,8 @@ EOCP
 	fi;
 	$rm_try
 	;;
+*)
+        d_lc_monetary_2008="$undef"
 esac
 
 : see if lchown exists
