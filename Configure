@@ -3070,7 +3070,7 @@ case "$targethost" in
 	case "$targetfrom" in
 	'') targetfrom=scp ;;
 	esac
-	run=$run-$targetrun
+	run=$run-`basename $targetrun`
 	to=$to-$targetto
 	from=$from-$targetfrom
 	case "$targetdir" in
@@ -3123,8 +3123,8 @@ EOF
 	adb)
 	    $touch $run
 	    ;;
-	*)  echo "Unknown targetrun '$targetrun'" >&4
-	    exit 1
+	*)
+            ln -sf "$targetrun" $run
 	    ;;
 	esac
 	case "$targetmkdir" in
