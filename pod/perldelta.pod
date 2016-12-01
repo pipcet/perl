@@ -5,15 +5,15 @@
 [ this is a template for a new perldelta file.  Any text flagged as XXX needs
 to be processed before release. ]
 
-perldelta - what is new for perl v5.25.7
+perldelta - what is new for perl v5.25.8
 
 =head1 DESCRIPTION
 
-This document describes differences between the 5.25.6 release and the 5.25.7
+This document describes differences between the 5.25.7 release and the 5.25.8
 release.
 
-If you are upgrading from an earlier release such as 5.25.5, first read
-L<perl5256delta>, which describes differences between 5.25.5 and 5.25.6.
+If you are upgrading from an earlier release such as 5.25.6, first read
+L<perl5257delta>, which describes differences between 5.25.6 and 5.25.7.
 
 =head1 Notice
 
@@ -26,38 +26,6 @@ enhancements.  Particularly prominent performance optimisations could go
 here, but most should go in the L</Performance Enhancements> section.
 
 [ List each enhancement as a =head2 entry ]
-
-=head2 Indented Here-documents
-
-This adds a new modifier '~' to here-docs that tells the parser
-that it should look for /^\s*$DELIM\n/ as the closing delimiter.
-
-These syntaxes are all supported:
-
-    <<~EOF;
-    <<~\EOF;
-    <<~'EOF';
-    <<~"EOF";
-    <<~`EOF`;
-    <<~ 'EOF';
-    <<~ "EOF";
-    <<~ `EOF`;
-
-The '~' modifier will strip, from each line in the here-doc, the
-same whitespace that appears before the delimiter.
-
-Newlines will be copied as is, and lines that don't include the
-proper beginning whitespace will cause perl to croak.
-
-For example:
-
-    if (1) {
-      print <<~EOF;
-        Hello there
-        EOF
-    }
-
-prints "Hello there\n" with no leading whitespace.
 
 =head1 Security
 
@@ -121,12 +89,7 @@ There may well be none in a stable release.
 
 =item *
 
-Array and hash assignment are now faster, e.g.
-
-    (..., @a) = (...);
-    (..., %h) = (...);
-
-especially when the RHS is empty.
+XXX
 
 =back
 
@@ -189,13 +152,13 @@ XXX Changes which significantly change existing files in F<pod/> go here.
 However, any changes to F<pod/perldiag.pod> should go in the L</Diagnostics>
 section.
 
-=head3 L<perlobj>
+=head3 L<XXX>
 
 =over 4
 
 =item *
 
-Added a section on calling methods using their fully qualified names.
+XXX Description of the change here
 
 =back
 
@@ -360,7 +323,8 @@ well.
 
 =item *
 
-XXX
+A new API function, C<sv_set_undef(sv)>, has been added. This is
+equivalent to C<sv_setsv(sv, &PL_sv_undef)>, but is more efficient.
 
 =back
 
@@ -375,17 +339,7 @@ files in F<ext/> and F<lib/> are best summarized in L</Modules and Pragmata>.
 
 =item *
 
-List assignment in list context where the LHS contained aggregates and
-where there were not enough RHS elements, used to skip scalar lvalues.
-Previously, C<(($a,$b,@c,$d) = (1))> in list context returned C<($a)>; now
-it returns C<($a,$b,$d)>. C<(($a,$b,$c) = (1))> is unchanged: it still
-returns <($a,$b,$c)>. This can be seen in the following:
-
-    sub inc { $_++ for @_ }
-    inc(($a,$b,@c,$d) = (10))
-
-Formerly, the values of C<($a,$b,$d)> would be left as C<(11,undef,undef)>;
-now they are C<(11,1,1)>.
+XXX
 
 =back
 

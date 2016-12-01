@@ -332,12 +332,7 @@
  * or variables/arguments that are used only in certain configurations.
  */
 #ifndef PERL_UNUSED_ARG
-#  if defined(lint) && defined(S_SPLINT_S) /* www.splint.org */
-#    include <note.h>
-#    define PERL_UNUSED_ARG(x) NOTE(ARGUNUSED(x))
-#  else
-#    define PERL_UNUSED_ARG(x) ((void)sizeof(x))
-#  endif
+#  define PERL_UNUSED_ARG(x) ((void)sizeof(x))
 #endif
 #ifndef PERL_UNUSED_VAR
 #  define PERL_UNUSED_VAR(x) ((void)sizeof(x))
@@ -5971,8 +5966,8 @@ typedef struct am_table_short AMTS;
 	STMT_START {                                                        \
             if (! PL_in_utf8_CTYPE_locale && ckWARN(WARN_LOCALE)) {         \
                 Perl_warner(aTHX_ packWARN(WARN_LOCALE),                    \
-                                        "Wide character (U+%"UVXf") in %s", \
-                                        (UV) cp, OP_DESC(PL_op));           \
+                                       "Wide character (U+%" UVXf ") in %s",\
+                                       (UV) cp, OP_DESC(PL_op));            \
             }                                                               \
         }  STMT_END
 
@@ -5981,7 +5976,7 @@ typedef struct am_table_short AMTS;
             if (! PL_in_utf8_CTYPE_locale && ckWARN(WARN_LOCALE)) {         \
                 UV cp = utf8_to_uvchr_buf((U8 *) s, (U8 *) send, NULL);     \
                 Perl_warner(aTHX_ packWARN(WARN_LOCALE),                    \
-                    "Wide character (U+%"UVXf") in %s",                     \
+                    "Wide character (U+%" UVXf ") in %s",                   \
                     (cp == 0)                                               \
                      ? UNICODE_REPLACEMENT                                  \
                      : (UV) cp,                                             \

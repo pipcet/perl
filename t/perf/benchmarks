@@ -199,34 +199,6 @@
         code    => '$h{$k1}[$i]{$k2}',
     },
 
-
-    'expr::assign::scalar_lex_int' => {
-        desc    => 'lexical $x = 1',
-        setup   => 'my $x',
-        code    => '$x = 1',
-    },
-    'expr::assign::scalar_lex_str' => {
-        desc    => 'lexical $x = "abc"',
-        setup   => 'my $x',
-        code    => '$x = "abc"',
-    },
-    'expr::assign::scalar_lex_strint' => {
-        desc    => 'lexical $x = 1 where $x was previously a string',
-        setup   => 'my $x = "abc"',
-        code    => '$x = 1',
-    },
-    'expr::assign::scalar_lex_intstr' => {
-        desc    => 'lexical $x = "abc" where $x was previously an int',
-        setup   => 'my $x = 1;',
-        code    => '$x = "abc"',
-    },
-    'expr::assign::2list_lex' => {
-        desc    => 'lexical ($x, $y) = (1, 2)',
-        setup   => 'my ($x, $y)',
-        code    => '($x, $y) = (1, 2)',
-    },
-
-
     'expr::hash::lex_1const' => {
         desc    => 'lexical $hash{const}',
         setup   => 'my %h = ("foo" => 1)',
@@ -347,6 +319,11 @@
         desc    => 'three lexical vars assigned empty',
         setup   => 'my ($x,$y,$z)',
         code    => '($x,$y,$z) = ()',
+    },
+    'expr::aassign::3lref_empty' => {
+        desc    => 'three lexical ref vars assigned empty',
+        setup   => 'my ($x,$y,$z); my $r = []; ',
+        code    => '($x,$y,$z) = ($r,$r,$r); ($x,$y,$z) = ()',
     },
     'expr::aassign::pa_empty' => {
         desc    => 'package array assigned empty',
@@ -716,6 +693,25 @@
         code    => '($x,$x) = (undef, $x)',
     },
 
+    'expr::aassign::2list_lex' => {
+        desc    => 'lexical ($x, $y) = (1, 2)',
+        setup   => 'my ($x, $y)',
+        code    => '($x, $y) = (1, 2)',
+    },
+
+    'expr::aassign::lex_rv' => {
+        desc    => 'lexical ($ref1, $ref2) = ($ref3, $ref4)',
+        setup   => 'my ($r1, $r2, $r3, $r4);
+                    ($r1, $r2) = (($r3, $r4) = ([],  []));',
+        code    => '($r1, $r2) = ($r3, $r4)',
+    },
+
+    'expr::aassign::lex_rv1' => {
+        desc    => 'lexical ($ref1, $ref2) = ($ref3, $ref4) where ref1,2 are freed',
+        setup   => 'my ($r1, $r2);',
+        code    => '($r1, $r2) = ([], []);',
+    },
+
     # array assign of strings
 
     'expr::aassign::la_3s' => {
@@ -886,6 +882,42 @@
         desc    => '$x--',
         setup   => 'my $x = 1; my $y',
         code    => '$y = $x--', # scalar context so not optimised to --$x
+    },
+
+
+
+    # scalar assign, OP_SASSIGN
+   
+
+    'expr::sassign::scalar_lex_int' => {
+        desc    => 'lexical $x = 1',
+        setup   => 'my $x',
+        code    => '$x = 1',
+    },
+    'expr::sassign::scalar_lex_str' => {
+        desc    => 'lexical $x = "abc"',
+        setup   => 'my $x',
+        code    => '$x = "abc"',
+    },
+    'expr::sassign::scalar_lex_strint' => {
+        desc    => 'lexical $x = 1 where $x was previously a string',
+        setup   => 'my $x = "abc"',
+        code    => '$x = 1',
+    },
+    'expr::sassign::scalar_lex_intstr' => {
+        desc    => 'lexical $x = "abc" where $x was previously an int',
+        setup   => 'my $x = 1;',
+        code    => '$x = "abc"',
+    },
+    'expr::sassign::lex_rv' => {
+        desc    => 'lexical $ref1 = $ref2;',
+        setup   => 'my $r1 = []; my $r = $r1;',
+        code    => '$r = $r1;',
+    },
+    'expr::sassign::lex_rv1' => {
+        desc    => 'lexical $ref1 = $ref2; where $$ref1 gets freed',
+        setup   => 'my $r1 = []; my $r',
+        code    => '$r = []; $r = $r1;',
     },
 
 

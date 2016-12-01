@@ -131,7 +131,7 @@ PERL_STATIC_INLINE I32
 S_TOPMARK(pTHX)
 {
     DEBUG_s(DEBUG_v(PerlIO_printf(Perl_debug_log,
-				 "MARK top  %p %"IVdf"\n",
+				 "MARK top  %p %" IVdf "\n",
 				  PL_markstack_ptr,
 				  (IV)*PL_markstack_ptr)));
     return *PL_markstack_ptr;
@@ -141,7 +141,7 @@ PERL_STATIC_INLINE I32
 S_POPMARK(pTHX)
 {
     DEBUG_s(DEBUG_v(PerlIO_printf(Perl_debug_log,
-				 "MARK pop  %p %"IVdf"\n",
+				 "MARK pop  %p %" IVdf "\n",
 				  (PL_markstack_ptr-1),
 				  (IV)*(PL_markstack_ptr-1))));
     assert((PL_markstack_ptr > PL_markstack) || !"MARK underflow");
@@ -916,7 +916,9 @@ Perl_utf8_hop(const U8 *s, SSize_t off)
 		s--;
 	}
     }
+    GCC_DIAG_IGNORE(-Wcast-qual);
     return (U8 *)s;
+    GCC_DIAG_RESTORE;
 }
 
 /*
@@ -950,12 +952,17 @@ Perl_utf8_hop_forward(const U8 *s, SSize_t off, const U8 *end)
 
     while (off--) {
         STRLEN skip = UTF8SKIP(s);
-        if ((STRLEN)(end - s) <= skip)
+        if ((STRLEN)(end - s) <= skip) {
+            GCC_DIAG_IGNORE(-Wcast-qual);
             return (U8 *)end;
+            GCC_DIAG_RESTORE;
+        }
         s += skip;
     }
 
+    GCC_DIAG_IGNORE(-Wcast-qual);
     return (U8 *)s;
+    GCC_DIAG_RESTORE;
 }
 
 /*
@@ -993,7 +1000,9 @@ Perl_utf8_hop_back(const U8 *s, SSize_t off, const U8 *start)
             s--;
     }
     
+    GCC_DIAG_IGNORE(-Wcast-qual);
     return (U8 *)s;
+    GCC_DIAG_RESTORE;
 }
 
 /*

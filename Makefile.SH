@@ -522,7 +522,7 @@ miniperl_objs = $(miniperl_objs_nodt) $(DTRACE_MINI_O)
 perllib_objs  = $(perllib_objs_nodt) $(DTRACE_PERLLIB_O)
 perlmain_objs = perlmain$(OBJ_EXT) $(DTRACE_MAIN_O)
 
-perltoc_pod_prereqs = extra.pods pod/perl5257delta.pod pod/perlapi.pod pod/perlintern.pod pod/perlmodlib.pod pod/perluniprops.pod
+perltoc_pod_prereqs = extra.pods pod/perl5258delta.pod pod/perlapi.pod pod/perlintern.pod pod/perlmodlib.pod pod/perluniprops.pod
 generated_pods = pod/perltoc.pod $(perltoc_pod_prereqs)
 generated_headers = uudmap.h bitcount.h mg_data.h
 
@@ -557,32 +557,6 @@ lintflags = \
     -erroff=E_SHIFT_CNT_NEG_TOO_BIG_L \
     -erroff=E_STATIC_UNUSED \
     -erroff=E_TRUE_LOGICAL_EXPR
-
-splintflags = \
-    -I/usr/lib/gcc/i486-linux-gnu/4.0.2/include/ \
-    -D__builtin_va_list=va_list \
-    -Dsigjmp_buf=jmp_buf \
-    -warnposix \
-    \
-    +boolint \
-    +charintliteral \
-    -fixedformalarray \
-    -mustfreefresh \
-    -nestedextern \
-    -predboolint \
-    -predboolothers \
-    -preproc \
-    -boolops \
-    -shadow \
-    -nullstate \
-    +longintegral \
-    +matchanyintegral \
-    -type \
-    \
-    +line-len 999 \
-    +weak
-
-splintfiles = $(c1)
 
 .c$(OBJ_EXT): 
 	@echo `$(CCCMD)` $(PLDLFLAGS) $*.c
@@ -1085,9 +1059,9 @@ pod/perlintern.pod: $(MINIPERL_EXE) autodoc.pl embed.fnc
 pod/perlmodlib.pod: $(MINIPERL_EXE) pod/perlmodlib.PL MANIFEST
 	$(MINIPERL) pod/perlmodlib.PL -q
 
-pod/perl5257delta.pod: pod/perldelta.pod
-	$(RMS) pod/perl5257delta.pod
-	$(LNS) perldelta.pod pod/perl5257delta.pod
+pod/perl5258delta.pod: pod/perldelta.pod
+	$(RMS) pod/perl5258delta.pod
+	$(LNS) perldelta.pod pod/perl5258delta.pod
 
 extra.pods: $(MINIPERL_EXE)
 	-@test ! -f extra.pods || rm -f `cat extra.pods`
@@ -1425,10 +1399,6 @@ _verycleaner:
 lint: $(c)
 	rm -f *.ln
 	lint $(lintflags) -DPERL_CORE -D_REENTRANT -DDEBUGGING -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 $(c)
-
-.PHONY: splint
-splint: $(c)
-	splint $(splintflags) -DPERL_CORE -D_REENTRANT -DDEBUGGING -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 $(splintfiles)
 
 cscopeflags = -Rb  # Recursive, build-only.
 

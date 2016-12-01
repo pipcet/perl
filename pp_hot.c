@@ -1708,6 +1708,8 @@ PP(pp_aassign)
 
 	default:
 	    if (!SvIMMORTAL(lsv)) {
+                SV *ref;
+
                 if (UNLIKELY(
                   SvTEMP(lsv) && !SvSMAGICAL(lsv) && SvREFCNT(lsv) == 1 &&
                   (!isGV_with_GP(lsv) || SvFAKE(lsv)) && ckWARN(WARN_MISC)
@@ -1716,6 +1718,24 @@ PP(pp_aassign)
                        packWARN(WARN_MISC),
                       "Useless assignment to a temporary"
                     );
+
+                /* avoid freeing $$lsv if it might be needed for further
+                 * elements, e.g. ($ref, $foo) = (1, $$ref) */
+                if (   SvROK(lsv)
+                    && ( ((ref = SvRV(lsv)), SvREFCNT(ref)) == 1)
+                    && lelem <= lastlelem
+                ) {
+                    SSize_t ix;
+                    SvREFCNT_inc_simple_void_NN(ref);
+                    /* an unrolled sv_2mortal */
+                    ix = ++PL_tmps_ix;
+                    if (UNLIKELY(ix >= PL_tmps_max))
+                        /* speculatively grow enough to cover other
+                         * possible refs */
+                        ix = tmps_grow_p(ix + (lastlelem - lelem));
+                    PL_tmps_stack[ix] = ref;
+                }
+
                 sv_setsv(lsv, *relem);
                 *relem = lsv;
                 SvSETMAGIC(lsv);
@@ -1756,7 +1776,7 @@ PP(pp_aassign)
 
 	default:
 	    if (!SvIMMORTAL(lsv)) {
-                sv_setsv(lsv, &PL_sv_undef);
+                sv_set_undef(lsv);
                 SvSETMAGIC(lsv);
                 *relem++ = lsv;
             }
@@ -1983,7 +2003,7 @@ PP(pp_match)
 
     if (RX_MINLEN(rx) >= 0 && (STRLEN)RX_MINLEN(rx) > len) {
         DEBUG_r(PerlIO_printf(Perl_debug_log, "String shorter than min possible regex match (%"
-                                              UVuf" < %"IVdf")\n",
+                                              UVuf " < %" IVdf ")\n",
                                               (UV)len, (IV)RX_MINLEN(rx)));
 	goto nope;
     }
@@ -2079,7 +2099,7 @@ PP(pp_match)
 	        if (UNLIKELY(RX_OFFS(rx)[i].end < 0 || RX_OFFS(rx)[i].start < 0
                         || len < 0 || len > strend - s))
 		    DIE(aTHX_ "panic: pp_match start/end pointers, i=%ld, "
-			"start=%ld, end=%ld, s=%p, strend=%p, len=%"UVuf,
+			"start=%ld, end=%ld, s=%p, strend=%p, len=%" UVuf,
 			(long) i, (long) RX_OFFS(rx)[i].start,
 			(long)RX_OFFS(rx)[i].end, s, strend, (UV) len);
 		sv_setpvn(*SP, s, len);
@@ -2537,7 +2557,7 @@ PP(pp_multideref)
                     if (UNLIKELY(SvROK(elemsv) && !SvGAMAGIC(elemsv)
                                             && ckWARN(WARN_MISC)))
                         Perl_warner(aTHX_ packWARN(WARN_MISC),
-                                "Use of reference \"%"SVf"\" as array index",
+                                "Use of reference \"%" SVf "\" as array index",
                                 SVfARG(elemsv));
                     /* the only time that S_find_uninit_var() needs this
                      * is to determine which index value triggered the
@@ -4007,7 +4027,7 @@ PP(pp_entersub)
 
 	/* anonymous or undef'd function leaves us no recourse */
 	if (CvLEXICAL(cv) && CvHASGV(cv))
-	    DIE(aTHX_ "Undefined subroutine &%"SVf" called",
+	    DIE(aTHX_ "Undefined subroutine &%" SVf " called",
 		       SVfARG(cv_name(cv, NULL, 0)));
 	if (CvANON(cv) || !CvHASGV(cv)) {
 	    DIE(aTHX_ "Undefined subroutine called");
@@ -4030,7 +4050,7 @@ PP(pp_entersub)
 	if (!cv) {
             sub_name = sv_newmortal();
             gv_efullname3(sub_name, gv, NULL);
-            DIE(aTHX_ "Undefined subroutine &%"SVf" called", SVfARG(sub_name));
+            DIE(aTHX_ "Undefined subroutine &%" SVf " called", SVfARG(sub_name));
         }
     }
 
@@ -4119,7 +4139,7 @@ PP(pp_entersub)
 	}
 	if (UNLIKELY((cx->blk_u16 & OPpENTERSUB_LVAL_MASK) == OPpLVAL_INTRO &&
 	    !CvLVALUE(cv)))
-            DIE(aTHX_ "Can't modify non-lvalue subroutine call of &%"SVf,
+            DIE(aTHX_ "Can't modify non-lvalue subroutine call of &%" SVf,
                 SVfARG(cv_name(cv, NULL, 0)));
 	/* warning must come *after* we fully set up the context
 	 * stuff so that __WARN__ handlers can safely dounwind()
@@ -4146,7 +4166,7 @@ PP(pp_entersub)
 	       & CX_PUSHSUB_GET_LVALUE_MASK(Perl_is_lvalue_sub)
              ) & OPpENTERSUB_LVAL_MASK) == OPpLVAL_INTRO &&
 	    !CvLVALUE(cv)))
-            DIE(aTHX_ "Can't modify non-lvalue subroutine call of &%"SVf,
+            DIE(aTHX_ "Can't modify non-lvalue subroutine call of &%" SVf,
                 SVfARG(cv_name(cv, NULL, 0)));
 
 	if (UNLIKELY(!(PL_op->op_flags & OPf_STACKED) && GvAV(PL_defgv))) {
@@ -4225,7 +4245,7 @@ Perl_sub_crush_depth(pTHX_ CV *cv)
     if (CvANON(cv))
 	Perl_warner(aTHX_ packWARN(WARN_RECURSION), "Deep recursion on anonymous subroutine");
     else {
-	Perl_warner(aTHX_ packWARN(WARN_RECURSION), "Deep recursion on subroutine \"%"SVf"\"",
+	Perl_warner(aTHX_ packWARN(WARN_RECURSION), "Deep recursion on subroutine \"%" SVf "\"",
 		    SVfARG(cv_name(cv,NULL,0)));
     }
 }
@@ -4267,7 +4287,7 @@ PP(pp_aelem)
 
     if (UNLIKELY(SvROK(elemsv) && !SvGAMAGIC(elemsv) && ckWARN(WARN_MISC)))
 	Perl_warner(aTHX_ packWARN(WARN_MISC),
-		    "Use of reference \"%"SVf"\" as array index",
+		    "Use of reference \"%" SVf "\" as array index",
 		    SVfARG(elemsv));
     if (UNLIKELY(SvTYPE(av) != SVt_PVAV))
 	RETPUSHUNDEF;
@@ -4374,7 +4394,7 @@ S_opmethod_stash(pTHX_ SV* meth)
     HV* stash;
 
     SV* const sv = PL_stack_base + TOPMARK == PL_stack_sp
-	? (Perl_croak(aTHX_ "Can't call method \"%"SVf"\" without a "
+	? (Perl_croak(aTHX_ "Can't call method \"%" SVf "\" without a "
 			    "package or object reference", SVfARG(meth)),
 	   (SV *)NULL)
 	: *(PL_stack_base + TOPMARK + 1);
@@ -4383,7 +4403,7 @@ S_opmethod_stash(pTHX_ SV* meth)
 
     if (UNLIKELY(!sv))
        undefined:
-	Perl_croak(aTHX_ "Can't call method \"%"SVf"\" on an undefined value",
+	Perl_croak(aTHX_ "Can't call method \"%" SVf "\" on an undefined value",
 		   SVfARG(meth));
 
     if (UNLIKELY(SvGMAGICAL(sv))) mg_get(sv);
@@ -4397,7 +4417,7 @@ S_opmethod_stash(pTHX_ SV* meth)
     else if (!SvOK(sv)) goto undefined;
     else if (isGV_with_GP(sv)) {
 	if (!GvIO(sv))
-	    Perl_croak(aTHX_ "Can't call method \"%"SVf"\" "
+	    Perl_croak(aTHX_ "Can't call method \"%" SVf "\" "
 			     "without a package or object reference",
 			      SVfARG(meth));
 	ob = sv;
@@ -4425,7 +4445,7 @@ S_opmethod_stash(pTHX_ SV* meth)
 	    /* this isn't the name of a filehandle either */
 	    if (!packlen)
 	    {
-		Perl_croak(aTHX_ "Can't call method \"%"SVf"\" "
+		Perl_croak(aTHX_ "Can't call method \"%" SVf "\" "
 				 "without a package or object reference",
 				  SVfARG(meth));
 	    }
@@ -4444,7 +4464,7 @@ S_opmethod_stash(pTHX_ SV* meth)
 		     && (ob = MUTABLE_SV(GvIO((const GV *)ob)))
 		     && SvOBJECT(ob))))
     {
-	Perl_croak(aTHX_ "Can't call method \"%"SVf"\" on unblessed reference",
+	Perl_croak(aTHX_ "Can't call method \"%" SVf "\" on unblessed reference",
 		   SVfARG((SvPVX(meth) == PL_isa_DOES)
                                         ? newSVpvs_flags("DOES", SVs_TEMP)
                                         : meth));
