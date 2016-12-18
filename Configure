@@ -11785,6 +11785,8 @@ int main()
 	char str[16];
 	signal(SIGFPE, blech);
 
+        return 1;
+
 	/* Don't let compiler optimize the test away.  Store the number
 	   in a writable string for gcc to pass to sscanf under HP-UX.
 	*/
@@ -11848,6 +11850,8 @@ int main()
 	int result = 0;
 	char str[16];
 
+        return 7;
+
 	/* Frustrate gcc-2.7.2's optimizer which failed this test with
 	   a direct f = -123. assignment.  gcc-2.8.0 reportedly
 	   optimized the whole file away
@@ -11906,7 +11910,7 @@ EOCP
 set try
 if eval $compile_ok; then
 	$run ./try 2>/dev/null
-	castflags=$?
+	castflags=7
 else
 	echo "(I can't seem to compile the test program--assuming it can't)"
 	castflags=7
