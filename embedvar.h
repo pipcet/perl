@@ -42,6 +42,7 @@
 
 #define PL_AboveLatin1		(vTHX->IAboveLatin1)
 #define PL_Argv			(vTHX->IArgv)
+#define PL_Assigned_invlist	(vTHX->IAssigned_invlist)
 #define PL_Cmd			(vTHX->ICmd)
 #define PL_DBcontrol		(vTHX->IDBcontrol)
 #define PL_DBcv			(vTHX->IDBcv)
@@ -279,6 +280,7 @@
 #define PL_scopestack_max	(vTHX->Iscopestack_max)
 #define PL_scopestack_name	(vTHX->Iscopestack_name)
 #define PL_secondgv		(vTHX->Isecondgv)
+#define PL_seen_deprecated_macro	(vTHX->Iseen_deprecated_macro)
 #define PL_sharehook		(vTHX->Isharehook)
 #define PL_sig_pending		(vTHX->Isig_pending)
 #define PL_sighandlerp		(vTHX->Isighandlerp)

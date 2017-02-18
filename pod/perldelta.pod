@@ -5,15 +5,15 @@
 [ this is a template for a new perldelta file.  Any text flagged as XXX needs
 to be processed before release. ]
 
-perldelta - what is new for perl v5.25.8
+perldelta - what is new for perl v5.25.10
 
 =head1 DESCRIPTION
 
-This document describes differences between the 5.25.7 release and the 5.25.8
+This document describes differences between the 5.25.9 release and the 5.25.10
 release.
 
-If you are upgrading from an earlier release such as 5.25.6, first read
-L<perl5257delta>, which describes differences between 5.25.6 and 5.25.7.
+If you are upgrading from an earlier release such as 5.25.8, first read
+L<perl5259delta>, which describes differences between 5.25.8 and 5.25.9.
 
 =head1 Notice
 
@@ -204,7 +204,10 @@ XXX Changes (i.e. rewording) of diagnostic messages go here
 
 =item *
 
-XXX Describe change here
+Use of unassigned code point or non-standalone grapheme for a delimiter will be a fatal error starting in Perl 5.30
+
+This was changed to drop a leading C<v> in C<v5.30>, so it uses the same
+style as other deprecation messages.
 
 =back
 
@@ -323,8 +326,18 @@ well.
 
 =item *
 
-A new API function, C<sv_set_undef(sv)>, has been added. This is
-equivalent to C<sv_setsv(sv, &PL_sv_undef)>, but is more efficient.
+The C<op_class()> API function has been added. This is like the existing
+C<OP_CLASS()> macro, but can more accurately determine what struct an op
+has been allocated as. For example C<OP_CLASS()> might return
+C<OA_BASEOP_OR_UNOP> indicating that ops of this type are usually
+allocated as an C<OP> or C<UNOP>; while <op_class()> will return
+C<OPclass_BASEOP> or C<OPclass_UNOP> as appropriate.
+
+=item *
+
+The output format of the C<op_dump()> function (as used by C<perl -Dx>)
+has changed: it now displays an "ASCII-art" tree structure, and shows more
+low-level details about each op, such as its address and class.
 
 =back
 
@@ -339,7 +352,26 @@ files in F<ext/> and F<lib/> are best summarized in L</Modules and Pragmata>.
 
 =item *
 
-XXX
+Attempting to use the deprecated variable C<$#> as the object in an
+indirect object method call could cause a heap use after free or
+buffer overflow.  [perl #129274]
+
+=item *
+
+When checking for an indirect object method call in some rare cases
+the parser could reallocate the line buffer but then continue to use
+pointers to the old buffer.  [perl #129190]
+
+=item *
+
+Supplying a glob as the format argument to L<perlfunc/formline> would
+cause an assertion failure.  [perl #130722]
+
+=item *
+
+Code like C< $value1 =~ qr/.../ ~~ $value2 > would have the match
+converted into a qr// operator, leaving extra elements on the stack to
+confuse any surrounding expression.  [perl #130705]
 
 =back
 

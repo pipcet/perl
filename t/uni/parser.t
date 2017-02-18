@@ -191,11 +191,13 @@ like( $@, qr/Bad name after Ｆｏｏ'/, 'Bad name after Ｆｏｏ\'' );
 
 {
     no warnings 'utf8';
+    local $SIG{__WARN__} = sub { }; # The eval will also output a warning,
+                                    # which we ignore
     my $malformed_to_be = ($::IS_EBCDIC)   # Overlong sequence
                            ? "\x{74}\x{41}"
                            : "\x{c0}\x{a0}";
     CORE::evalbytes "use charnames ':full'; use utf8; my \$x = \"\\N{abc$malformed_to_be}\"";
-    like( $@, qr/Malformed UTF-8 character immediately after '\\N\{abc' at .* within string/, 'Malformed UTF-8 input to \N{}');
+    like( $@, qr/Malformed UTF-8 character \(fatal\) at /, 'Malformed UTF-8 input to \N{}');
 }
 
 # RT# 124216: Perl_sv_clear: Assertion

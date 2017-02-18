@@ -17,6 +17,32 @@ Consult your favorite dictionary for details.
 
 =head1 EPIGRAPHS
 
+=head2 v5.25.9 - A. A. Milne, "Winnie-the-Pooh", 1926
+
+L<Announced on 2017-01-20 by Abigail|http://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242405.html>
+
+  Pooh always liked a little something at eleven o'clock in the
+  morning, and he was very glad to see Rabbit getting out the plates
+  and mugs; and when Rabbit said, "Honey or condensed milk with
+  your bread?" he was so excited that he said, "Both," and then,
+  so as not to seem greedy, he added, "But don't bother about the
+  bread, please."
+
+=head2 v5.25.8 - Langston Hughes, So long
+
+L<Announced on 2016-12-20 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2016/12/msg241739.html>
+
+  So long
+  is in the song
+  and it's in the way you're gone
+  but it's like a foreign language
+  in my mind
+  and maybe was I blind
+  I could not see
+  and would not know
+  you're gone so long
+  so long.
+
 =head2 v5.25.7 - J.R.R. Tolkien, "The Silmarillion"
 
 L<Announced on 2016-11-20 by Chad 'Exodist' Granum|http://www.nntp.perl.org/group/perl.perl5.porters/2016/11/msg241120.html>
@@ -177,6 +203,63 @@ L<Announced on 2016-05-09 by Ricardo Signes|http://www.nntp.perl.org/group/perl.
     Wide fields of asphodel fore’er,
   To find that the utmost reward
     Of daring should be still to dare.
+
+=head2 v5.24.1 - Charles Dodgson [as "Lewis Carroll"], "The Hunting of the Snark", Fit 4: The Hunting
+
+L<Announced on 2017-01-14 by Steve Hay|https://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242259.html>
+
+  The Bellman looked uffish, and wrinkled his brow.
+    'If only you'd spoken before!
+  It's excessively awkward to mention it now,
+    With the Snark, so to speak, at the door!
+
+  'We should all of us grieve, as you well may believe,
+    If you never were met with again -
+  But surely, my man, when the voyage began,
+    You might have suggested it then?
+
+  'It's excessively awkward to mention it now -
+    As I think I've already remarked.'
+  And the man they called 'Hi!' replied, with a sigh,
+    'I informed you the day we embarked.
+
+  'You may charge me with murder - or want of sense -
+    (We are all of us weak at times):
+  But the slightest approach to a false pretence
+    Was never among my crimes!
+
+  'I said it in Hebrew - I said it in Dutch -
+    I said it in German and Greek:
+  But I wholly forgot (and it vexes me much)
+    That English is what you speak!'
+
+  ''Tis a pitiful tale,' said the Bellman, whose face
+    Had grown longer at every word:
+  'But, now that you've stated the whole of your case,
+    More debate would be simply absurd.
+
+  'The rest of my speech' (he exclaimed to his men)
+    'You shall hear when I've leisure to speak it.
+  But the Snark is at hand, let me tell you again!
+    'Tis your glorious duty to seek it!
+
+=head2 v5.24.1-RC5 - John Milton, ed. Gordon Campbell, "Paradise Regained", Book IV
+
+L<Announced on 2017-01-02 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242016.html>
+
+  Thus passed the night so foul, till Morning fair
+  Came forth with pilgrim steps, in amice grey;
+  Who with her radiant finger stilled the roar
+  Of thunder, chased the clouds, and laid the winds,
+  And grisly spectres, which the fiend had raised
+  To tempt the Son of God with terrors dire.
+  And now the sun with more effectual beams
+  Had cheered the face of earth, and dried the wet
+  From drooping plant, or dropping tree; the birds,
+  Who all things now behold more fresh and green,
+  After a night of storm so ruinous,
+  Cleared up their choicest notes in bush and spray,
+  To gratulate the sweet return of morn.
 
 =head2 v5.24.1-RC4 - John Milton, ed. Gordon Campbell, "Paradise Lost", Book II
 
@@ -647,6 +730,70 @@ L<Announced on 2015-06-20 by Ricardo Signes|http://www.nntp.perl.org/group/perl.
   To be just like them
   They sing while you slave and I just get bored
   I ain't gonna work on Maggie's farm no more
+
+=head2 v5.22.3 - Charles Dodgson [as "Lewis Carroll"], "Phantasmagoria", Canto 6: Discomfyture
+
+L<Announced on 2017-01-14 by Steve Hay|https://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242258.html>
+
+  As one who strives a hill to climb,
+    Who never climbed before:
+  Who finds it, in a little time,
+  Grow every moment less sublime,
+    And votes the thing a bore:
+
+  Yet, having once begun to try,
+    Dares not desert his quest,
+  But, climbing, ever keeps his eye
+  On one small hut against the sky
+    Wherein he hopes to rest:
+
+  Who climbs till nerve and force are spent,
+    With many a puff and pant:
+  Who still, as rises the ascent,
+  In language grows more violent,
+    Although in breath more scant:
+
+  Who, climbing, gains at length the place
+    That crowns the upward track:
+  And, entering with unsteady pace,
+  Receives a buffet in the face
+    That lands him on his back:
+
+  And feels himself, like one in sleep,
+    Glide swiftly down again,
+  A helpless weight, from steep to steep,
+  Till, with a headlong giddy sweep,
+    He drops upon the plain -
+
+  So I, that had resolved to bring
+    Conviction to a ghost,
+  And found it quite a different thing
+  From any human arguing,
+    Yet dared not quit my post.
+
+=head2 v5.22.3-RC5 - John Milton, ed. Gordon Campbell, "Paradise Regained", Book II
+
+L<Announced on 2017-01-02 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242017.html>
+
+  Thus wore out night; and now the herald lark
+  Left his ground-nest, high towering to descry
+  The Morn's approach, and greet her with his song;
+  As lightly from his grassy couch up rose
+  Our Saviour, and found all was but a dream;
+  Fasting he went to sleep, and fasting waked.
+  Up to a hill anon his steps he reared,
+  From whose high top to ken the prospect round,
+  If cottage were in view, sheep-cote, or herd;
+  But cottage, herd, or sheep-cote, none he saw --
+  Only in a bottom saw a pleasant grove,
+  With chant of tuneful birds resounding loud;
+  Thither he bent his way, determined there
+  To rest at noon, and entered soon the shade,
+  High-roofed and walks beneath, and alleys brown,
+  That opened in the midst a woody scene;
+  Nature's own work it seemed (Nature taught Art),
+  And, to a superstitious eye, the haunt
+  Of wood-gods and wood-nymphs.
 
 =head2 v5.22.3-RC4 - John Milton, ed. Gordon Campbell, "Paradise Lost", Book II
 

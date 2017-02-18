@@ -951,16 +951,7 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	char * const b = ninstr((char*)big,(char*)bigend,
 			 (char*)little, (char*)little + littlelen);
 
-	if (!b && tail) {	/* Automatically multiline!  */
-	    /* Chop \n from littlestr: */
-	    s = bigend - littlelen + 1;
-	    if (*s == *little
-		&& memEQ((char*)s + 1, (char*)little + 1, littlelen - 2))
-	    {
-		return (char*)s;
-	    }
-	    return NULL;
-	}
+        assert(!tail); /* valid => FBM; tail only set on SvVALID SVs */
 	return b;
     }
 
@@ -1518,14 +1509,17 @@ Perl_mess_sv(pTHX_ SV *basemsg, bool consume)
 	 * from the sibling of PL_curcop.
 	 */
 
-	const COP *cop =
-	    closest_cop(PL_curcop, OpSIBLING(PL_curcop), PL_op, FALSE);
-	if (!cop)
-	    cop = PL_curcop;
+        if (PL_curcop) {
+            const COP *cop =
+                closest_cop(PL_curcop, OpSIBLING(PL_curcop), PL_op, FALSE);
+            if (!cop)
+                cop = PL_curcop;
 
-	if (CopLINE(cop))
-	    Perl_sv_catpvf(aTHX_ sv, " at %s line %" IVdf,
-	    OutCopFILE(cop), (IV)CopLINE(cop));
+            if (CopLINE(cop))
+                Perl_sv_catpvf(aTHX_ sv, " at %s line %" IVdf,
+                                OutCopFILE(cop), (IV)CopLINE(cop));
+        }
+
 	/* Seems that GvIO() can be untrustworthy during global destruction. */
 	if (GvIO(PL_last_in_gv) && (SvTYPE(GvIOp(PL_last_in_gv)) == SVt_PVIO)
 		&& IoLINES(GvIOp(PL_last_in_gv)))
@@ -4712,20 +4706,23 @@ Perl_seed(pTHX)
 void
 Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
 {
+#ifndef NO_PERL_HASH_ENV
     const char *env_pv;
+#endif
     unsigned long i;
 
     PERL_ARGS_ASSERT_GET_HASH_SEED;
 
+#ifndef NO_PERL_HASH_ENV
     env_pv= PerlEnv_getenv("PERL_HASH_SEED");
 
     if ( env_pv )
-#ifndef USE_HASH_SEED_EXPLICIT
+#  ifndef USE_HASH_SEED_EXPLICIT
     {
         /* ignore leading spaces */
         while (isSPACE(*env_pv))
             env_pv++;
-#ifdef USE_PERL_PERTURB_KEYS
+#    ifdef USE_PERL_PERTURB_KEYS
         /* if they set it to "0" we disable key traversal randomization completely */
         if (strEQ(env_pv,"0")) {
             PL_hash_rand_bits_enabled= 0;
@@ -4733,7 +4730,7 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
             /* otherwise switch to deterministic mode */
             PL_hash_rand_bits_enabled= 2;
         }
-#endif
+#    endif
         /* ignore a leading 0x... if it is there */
         if (env_pv[0] == '0' && env_pv[1] == 'x')
             env_pv += 2;
@@ -4755,6 +4752,7 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
         /* should we warn about insufficient hex? */
     }
     else
+#  endif
 #endif
     {
         (void)seedDrand01((Rand_seed_t)seed());
@@ -4774,6 +4772,7 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
             PL_hash_rand_bits = ROTL_UV(PL_hash_rand_bits,8);
         }
     }
+#  ifndef NO_PERL_HASH_ENV
     env_pv= PerlEnv_getenv("PERL_PERTURB_KEYS");
     if (env_pv) {
         if (strEQ(env_pv,"0") || strEQ(env_pv,"NO")) {
@@ -4786,6 +4785,7 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
             Perl_warn(aTHX_ "perl: warning: strange setting in '$ENV{PERL_PERTURB_KEYS}': '%s'\n", env_pv);
         }
     }
+#  endif
 #endif
 }
 
@@ -5238,8 +5238,13 @@ Perl_my_snprintf(char *buffer, const Size_t len, const char *format, ...)
         if (qfmt) {
             /* If the format looked promising, use it as quadmath. */
             retval = quadmath_snprintf(buffer, len, qfmt, va_arg(ap, NV));
-            if (retval == -1)
+            if (retval == -1) {
+                if (qfmt != format) {
+                    dTHX;
+                    SAVEFREEPV(qfmt);
+                }
                 Perl_croak_nocontext("panic: quadmath_snprintf failed, format \"%s\"", qfmt);
+            }
             quadmath_valid = TRUE;
             if (qfmt != format)
                 Safefree(qfmt);
@@ -6618,7 +6623,7 @@ Perl_get_c_backtrace_dump(pTHX_ int depth, int skip)
             sv_catpvs(dsv, "\n");
         }
 
-        Perl_free_c_backtrace(aTHX_ bt);
+        Perl_free_c_backtrace(bt);
 
         return dsv;
     }

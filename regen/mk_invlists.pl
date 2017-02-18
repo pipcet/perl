@@ -1750,6 +1750,7 @@ for my $charset (get_supported_code_pages()) {
     no warnings 'qw';
                          # Ignore non-alpha in sort
     for my $prop (sort { prop_name_for_cmp($a) cmp prop_name_for_cmp($b) } qw(
+                             Assigned
                              ASCII
                              Cased
                              VertSpace
@@ -2148,7 +2149,7 @@ my @sources = ($0, qw(lib/unicore/mktables
 {
     # Depend on mktables’ own sources.  It’s a shorter list of files than
     # those that Unicode::UCD uses.
-    if (! open my $mktables_list, $sources_list) {
+    if (! open my $mktables_list, '<', $sources_list) {
 
           # This should force a rebuild once $sources_list exists
           push @sources, $sources_list;

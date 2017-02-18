@@ -85,6 +85,14 @@ struct reg_code_block {
     REGEXP *src_regex;
 };
 
+/* array of reg_code_block's plus header info */
+
+struct reg_code_blocks {
+    int refcnt; /* we may be pointed to from a regex and from the savestack */
+    int  count;    /* how many code blocks */
+    struct reg_code_block *cb; /* array of reg_code_block's */
+};
+
 
 /*
   The regexp/REGEXP struct, see L<perlreapi> for further documentation
@@ -262,7 +270,7 @@ and check for NULL.
 */
 
 #define SvRX(sv)   (Perl_get_re_arg(aTHX_ sv))
-#define SvRXOK(sv) (Perl_get_re_arg(aTHX_ sv) ? TRUE : FALSE)
+#define SvRXOK(sv) cBOOL(Perl_get_re_arg(aTHX_ sv))
 
 
 /* Flags stored in regexp->extflags
@@ -278,18 +286,26 @@ and check for NULL.
 
 #include "op_reg_common.h"
 
-#define RXf_PMf_STD_PMMOD	(RXf_PMf_MULTILINE|RXf_PMf_SINGLELINE|RXf_PMf_FOLD|RXf_PMf_EXTENDED|RXf_PMf_NOCAPTURE)
+#define RXf_PMf_STD_PMMOD	(RXf_PMf_MULTILINE|RXf_PMf_SINGLELINE|RXf_PMf_FOLD|RXf_PMf_EXTENDED|RXf_PMf_EXTENDED_MORE|RXf_PMf_NOCAPTURE)
 
 #define CASE_STD_PMMOD_FLAGS_PARSE_SET(pmfl, x_count)                       \
     case IGNORE_PAT_MOD:    *(pmfl) |= RXf_PMf_FOLD;       break;           \
     case MULTILINE_PAT_MOD: *(pmfl) |= RXf_PMf_MULTILINE;  break;           \
     case SINGLE_PAT_MOD:    *(pmfl) |= RXf_PMf_SINGLELINE; break;           \
-    case XTENDED_PAT_MOD:   *(pmfl) |= RXf_PMf_EXTENDED; (x_count)++; break;\
+    case XTENDED_PAT_MOD:   if (x_count == 0) {                             \
+                                *(pmfl) |= RXf_PMf_EXTENDED;                \
+                                *(pmfl) &= ~RXf_PMf_EXTENDED_MORE;          \
+                            }                                               \
+                            else {                                          \
+                                *(pmfl) |= RXf_PMf_EXTENDED                 \
+                                          |RXf_PMf_EXTENDED_MORE;           \
+                            }                                               \
+                            (x_count)++; break;                             \
     case NOCAPTURE_PAT_MOD: *(pmfl) |= RXf_PMf_NOCAPTURE; break;
 
 /* Note, includes charset ones, assumes 0 is the default for them */
 #define STD_PMMOD_FLAGS_CLEAR(pmfl)                        \
-    *(pmfl) &= ~(RXf_PMf_FOLD|RXf_PMf_MULTILINE|RXf_PMf_SINGLELINE|RXf_PMf_EXTENDED|RXf_PMf_CHARSET|RXf_PMf_NOCAPTURE)
+    *(pmfl) &= ~(RXf_PMf_FOLD|RXf_PMf_MULTILINE|RXf_PMf_SINGLELINE|RXf_PMf_EXTENDED|RXf_PMf_EXTENDED_MORE|RXf_PMf_CHARSET|RXf_PMf_NOCAPTURE)
 
 /* chars and strings used as regex pattern modifiers
  * Singular is a 'c'har, plural is a "string"

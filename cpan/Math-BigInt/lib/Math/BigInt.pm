@@ -20,8 +20,7 @@ use warnings;
 
 use Carp ();
 
-our $VERSION = '1.999727';
-$VERSION = eval $VERSION;
+our $VERSION = '1.999806';
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw(objectify bgcd blcm);
@@ -53,7 +52,6 @@ use overload
 
   '/'     =>      sub { $_[2] ? ref($_[0]) -> new($_[1]) -> bdiv($_[0])
                               : $_[0] -> copy -> bdiv($_[1]); },
-
 
   '%'     =>      sub { $_[2] ? ref($_[0]) -> new($_[1]) -> bmod($_[0])
                               : $_[0] -> copy -> bmod($_[1]); },
@@ -414,7 +412,7 @@ sub precision {
 
 sub config {
     # return (or set) configuration data as hash ref
-    my $class = shift || 'Math::BigInt';
+    my $class = shift || __PACKAGE__;
 
     no strict 'refs';
     if (@_ > 1 || (@_ == 1 && (ref($_[0]) eq 'HASH'))) {
@@ -721,6 +719,10 @@ sub from_hex {
     my $selfref = ref $self;
     my $class   = $selfref || $self;
 
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('from_hex');
+
     my $str = shift;
 
     # If called as a class method, initialize a new object.
@@ -752,9 +754,8 @@ sub from_hex {
 
         # Place the sign.
 
-        if ($sign eq '-' && ! $CALC->_is_zero($self->{value})) {
-            $self->{sign} = '-';
-        }
+        $self->{sign} = $sign eq '-' && ! $CALC->_is_zero($self->{value})
+                          ? '-' : '+';
 
         return $self;
     }
@@ -771,6 +772,10 @@ sub from_oct {
     my $self    = shift;
     my $selfref = ref $self;
     my $class   = $selfref || $self;
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('from_oct');
 
     my $str = shift;
 
@@ -802,9 +807,8 @@ sub from_oct {
 
         # Place the sign.
 
-        if ($sign eq '-' && ! $CALC->_is_zero($self->{value})) {
-            $self->{sign} = '-';
-        }
+        $self->{sign} = $sign eq '-' && ! $CALC->_is_zero($self->{value})
+                          ? '-' : '+';
 
         return $self;
     }
@@ -821,6 +825,10 @@ sub from_bin {
     my $self    = shift;
     my $selfref = ref $self;
     my $class   = $selfref || $self;
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('from_bin');
 
     my $str = shift;
 
@@ -853,9 +861,8 @@ sub from_bin {
 
         # Place the sign.
 
-        if ($sign eq '-' && ! $CALC->_is_zero($self->{value})) {
-            $self->{sign} = '-';
-        }
+        $self->{sign} = $sign eq '-' && ! $CALC->_is_zero($self->{value})
+                          ? '-' : '+';
 
         return $self;
     }
@@ -864,6 +871,27 @@ sub from_bin {
     # input is invalid.
 
     return $self->bnan();
+}
+
+# Create a Math::BigInt from a byte string.
+
+sub from_bytes {
+    my $self    = shift;
+    my $selfref = ref $self;
+    my $class   = $selfref || $self;
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('from_bytes');
+
+    my $str = shift;
+
+    # If called as a class method, initialize a new object.
+
+    $self = $class -> bzero() unless $selfref;
+    $self -> {sign}  = '+';
+    $self -> {value} = $CALC -> _from_bytes($str);
+    return $self;
 }
 
 sub bzero {
@@ -880,7 +908,10 @@ sub bzero {
     my $class   = $selfref || $self;
 
     $self->import() if $IMPORT == 0;            # make require work
-    return if $self->modify('bzero');
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('bzero');
 
     $self = bless {}, $class unless $selfref;
 
@@ -917,7 +948,10 @@ sub bone {
     my $class   = $selfref || $self;
 
     $self->import() if $IMPORT == 0;            # make require work
-    return if $self->modify('bzero');
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('bone');
 
     my $sign = shift;
     $sign = defined $sign && $sign =~ /^\s*-/ ? "-" : "+";
@@ -966,7 +1000,10 @@ sub binf {
     }
 
     $self->import() if $IMPORT == 0;            # make require work
-    return if $self->modify('binf');
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('binf');
 
     my $sign = shift;
     $sign = defined $sign && $sign =~ /^\s*-/ ? "-" : "+";
@@ -1000,7 +1037,10 @@ sub bnan {
     }
 
     $self->import() if $IMPORT == 0;            # make require work
-    return if $self->modify('bnan');
+
+    # Don't modify constant (read-only) objects.
+
+    return if $selfref && $self->modify('bnan');
 
     $self = bless {}, $class unless $selfref;
 
@@ -2343,13 +2383,13 @@ sub blog {
     my ($class, $x, $base, @r) = (undef, @_);
     # objectify is costly, so avoid it
     if ((!ref($_[0])) || (ref($_[0]) ne ref($_[1]))) {
-        ($class, $x, $base, @r) = objectify(1, @_);
+        ($class, $x, $base, @r) = objectify(2, @_);
     }
 
     return $x if $x->modify('blog');
 
-    # Handle all exception cases and all trivial cases. I have used Wolfram Alpha
-    # (http://www.wolframalpha.com) as the reference for these cases.
+    # Handle all exception cases and all trivial cases. I have used Wolfram
+    # Alpha (http://www.wolframalpha.com) as the reference for these cases.
 
     return $x -> bnan() if $x -> is_nan();
 
@@ -3094,41 +3134,43 @@ sub bgcd {
     # does not modify arguments, but returns new object
     # GCD -- Euclid's algorithm, variant C (Knuth Vol 3, pg 341 ff)
 
-    my $y = shift;
-    $y = $class->new($y) if !ref($y);
-    my $class = ref($y);
-    my $x = $y->copy()->babs();                  # keep arguments
-    return $x->bnan() if $x->{sign} !~ /^[+-]$/; # x NaN?
+    my ($class, @args) = objectify(0, @_);
 
-    while (@_) {
-        $y = shift;
-        $y = $class->new($y) if !ref($y);
-        return $x->bnan() if $y->{sign} !~ /^[+-]$/; # y NaN?
+    my $x = shift @args;
+    $x = ref($x) && $x -> isa($class) ? $x -> copy() : $class -> new($x);
+
+    return $class->bnan() if $x->{sign} !~ /^[+-]$/;    # x NaN?
+
+    while (@args) {
+        my $y = shift @args;
+        $y = $class->new($y) unless ref($y) && $y -> isa($class);
+        return $class->bnan() if $y->{sign} !~ /^[+-]$/;    # y NaN?
         $x->{value} = $CALC->_gcd($x->{value}, $y->{value});
         last if $CALC->_is_one($x->{value});
     }
-    $x;
+
+    return $x -> babs();
 }
 
 sub blcm {
     # (BINT or num_str, BINT or num_str) return BINT
     # does not modify arguments, but returns new object
-    # Lowest Common Multiple
+    # Least Common Multiple
 
-    my $y = shift;
-    my ($x);
-    if (ref($y)) {
-        $x = $y->copy();
-    } else {
-        $x = $class->new($y);
+    my ($class, @args) = objectify(0, @_);
+
+    my $x = shift @args;
+    $x = ref($x) && $x -> isa($class) ? $x -> copy() : $class -> new($x);
+    return $class->bnan() if $x->{sign} !~ /^[+-]$/;    # x NaN?
+
+    while (@args) {
+        my $y = shift @args;
+        $y = $class -> new($y) unless ref($y) && $y -> isa($class);
+        return $x->bnan() if $y->{sign} !~ /^[+-]$/;     # y not integer
+        $x -> {value} = $CALC->_lcm($x -> {value}, $y -> {value});
     }
-    my $class = ref($x);
-    while (@_) {
-        my $y = shift;
-        $y = $class->new($y) if !ref ($y);
-        $x = __lcm($x, $y);
-    }
-    $x;
+
+    return $x -> babs();
 }
 
 ###############################################################################
@@ -3478,6 +3520,16 @@ sub as_bin {
     return $s . $CALC->_as_bin($x->{value});
 }
 
+sub as_bytes {
+    # return a byte string
+    my $x = shift;
+    $x = $class->new($x) if !ref($x);
+
+    Carp::croak("as_bytes() requires a finite, non-negative integer")
+        if $x -> is_neg() || ! $x -> is_int();
+    return $CALC->_as_bytes($x->{value});
+}
+
 ###############################################################################
 # Other conversion methods
 ###############################################################################
@@ -3576,6 +3628,13 @@ sub objectify {
     }
 
     for my $i (1 .. $count) {
+
+        # Don't do anything with undefs. This special treatment is necessary
+        # because blog() might have a second operand which is undef, to signify
+        # that the default Euler base should be used.
+
+        next unless defined $a[$i];
+
         my $ref = ref $a[$i];
 
         # Perl scalars are fed to the appropriate constructor.
@@ -4021,21 +4080,6 @@ sub _find_round_parameters {
     ($self, $a, $p, $r);
 }
 
-##############################################################################
-# internal calculation routines (others are in Math::BigInt::Calc etc)
-
-sub __lcm {
-    # (BINT or num_str, BINT or num_str) return BINT
-    # does modify first argument
-    # LCM
-
-    my ($x, $ty) = @_;
-    return $x->bnan() if ($x->{sign} eq $nan) || ($ty->{sign} eq $nan);
-    my $method = ref($x) . '::bgcd';
-    no strict 'refs';
-    $x * $ty / &$method($x, $ty);
-}
-
 ###############################################################################
 # this method returns 0 if the object can be modified, or 1 if not.
 # We use a fast constant sub() here, to avoid costly calls. Subclasses
@@ -4227,6 +4271,7 @@ Math::BigInt - Arbitrary size integer/float math package
   $x->as_hex();       # as signed hexadecimal string with prefixed 0x
   $x->as_bin();       # as signed binary string with prefixed 0b
   $x->as_oct();       # as signed octal string with prefixed 0
+  $x->as_bytes();     # as byte string
 
   # Other conversion methods
 
@@ -4434,6 +4479,7 @@ This is used for instance by L<Math::BigInt::Constant>.
 
     print Dumper ( Math::BigInt->config() );
     print Math::BigInt->config()->{lib},"\n";
+    print Math::BigInt->config('lib')},"\n";
 
 Returns a hash containing the configuration, e.g. the version number, lib
 loaded etc. The following hash keys are currently filled in with the
@@ -4518,6 +4564,31 @@ invalid, a NaN is returned.
 Interpret the input as a binary string. A "0b" or "b" prefix is optional. A
 single underscore character may be placed right after the prefix, if present,
 or between any two digits. If the input is invalid, a NaN is returned.
+
+=item from_bytes()
+
+    $x = Math::BigInt->from_bytes("\xf3\x6b");  # $x = 62315
+
+Interpret the input as a byte string, assuming big endian byte order. The
+output is always a non-negative, finite integer.
+
+In some special cases, from_bytes() matches the conversion done by unpack():
+
+    $b = "\x4e";                             # one char byte string
+    $x = Math::BigInt->from_bytes($b);       # = 78
+    $y = unpack "C", $b;                     # ditto, but scalar
+
+    $b = "\xf3\x6b";                         # two char byte string
+    $x = Math::BigInt->from_bytes($b);       # = 62315
+    $y = unpack "S>", $b;                    # ditto, but scalar
+
+    $b = "\x2d\xe0\x49\xad";                 # four char byte string
+    $x = Math::BigInt->from_bytes($b);       # = 769673645
+    $y = unpack "L>", $b;                    # ditto, but scalar
+
+    $b = "\x2d\xe0\x49\xad\x2d\xe0\x49\xad"; # eight char byte string
+    $x = Math::BigInt->from_bytes($b);       # = 3305723134637787565
+    $y = unpack "Q>", $b;                    # ditto, but scalar
 
 =item bzero()
 
@@ -5327,6 +5398,14 @@ prefixed by "0b".
 
 Returns a string representing the number using octal notation. The output is
 prefixed by "0".
+
+=item as_bytes()
+
+    $x = Math::BigInt->new("1667327589");
+    $s = $x->as_bytes();                    # $s = "cafe"
+
+Returns a byte string representing the number using big endian byte order. The
+invocand must be a non-negative, finite integer.
 
 =back
 

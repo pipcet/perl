@@ -4,8 +4,9 @@ use Test2::Formatter::TAP;
 use Test2::API qw/context/;
 use PerlIO;
 
+use Test2::Tools::Tiny;
+
 BEGIN {
-    require "t/tools.pl";
     *OUT_STD = Test2::Formatter::TAP->can('OUT_STD') or die;
     *OUT_ERR = Test2::Formatter::TAP->can('OUT_ERR') or die;
 }
@@ -530,5 +531,20 @@ tests skip => sub {
         "Todo Skip"
     );
 };
+
+tests version => sub {
+    require Test2::Event::TAP::Version;
+    my $ver = Test2::Event::TAP::Version->new(
+        trace => $trace,
+        version => '2',
+    );
+
+    is_deeply(
+        [$fmt->event_tap($ver, 1)],
+        [[OUT_STD, "TAP version 2\n"]],
+        "Got tap"
+    );
+};
+
 
 done_testing;

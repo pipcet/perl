@@ -3,7 +3,7 @@
  *
  *    Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001
  *    2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
- *    2013, 2014, 2015, 2016 by Larry Wall and others
+ *    2013, 2014, 2015, 2016, 2017 by Larry Wall and others
  *
  *    You may distribute under the terms of either the GNU General Public
  *    License or the Artistic License, as specified in the README file.
@@ -420,6 +420,7 @@ perl_construct(pTHXx)
     PL_SB_invlist = _new_invlist_C_array(_Perl_SB_invlist);
     PL_WB_invlist = _new_invlist_C_array(_Perl_WB_invlist);
     PL_LB_invlist = _new_invlist_C_array(_Perl_LB_invlist);
+    PL_Assigned_invlist = _new_invlist_C_array(Assigned_invlist);
 #ifdef USE_THREAD_SAFE_LOCALE
     PL_C_locale_obj = newlocale(LC_ALL_MASK, "C", NULL);
 #endif
@@ -1127,6 +1128,7 @@ perl_destruct(pTHXx)
     PL_LB_invlist = NULL;
     PL_SB_invlist = NULL;
     PL_WB_invlist = NULL;
+    PL_Assigned_invlist = NULL;
 
     if (!specialWARN(PL_compiling.cop_warnings))
 	PerlMemShared_free(PL_compiling.cop_warnings);
@@ -1535,7 +1537,7 @@ perl_parse(pTHXx_ XSINIT_t xsinit, int argc, char **argv, char **env)
 #ifndef MULTIPLICITY
     PERL_UNUSED_ARG(my_perl);
 #endif
-#if defined(USE_HASH_SEED) || defined(USE_HASH_SEED_EXPLICIT) || defined(USE_HASH_SEED_DEBUG)
+#if (defined(USE_HASH_SEED) || defined(USE_HASH_SEED_EXPLICIT) || defined(USE_HASH_SEED_DEBUG)) && !defined(NO_PERL_HASH_SEED_DEBUG)
     {
         const char * const s = PerlEnv_getenv("PERL_HASH_SEED_DEBUG");
 
@@ -1554,7 +1556,7 @@ perl_parse(pTHXx_ XSINIT_t xsinit, int argc, char **argv, char **env)
             PerlIO_printf(Perl_debug_log, "\n");
         }
     }
-#endif /* #if defined(USE_HASH_SEED) || defined(USE_HASH_SEED_EXPLICIT) */
+#endif /* #if (defined(USE_HASH_SEED) || defined(USE_HASH_SEED_EXPLICIT) ... */
 
 #ifdef __amigaos4__
     {
@@ -2372,12 +2374,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 
     SETERRNO(0,SS_NORMAL);
     if (yyparse(GRAMPROG) || PL_parser->error_count) {
-	if (PL_minus_c)
-	    Perl_croak(aTHX_ "%s had compilation errors.\n", PL_origfilename);
-	else {
-	    Perl_croak(aTHX_ "Execution of %s aborted due to compilation errors.\n",
-		       PL_origfilename);
-	}
+        abort_execution("", PL_origfilename);
     }
     CopLINE_set(PL_curcop, 0);
     SET_CURSTASH(PL_defstash);
@@ -3595,7 +3592,7 @@ S_minus_v(pTHX)
 #endif
 
 	PerlIO_printf(PIO_stdout,
-		      "\n\nCopyright 1987-2016, Larry Wall\n");
+		      "\n\nCopyright 1987-2017, Larry Wall\n");
 #ifdef MSDOS
 	PerlIO_printf(PIO_stdout,
 		      "\nMS-DOS port Copyright (c) 1989, 1990, Diomidis Spinellis\n");

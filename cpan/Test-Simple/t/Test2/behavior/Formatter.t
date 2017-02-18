@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-BEGIN { require "t/tools.pl" }
+use Test2::Tools::Tiny;
 
 use Test2::API qw/intercept run_subtest test2_stack/;
 use Test2::Event::Bail;
@@ -9,7 +9,7 @@ use Test2::Event::Bail;
 {
 
 	package Formatter::Subclass;
-	use parent 'Test2::Formatter';
+	use base 'Test2::Formatter';
 	use Test2::Util::HashBase qw{f t};
 
     sub init {

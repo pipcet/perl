@@ -865,8 +865,7 @@ Perl_hv_exists_ent(pTHX_ HV *hv, SV *keysv, U32 hash)
 {
     PERL_ARGS_ASSERT_HV_EXISTS_ENT;
 
-    return hv_common(hv, keysv, NULL, 0, 0, HV_FETCH_ISEXISTS, 0, hash)
-	? TRUE : FALSE;
+    return cBOOL(hv_common(hv, keysv, NULL, 0, 0, HV_FETCH_ISEXISTS, 0, hash));
 }
 
 HE *
@@ -927,8 +926,7 @@ Perl_hv_exists(pTHX_ HV *hv, const char *key, I32 klen_i32)
 	klen = klen_i32;
 	flags = 0;
     }
-    return hv_common(hv, NULL, key, klen, flags, HV_FETCH_ISEXISTS, 0, 0)
-	? TRUE : FALSE;
+    return cBOOL(hv_common(hv, NULL, key, klen, flags, HV_FETCH_ISEXISTS, 0, 0));
 }
 
 SV**
@@ -1145,7 +1143,7 @@ Perl_to_utf8_fold(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp)
 {
     PERL_ARGS_ASSERT_TO_UTF8_FOLD;
 
-    return _to_utf8_fold_flags(p, ustrp, lenp, FOLD_FLAGS_FULL);
+    return toFOLD_utf8(p, ustrp, lenp);
 }
 
 UV
@@ -1153,7 +1151,7 @@ Perl_to_utf8_lower(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp)
 {
     PERL_ARGS_ASSERT_TO_UTF8_LOWER;
 
-    return _to_utf8_lower_flags(p, ustrp, lenp, FALSE);
+    return toLOWER_utf8(p, ustrp, lenp);
 }
 
 UV
@@ -1161,7 +1159,7 @@ Perl_to_utf8_title(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp)
 {
     PERL_ARGS_ASSERT_TO_UTF8_TITLE;
 
-    return _to_utf8_title_flags(p, ustrp, lenp, FALSE);
+    return toTITLE_utf8(p, ustrp, lenp);
 }
 
 UV
@@ -1169,7 +1167,7 @@ Perl_to_utf8_upper(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp)
 {
     PERL_ARGS_ASSERT_TO_UTF8_UPPER;
 
-    return _to_utf8_upper_flags(p, ustrp, lenp, FALSE);
+    return toUPPER_utf8(p, ustrp, lenp);
 }
 
 SV *
@@ -1688,6 +1686,7 @@ Perl_is_utf8_char_buf(const U8 *buf, const U8* buf_end)
 UV
 Perl_valid_utf8_to_uvuni(pTHX_ const U8 *s, STRLEN *retlen)
 {
+    PERL_UNUSED_CONTEXT;
     PERL_ARGS_ASSERT_VALID_UTF8_TO_UVUNI;
 
     return NATIVE_TO_UNI(valid_utf8_to_uvchr(s, retlen));
@@ -1750,6 +1749,7 @@ See L</utf8n_to_uvchr> for details on when the REPLACEMENT CHARACTER is returned
 UV
 Perl_utf8_to_uvuni(pTHX_ const U8 *s, STRLEN *retlen)
 {
+    PERL_UNUSED_CONTEXT;
     PERL_ARGS_ASSERT_UTF8_TO_UVUNI;
 
     return NATIVE_TO_UNI(valid_utf8_to_uvchr(s, retlen));

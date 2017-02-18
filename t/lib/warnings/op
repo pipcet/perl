@@ -167,9 +167,13 @@ use warnings 'syntax' ;
 @a{--$_};
 @a[$_];
 @a[--$_];
+delete @a[$x];
+delete @a{$x};
 no warnings 'syntax' ;
 @a[3];
 @a{3};
+delete @a[$x];
+delete @a{$x};
 EXPECT
 Scalar value @a[3] better written as $a[3] at - line 3.
 Scalar value @a{3} better written as $a{3} at - line 4.
@@ -181,6 +185,8 @@ Scalar value @a{...} better written as $a{...} at - line 9.
 Scalar value @a{...} better written as $a{...} at - line 10.
 Scalar value @a[...] better written as $a[...] at - line 11.
 Scalar value @a[...] better written as $a[...] at - line 12.
+Scalar value @a[...] better written as $a[...] at - line 13.
+Scalar value @a{...} better written as $a{...} at - line 14.
 ########
 # op.c
 use utf8;
@@ -1766,13 +1772,13 @@ if (my $w2) { $a=1 }
 if ($a && (my $w3 = 1)) {$a = 2}
 
 EXPECT
-Deprecated use of my() in false conditional at - line 2.
-Deprecated use of my() in false conditional at - line 3.
-Deprecated use of my() in false conditional at - line 4.
-Deprecated use of my() in false conditional at - line 5.
-Deprecated use of my() in false conditional at - line 6.
-Deprecated use of my() in false conditional at - line 7.
-Deprecated use of my() in false conditional at - line 8.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 2.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 3.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 4.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 5.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 6.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 7.
+Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30 at - line 8.
 ########
 # op.c
 $[ = 1;
@@ -2110,4 +2116,10 @@ do xa for "sin";
 do xa for qq(sin);
 do xa for my $a;
 do xa for my @a;
+EXPECT
+########
+# TODO [perl #125493
+use warnings;
+$_="3.14159";
+tr/0-9/\x{6F0}-\x{6F9}/;
 EXPECT

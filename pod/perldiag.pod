@@ -418,12 +418,12 @@ assigning through that reference.  For example
 used as an lvalue, which is pretty strange.  Perhaps you forgot to
 dereference it first.  See L<perlfunc/substr>.
 
-=item Attribute "locked" is deprecated
+=item Attribute "locked" is deprecated, and will disappear in Perl 5.28
 
 (D deprecated) You have used the attributes pragma to modify the
 "locked" attribute on a code reference.  The :locked attribute is
 obsolete, has had no effect since 5005 threads were removed, and
-will be removed in a future release of Perl 5.
+will be removed in a Perl 5.28.
 
 =item Attribute prototype(%s) discards earlier prototype attribute in same sub
 
@@ -431,12 +431,12 @@ will be removed in a future release of Perl 5.
 example.  Since each sub can only have one prototype, the earlier
 declaration(s) are discarded while the last one is applied.
 
-=item Attribute "unique" is deprecated
+=item Attribute "unique" is deprecated, and will disappear in Perl 5.28
 
 (D deprecated) You have used the attributes pragma to modify
 the "unique" attribute on an array, hash or scalar reference.
 The :unique attribute has had no effect since Perl 5.8.8, and
-will be removed in a future release of Perl 5.
+will be removed in a Perl 5.28.
 
 =item av_reify called on tied array
 
@@ -666,11 +666,6 @@ checking.  Alternatively, if you are certain that you're calling the
 function correctly, you may put an ampersand before the name to avoid
 the warning.  See L<perlsub>.
 
-=item Calling POSIX::%s() is deprecated
-
-(D deprecated) You called a function whose use is deprecated.  See
-the function's name in L<POSIX> for details.
-
 =item Cannot chr %f
 
 (F) You passed an invalid number (like an infinity or not-a-number) to C<chr>.
@@ -843,6 +838,13 @@ quotas or other plumbing problems.
 C<foreach> loop nor a C<given> block.  (Note that this error is
 issued on exit from the C<default> block, so you won't get the
 error if you use an explicit C<continue>.)
+
+=item Can't determine class of operator %s, assuming BASEOP
+
+(S) This warning indicates something wrong in the internals of perl.
+Perl was trying to find the class (e.g. LISTOP) of a particular OP,
+and was unable to do so. This is likely to be due to a bug in the perl
+internals, or due to a bug in XS code which manipulates perl optrees.
 
 =item Can't do inplace edit: %s is not a regular file
 
@@ -1797,7 +1799,7 @@ usually indicates a syntax error in dereferencing the constant value.
 See L<perlsub/"Constant Functions"> and L<constant>.
 
 =item Constants from lexical variables potentially modified elsewhere are
-deprecated
+deprecated. This will not be allowed in Perl 5.32
 
 (D deprecated) You wrote something like
 
@@ -1816,8 +1818,8 @@ breaks the behavior of closures, in which the subroutine captures
 the variable itself, rather than its value, so future changes to the
 variable are reflected in the subroutine's return value.
 
-This usage is deprecated, because the behavior is likely to change
-in a future version of Perl.
+This usage is deprecated, and will no longer be allowed in Perl 5.32,
+making it possible to change the behavior in the future.
 
 If you intended for the subroutine to be eligible for inlining, then
 make sure the variable is not referenced elsewhere, possibly by
@@ -1982,7 +1984,7 @@ or a hash or array slice, such as:
 long for Perl to handle.  You have to be seriously twisted to write code
 that triggers this error.
 
-=item Deprecated use of my() in false conditional
+=item Deprecated use of my() in false conditional. This will be a fatal error in Perl 5.30
 
 (D deprecated) You used a declaration similar to C<my $x if 0>.  There
 has been a long-standing bug in Perl that causes a lexical variable
@@ -2003,6 +2005,9 @@ lexicals that are initialized only once (see L<feature>):
 
     sub f { state $x; return $x++ }
 
+This use of C<my()> in a false conditional has been deprecated since
+Perl 5.10, and it will become a fatal error in Perl 5.30.
+
 =item DESTROY created new reference to dead object '%s'
 
 (F) A DESTROY() method created a new reference to the object which is
@@ -2011,7 +2016,7 @@ than to create a dangling reference.
 
 =item Did not produce a valid header
 
-See Server error.
+See L</500 Server error>.
 
 =item %s did not return a true value
 
@@ -2044,7 +2049,7 @@ you called it with no args and C<$@> was empty.
 
 =item Document contains no data
 
-See Server error.
+See L</500 Server error>.
 
 =item %s does not define %s::VERSION--version check failed
 
@@ -2080,10 +2085,15 @@ something that isn't defined yet, you don't actually have to define the
 subroutine or package before the current location.  You can use an empty
 "sub foo;" or "package FOO;" to enter a "forward" declaration.
 
-=item dump() better written as CORE::dump()
+=item dump() better written as CORE::dump(). dump() will no longer be available in Perl 5.30
 
-(W misc) You used the obsolescent C<dump()> built-in function, without fully
-qualifying it as C<CORE::dump()>.  Maybe it's a typo.  See L<perlfunc/dump>.
+(D deprecated, misc) You used the obsolescent C<dump()> built-in function,
+without fully qualifying it as C<CORE::dump()>. Maybe it's a typo.
+
+Use of a unqualified C<dump()> was deprecated in Perl 5.30, and this
+will not be available in Perl 5.30.
+
+See L<perlfunc/dump>.
 
 =item dump is not supported
 
@@ -2114,10 +2124,12 @@ unlikely to be what you want.
 described in L<perlunicode> and L<perlre>.  You used C<\p> or C<\P> in
 a regular expression without specifying the property name.
 
-=item ${^ENCODING} is no longer supported
+=item ${^ENCODING} is no longer supported. Its use will be fatal in Perl 5.28
 
 (D deprecated) The special variable C<${^ENCODING}>, formerly used to implement
 the C<encoding> pragma, is no longer supported as of Perl 5.26.0.
+
+Setting this variable will become a fatal error in Perl 5.28.
 
 =item entering effective %s failed
 
@@ -2181,7 +2193,7 @@ variable and glob that.
 (F) The C<exec> function is not implemented on some systems, e.g., Symbian
 OS.  See L<perlport>.
 
-=item Execution of %s aborted due to compilation errors.
+=item %sExecution of %s aborted due to compilation errors.
 
 (F) The final summary message when a Perl compilation fails.
 
@@ -2324,6 +2336,20 @@ is not possible.
 which can't encode values above 63.  So there is no point in asking for
 a line length bigger than that.  Perl will behave as if you specified
 C<u63> as the format.
+
+=item File::Glob::glob() will disappear in perl 5.30. Use File::Glob::bsd_glob() instead.
+
+(D deprecated) C<< File::Glob >> has a function called C<< glob >>, which
+just calls C<< bsd_glob >>. However, its prototype is different from the
+prototype of C<< CORE::glob >>, and hence, C<< File::Glob::glob >> should
+not be used.
+
+C<< File::Glob::glob() >> was deprecated in perl 5.8.0. A deprecation
+message was issued from perl 5.26.0 onwards, and the function will
+disappear in perl 5.30.0.
+
+Code using C<< File::Glob::glob() >> should call
+C<< File::Glob::bsd_glob() >> instead.
 
 =item Filehandle %s opened only for input
 
@@ -3091,7 +3117,7 @@ neither as a system call nor an ioctl call (SIOCATMARK).
 Perl.  The current valid ones are given in
 L<perlrebackslash/\b{}, \b, \B{}, \B>.
 
-=item %s() is deprecated on :utf8 handles
+=item %s() is deprecated on :utf8 handles. This will be a fatal error in Perl 5.30
 
 (D deprecated) The sysread(), recv(), syswrite() and send() operators are
 deprecated on handles that have the C<:utf8> layer, either explicitly, or
@@ -3107,9 +3133,10 @@ the layer is some different encoding, such as the example above.
 
 Ideally, all of these operators would completely ignore the C<:utf8> state,
 working only with bytes, but this would result in silently breaking existing
-code.  To avoid this a future version of perl will throw an exception when
-any of sysread(), recv(), syswrite() or send() are called on handle with the
-C<:utf8> layer.
+code.
+
+In Perl 5.30, it will no longer be possible to use sysread(), recv(),
+syswrite() or send() to read or send bytes from/to :utf8 handles.
 
 =item "%s" is more clearly written simply as "%s" in regex; marked by S<<-- HERE> in m/%s/
 
@@ -3119,7 +3146,7 @@ You specified a character that has the given plainer way of writing it,
 and which is also portable to platforms running with different character
 sets.
 
-=item $* is no longer supported
+=item $* is no longer supported. Its use will be fatal in Perl 5.30
 
 (D deprecated, syntax) The special variable C<$*>, deprecated in older
 perls, has been removed as of 5.10.0 and is no longer supported.  In
@@ -3131,11 +3158,15 @@ modifiers.  You can enable C</m> for a lexical scope (even a whole file)
 with C<use re '/m'>.  (In older versions: when C<$*> was set to a true value
 then all regular expressions behaved as if they were written using C</m>.)
 
-=item $# is no longer supported
+Use of this variable will be a fatal error in Perl 5.30.
+
+=item $# is no longer supported. Its use will be fatal in Perl 5.30
 
 (D deprecated, syntax) The special variable C<$#>, deprecated in older
 perls, has been removed as of 5.10.0 and is no longer supported.  You
 should use the printf/sprintf functions instead.
+
+Use of this variable will be a fatal error in Perl 5.30.
 
 =item '%s' is not a code reference
 
@@ -3374,7 +3405,7 @@ the variable, C<%s>, part of the message.
 
 One possible cause is that you set the UTF8 flag yourself for data that
 you thought to be in UTF-8 but it wasn't (it was for example legacy
-8-bit data).  To guard against this, you can use Encode::decode_utf8.
+8-bit data).  To guard against this, you can use C<Encode::decode('UTF-8', ...)>.
 
 If you use the C<:encoding(UTF-8)> PerlIO layer for input, invalid byte
 sequences are handled gracefully, but if you use C<:utf8>, the flag is
@@ -3382,14 +3413,6 @@ set without validating the data, possibly resulting in this error
 message.
 
 See also L<Encode/"Handling Malformed Data">.
-
-=item Malformed UTF-8 character immediately after '%s'
-
-(F) You said C<use utf8>, but the program file doesn't comply with UTF-8
-encoding rules.  The message prints out the properly encoded characters
-just before the first bad one.  If C<utf8> warnings are enabled, a
-warning is generated that gives more details about the type of
-malformation.
 
 =item Malformed UTF-8 returned by \N{%s} immediately after '%s'
 
@@ -3409,6 +3432,19 @@ rules and perl was unable to guess how to make more progress.
 
 (F) You tried to unpack something that didn't comply with UTF-8 encoding
 rules and perl was unable to guess how to make more progress.
+
+=item Malformed UTF-8 string in "%s"
+
+(F) This message indicates a bug either in the Perl core or in XS
+code. Such code was trying to find out if a character, allegedly
+stored internally encoded as UTF-8, was of a given type, such as
+being punctuation or a digit.  But the character was not encoded
+in legal UTF-8.  The C<%s> is replaced by a string that can be used
+by knowledgeable people to determine what the type being checked
+against was.
+
+Passing malformed strings was deprecated in Perl 5.18, and
+became fatal in Perl 5.26.
 
 =item Malformed UTF-16 surrogate
 
@@ -3490,7 +3526,7 @@ doesn't resolve to a valid subroutine.  See L<overload>.
 
 =item Method %s not permitted
 
-See Server error.
+See L</500 Server error>.
 
 =item Might be a runaway multi-line %s string starting on line %d
 
@@ -4201,9 +4237,7 @@ L<perlport> for more on portability concerns.
 (F) A subroutine using a slurpy hash parameter in its signature
 received an odd number of arguments to populate the hash.  It requires
 the arguments to be paired, with the same number of keys as values.
-The caller of the subroutine is presumably at fault.  Inconveniently,
-this error will be reported at the location of the subroutine, not that
-of the caller.
+The caller of the subroutine is presumably at fault.
 
 =item Odd number of arguments for overload::constant
 
@@ -4230,14 +4264,6 @@ C<sysread()>ing a file, or when seeking past the end of a scalar opened
 for I/O (in anticipation of future reads and to imitate the behavior
 with real files).
 
-=item Only one /x regex modifier is allowed
-
-=item Only one /x regex modifier is allowed in regex; marked by <-- HERE in m/%s/
-
-(F) You used the C</x> regular expression pattern modifier at least twice in a
-string of modifiers.  This has been made illegal, in order to allow future
-extensions to the Perl language.
-
 =item %s() on unopened %s
 
 (W unopened) An I/O operation was attempted on a filehandle that was
@@ -4257,19 +4283,21 @@ that isn't open.  Check your control flow.  See also L<perlfunc/-X>.
 
 (S internal) An internal warning that the grammar is screwed up.
 
-=item Opening dirhandle %s also as a file
+=item Opening dirhandle %s also as a file. This will be a fatal error in Perl 5.28
 
 (D io, deprecated) You used open() to associate a filehandle to
 a symbol (glob or scalar) that already holds a dirhandle.
 Although legal, this idiom might render your code confusing
-and is deprecated.
+and this was deprecated in Perl 5.10. In Perl 5.28, this 
+will be a fatal error.
 
-=item Opening filehandle %s also as a directory
+=item Opening filehandle %s also as a directory. This will be a fatal error in Perl 5.28
 
 (D io, deprecated) You used opendir() to associate a dirhandle to
 a symbol (glob or scalar) that already holds a filehandle.
 Although legal, this idiom might render your code confusing
-and is deprecated.
+and this was deprecated in Perl 5.10. In Perl 5.28, this 
+will be a fatal error.
 
 =item Operand with no preceding operator in regex; marked by S<<-- HERE> in
 m/%s/
@@ -4671,17 +4699,6 @@ Remember that "my", "our", "local" and "state" bind tighter than comma.
 (F) Parsing code supplied by an extension violated the parser's API in
 a detectable way.
 
-=item Passing malformed UTF-8 to "%s" is deprecated
-
-(D deprecated, utf8) This message indicates a bug either in the Perl
-core or in XS code.  Such code was trying to find out if a character,
-allegedly stored internally encoded as UTF-8, was of a given type, such
-as being punctuation or a digit.  But the character was not encoded in
-legal UTF-8.  The C<%s> is replaced by a string that can be used by
-knowledgeable people to determine what the type being checked against
-was.  If C<utf8> warnings are enabled, a further message is raised,
-giving details of the malformation.
-
 =item Pattern subroutine nesting without pos change exceeded limit in regex
 
 (F) You used a pattern that uses too many nested subpattern calls without
@@ -4985,7 +5002,7 @@ of "||".
 
 =item Premature end of script headers
 
-See Server error.
+See L</500 Server error>.
 
 =item printf() on closed filehandle %s
 
@@ -5481,7 +5498,7 @@ in the regular expression the problem was discovered.
 (F) An C<(?R)> or C<(?0)> sequence in a regular expression was missing the
 final parenthesis.
 
-=item Server error (a.k.a. "500 Server error")
+=item Z<>500 Server error
 
 (A) This is the error message generally seen in a browser window
 when trying to run a CGI program (including SSI) over the web.  The
@@ -5541,12 +5558,7 @@ didn't think so.
 forget to check the return value of your socket() call?  See
 L<perlfunc/setsockopt>.
 
-=item Setting ${^ENCODING} is deprecated
-
-(D deprecated) You assigned a non-C<undef> value to C<${^ENCODING}>.
-This is deprecated; see C<L<perlvar/${^ENCODING}>> for details.
-
-=item Setting $/ to a reference to %s as a form of slurp is deprecated, treating as undef
+=item Setting $/ to a reference to %s as a form of slurp is deprecated, treating as undef. This will be fatal in Perl 5.28
 
 (D deprecated) You assigned a reference to a scalar to C<$/> where the
 referenced item is not a positive integer.  In older perls this B<appeared>
@@ -5559,8 +5571,8 @@ setting C<$/> to undef, with the exception that this warning would be
 thrown.
 
 You are recommended to change your code to set C<$/> to C<undef> explicitly
-if you wish to slurp the file.  In future versions of Perl assigning
-a reference to will throw a fatal error.
+if you wish to slurp the file.  In Perl 5.28 assigning C<$/> to a 
+reference to an integer which isn't positive will throw a fatal error.
 
 =item Setting $/ to %s reference is forbidden
 
@@ -6234,30 +6246,30 @@ C<undef *foo>.
 (A) You've accidentally run your script through B<csh> instead of Perl.
 Check the #! line, or manually feed your script into Perl yourself.
 
-=item Unescaped left brace in regex is deprecated here, passed through in
-regex; marked by S<<-- HERE> in m/%s/
+=item Unescaped left brace in regex is deprecated here (and will be fatal in Perl 5.30), passed through in regex; marked by S<<-- HERE> in m/%s/
 
 (D deprecated, regexp)  The simple rule to remember, if you want to
-match a literal C<"{"> character (U+007B C<LEFT CURLY BRACKET>) in a
+match a literal C<{> character (U+007B C<LEFT CURLY BRACKET>) in a
 regular expression pattern, is to escape each literal instance of it in
 some way.  Generally easiest is to precede it with a backslash, like
-C<"\{"> or enclose it in square brackets (C<"[{]">).  If the pattern
-delimiters are also braces, any matching right brace (C<"}">) should
+C<\{> or enclose it in square brackets (C<[{]>).  If the pattern
+delimiters are also braces, any matching right brace (C<}>) should
 also be escaped to avoid confusing the parser, for example,
 
  qr{abc\{def\}ghi}
 
-Forcing literal C<"{"> characters to be escaped will enable the Perl
+Forcing literal C<{> characters to be escaped will enable the Perl
 language to be extended in various ways in future releases.  To avoid
 needlessly breaking existing code, the restriction is is not enforced in
 contexts where there are unlikely to ever be extensions that could
-conflict with the use there of C<"{"> as a literal.
+conflict with the use there of C<{> as a literal.
 
-In this release of Perl, some literal uses of C<"{"> are fatal, and some
+In this release of Perl, some literal uses of C<{> are fatal, and some
 still just deprecated.  This is because of an oversight:  some uses of a
-literal C<"{"> that should have raised a deprecation warning starting in
+literal C<{> that should have raised a deprecation warning starting in
 v5.20 did not warn until v5.26.  By making the already-warned uses fatal
 now, some of the planned extensions can be made to the language sooner.
+The cases which are still allowed will be fatal in Perl 5.30.
 
 The contexts where no warnings or errors are raised are:
 
@@ -6265,12 +6277,12 @@ The contexts where no warnings or errors are raised are:
 
 =item *
 
-as the first character in a pattern, or following C<"^"> indicating to
+as the first character in a pattern, or following C<^> indicating to
 anchor the match to the beginning of a line.
 
 =item *
 
-as the first character following a C<"|"> indicating alternation.
+as the first character following a C<|> indicating alternation.
 
 =item *
 
@@ -6345,6 +6357,26 @@ as the first character following a quantifier
  /\s*{/
 
 =back
+
+=item Unescaped literal '%c' in regex; marked by <-- HERE in m/%s/
+
+(W regexp) (only under C<S<use re 'strict'>>)
+
+Within the scope of C<S<use re 'strict'>> in a regular expression
+pattern, you included an unescaped C<}> or C<]> which was interpreted
+literally.  These two characters are sometimes metacharacters, and
+sometimes literals, depending on what precedes them in the
+pattern.  This is unlike the similar C<)> which is always a
+metacharacter unless escaped.
+
+This action at a distance, perhaps a large distance, can lead to Perl
+silently misinterpreting what you meant, so when you specify that you
+want extra checking by C<S<use re 'strict'>>, this warning is generated.
+If you meant the character as a literal, simply confirm that to Perl by
+preceding the character with a backslash, or make it into a bracketed
+character class (like C<[}]>).  If you meant it as closing a
+corresponding C<[> or C<{>, you'll need to look back through the pattern
+to find out why that isn't happening.
 
 =item unexec of %s into %s failed!
 
@@ -6446,11 +6478,11 @@ exactly, regardless of whether C<:loose> is used or not.)  This error may
 also happen if the C<\N{}> is not in the scope of the corresponding
 C<S<use charnames>>.
 
-=item Unknown charname '' is deprecated
+=item Unknown charname '' is deprecated. Its use will be fatal in Perl 5.28
 
 (D deprecated) You had a C<\N{}> with nothing between the braces.  This
-usage is deprecated, and will be made a syntax error in a future Perl
-version.
+usage was deprecated in Perl 5.24, and will be made a syntax error in 
+in Perl 5.28.
 
 =item Unknown error
 
@@ -6892,11 +6924,14 @@ returns no useful value.  See L<perlmod>.
 (D deprecated) The C<$[> variable (index of the first element in an array)
 is deprecated.  See L<perlvar/"$[">.
 
-=item Use of bare << to mean <<"" is deprecated
+=item Use of bare << to mean <<"" is deprecated. Its use will be fatal in Perl 5.28
 
 (D deprecated) You are now encouraged to use the explicitly quoted
 form if you wish to use an empty line as the terminator of the
 here-document.
+
+Use of a bare terminator was deprecated in Perl 5.000, and
+will be a fatal error in Perl 5.28.
 
 =item Use of /c modifier is meaningless in s///
 
@@ -6909,7 +6944,7 @@ modifier is not presently meaningful in substitutions.
 use the /g modifier.  Currently, /c is meaningful only when /g is
 used.  (This may change in the future.)
 
-=item Use of code point 0x%s is deprecated; the permissible max is 0x%s
+=item Use of code point 0x%s is deprecated; the permissible max is 0x%s. This will be fatal in Perl 5.28
 
 (D deprecated) You used a code point that will not be allowed in a
 future perl version, because it is too large.  Unicode only allows code
@@ -6926,10 +6961,15 @@ If your code is to run on various platforms, keep in mind that the upper
 limit depends on the platform.  It is much larger on 64-bit word sizes
 than 32-bit ones.
 
-=item Use of comma-less variable list is deprecated
+The use of out of range code points was deprecated in Perl 5.24, and
+it will be a fatal error in Perl 5.28.
+
+=item Use of comma-less variable list is deprecated. Its use will be fatal in Perl 5.28
 
 (D deprecated) The values you give to a format should be
 separated by commas, not just aligned on a line.
+
+This usage will be fatal in Perl 5.28.
 
 =item Use of each() on hash after insertion without resetting hash iterator results in undefined behavior
 
@@ -6975,11 +7015,6 @@ For speed and efficiency reasons, Perl internally does not do full
 reference-counting of iterated items, hence deleting such an item in the
 middle of an iteration causes Perl to see a freed value.
 
-=item Use of *glob{FILEHANDLE} is deprecated
-
-(D deprecated) You are now encouraged to use the shorter *glob{IO} form
-to access the filehandle slot within a typeglob.
-
 =item Use of /g modifier is meaningless in split
 
 (W regexp) You used the /g modifier on the pattern for a C<split>
@@ -6991,7 +7026,9 @@ repeatedly, the C</g> has no effect.
 (D deprecated) Using C<goto> to jump from an outer scope into an inner
 scope is deprecated and should be avoided.
 
-=item Use of inherited AUTOLOAD for non-method %s() is deprecated
+This was deprecated in Perl 5.12.
+
+=item Use of inherited AUTOLOAD for non-method %s() is deprecated. This will be fatal in Perl 5.28
 
 (D deprecated) As an (ahem) accidental feature, C<AUTOLOAD>
 subroutines are looked up as methods (using the C<@ISA> hierarchy)
@@ -7015,33 +7052,18 @@ In code that currently says C<use AutoLoader; @ISA = qw(AutoLoader);>
 you should remove AutoLoader from @ISA and change C<use AutoLoader;> to
 C<use AutoLoader 'AUTOLOAD';>.
 
+This feature was deprecated in Perl 5.004, and will be fatal in Perl 5.28.
+
 =item Use of %s in printf format not supported
 
 (F) You attempted to use a feature of printf that is accessible from
 only C.  This usually means there's a better way to do it in Perl.
-
-=item Use of %s is deprecated
-
-(D deprecated) The construct indicated is no longer recommended for use,
-generally because there's a better way to do it, and also because the
-old way has bad side effects.
 
 =item Use of -l on filehandle%s
 
 (W io) A filehandle represents an opened file, and when you opened the file
 it already went past any symlink you are presumably trying to look for.
 The operation returned C<undef>.  Use a filename instead.
-
-=item Use of %s on a handle without * is deprecated
-
-(D deprecated) You used C<tie>, C<tied> or C<untie> on a scalar but that scalar
-happens to hold a typeglob, which means its filehandle will be tied.  If
-you mean to tie a handle, use an explicit * as in C<tie *$handle>.
-
-This was a long-standing bug that was removed in Perl 5.16, as there was
-no way to tie the scalar itself when it held a typeglob, and no way to
-untie a scalar that had had a typeglob assigned to it.  If you see this
-message, you must be using an older version.
 
 =item Use of reference "%s" as array index
 
@@ -7061,12 +7083,14 @@ its behavior may change or even be removed in any future release of perl.
 See the explanation under L<perlvar/$_>.
 
 =item Use of strings with code points over 0xFF as arguments to %s
-operator is deprecated
+operator is deprecated. This will be a fatal error in Perl 5.28
 
 (D deprecated) You tried to use one of the string bitwise operators
 (C<&> or C<|> or C<^> or C<~>) on a string containing a code point over
 0xFF.  The string bitwise operators treat their operands as strings of
 bytes, and values beyond 0xFF are nonsensical in this context.
+
+Such usage will be a fatal error in Perl 5.28.
 
 =item Use of tainted arguments in %s is deprecated
 
@@ -7074,6 +7098,31 @@ bytes, and values beyond 0xFF are nonsensical in this context.
 arguments and at least one of them is tainted.  This used to be allowed
 but will become a fatal error in a future version of perl.  Untaint your
 arguments.  See L<perlsec>.
+
+=item Use of unassigned code point or non-standalone grapheme for a
+delimiter will be a fatal error starting in Perl 5.30
+
+(D deprecated)
+A grapheme is what appears to a native-speaker of a language to be a
+character.  In Unicode (and hence Perl) a grapheme may actually be
+several adjacent characters that together form a complete grapheme.  For
+example, there can be a base character, like "R" and an accent, like a
+circumflex "^", that appear when displayed to be a single character with
+the circumflex hovering over the "R".  Perl currently allows things like
+that circumflex to be delimiters of strings, patterns, I<etc>.  When
+displayed, the circumflex would look like it belongs to the character
+just to the left of it.  In order to move the language to be able to
+accept graphemes as delimiters, we have to deprecate the use of
+delimiters which aren't graphemes by themselves.  Also, a delimiter must
+already be assigned (or known to be never going to be assigned) to try
+to future-proof code, for otherwise code that works today would fail to
+compile if the currently unassigned delimiter ends up being something
+that isn't a stand-alone grapheme.  Because Unicode is never going to
+assign
+L<non-character code points|perlunicode/Noncharacter code points>, nor
+L<code points that are above the legal Unicode maximum|
+perlunicode/Beyond Unicode code points>, those can be delimiters, and
+their use won't raise this warning.
 
 =item Use of uninitialized value%s
 

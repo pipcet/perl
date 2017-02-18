@@ -20,7 +20,7 @@ use warnings;
 use 5.010;
 use Config;
 
-plan tests => 2502;  # Update this when adding/deleting tests.
+plan tests => 2504;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -510,11 +510,13 @@ sub run_tests {
   SKIP:
     {
         skip "In EBCDIC and unclear what would trigger this bug there" if $::IS_EBCDIC;
-        no warnings 'utf8';
-        $_ = pack 'U0C2', 0xa2, 0xf8;  # Ill-formed UTF-8
-        my $ret = 0;
-        is(do {!($ret = s/[\0]+//g)}, 1,
-	   "Ill-formed UTF-8 doesn't match NUL in class; Bug 37836");
+        fresh_perl_like(
+            'no warnings "utf8";
+             $_ = pack "U0C2", 0xa2, 0xf8;  # Ill-formed UTF-8
+             my $ret = 0;
+             do {!($ret = s/[a\0]+//g)}',
+             qr/Malformed UTF-8/,
+             {}, "Ill-formed UTF-8 doesn't match NUL in class; Bug 37836");
     }
 
     {
@@ -1128,6 +1130,16 @@ EOP
         # this did fail under ASAN, but didn't under valgrind
         my $s = "\x{f2}\x{140}\x{fe}\x{ff}\x{ff}\x{ff}";
         ok($s !~ /^0000.\34500\376\377\377\377/, "RT #129085");
+    }
+    {
+        # rt
+        fresh_perl_is(
+            'no warnings "regexp"; "foo"=~/((?1)){8,0}/; print "ok"',
+            "ok", {},  'RT #130561 - allowing impossible quantifier should not cause SEGVs');
+        my $s= "foo";
+        no warnings 'regexp';
+        ok($s=~/(foo){1,0}|(?1)/,
+            "RT #130561 - allowing impossible quantifier should not break recursion");
     }
 
 } # End of sub run_tests

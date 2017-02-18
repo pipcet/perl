@@ -37,7 +37,7 @@ sub do_test {
     my $repeat_todo = $_[4];
     my $pattern = $_[2];
     my $do_eval = $_[5];
-    if (open(OUT,">peek$$")) {
+    if (open(OUT,'>', "peek$$")) {
 	open(STDERR, ">&OUT") or die "Can't dup OUT: $!";
         if ($do_eval) {
             my $sub = eval "sub { Dump $_[1] }";
@@ -56,7 +56,7 @@ sub do_test {
         }
 	open(STDERR, ">&SAVERR") or die "Can't restore STDERR: $!";
 	close(OUT);
-	if (open(IN, "peek$$")) {
+	if (open(IN, '<', "peek$$")) {
 	    local $/;
 	    $pattern =~ s/\$ADDR/0x[[:xdigit:]]+/g;
 	    $pattern =~ s/\$FLOAT/(?:\\d*\\.\\d+(?:e[-+]\\d+)?|\\d+)/g;
@@ -77,7 +77,7 @@ sub do_test {
 	    # Could do this is in a s///mge but seems clearer like this:
 	    $pattern = join '', map {
 		# If we identify the version condition, take *it* out whatever
-		s/\s*# (\$].*)$//
+		s/\s*# (\$\].*)$//
 		    ? (eval $1 ? $_ : '')
 		    : $_ # Didn't match, so this line is in
 	    } split /^/, $pattern;
@@ -1146,7 +1146,7 @@ unless ($Config{useithreads}) {
 # (One block of study tests removed when study was made a no-op.)
 
 {
-    open(OUT,">peek$$") or die "Failed to open peek $$: $!";
+    open(OUT, '>', "peek$$") or die "Failed to open peek $$: $!";
     open(STDERR, ">&OUT") or die "Can't dup OUT: $!";
     DeadCode();
     open(STDERR, ">&SAVERR") or die "Can't restore STDERR: $!";
@@ -1232,12 +1232,12 @@ do_test('UTF-8 in a regular expression',
 use utf8;
 
 sub _dump {
-   open(OUT,">peek$$") or die $!;
+   open(OUT, '>', "peek$$") or die $!;
    open(STDERR, ">&OUT") or die "Can't dup OUT: $!";
    Dump($_[0]);
    open(STDERR, ">&SAVERR") or die "Can't restore STDERR: $!";
    close(OUT);
-   open(IN, "peek$$") or die $!;
+   open(IN, '<', "peek$$") or die $!;
    my $dump = do { local $/; <IN> };
    close(IN);
    1 while unlink "peek$$";
@@ -1455,58 +1455,50 @@ for my $test (
     local $TODO = 'This gets mangled by the current pipe implementation' if $^O eq 'VMS';
     my $e = <<'EODUMP';
 dumpindent is 4 at -e line 1.
-{
-1   TYPE = leave  ===> NULL
-    TARG = 1
-    FLAGS = (VOID,KIDS,PARENS,SLABBED)
-    PRIVATE = (REFC)
-    REFCNT = 1
-    {
-2       TYPE = enter  ===> 3
-        FLAGS = (UNKNOWN,SLABBED,MORESIB)
-    }
-    {
-3       TYPE = nextstate  ===> 4
-        FLAGS = (VOID,SLABBED,MORESIB)
-        LINE = 1
-        PACKAGE = "t"
-    }
-    {
-5       TYPE = entersub  ===> 1
-        TARG = 1
-        FLAGS = (VOID,KIDS,STACKED,SLABBED)
-        PRIVATE = (TARG)
-        {
-6           TYPE = null  ===> (5)
-              (was list)
-            FLAGS = (UNKNOWN,KIDS,SLABBED)
-            {
-4               TYPE = pushmark  ===> 7
-                FLAGS = (SCALAR,SLABBED,MORESIB)
-            }
-            {
-8               TYPE = null  ===> (6)
-                  (was rv2cv)
-                FLAGS = (SCALAR,KIDS,SLABBED)
-                PRIVATE = (0x1)
-                {
-7                   TYPE = gv  ===> 5
-                    FLAGS = (SCALAR,SLABBED)
-                    GV_OR_PADIX
-                }
-            }
-        }
-    }
-}
+     
+1    leave LISTOP(0xNNN) ===> [0x0]
+     TARG = 1
+     FLAGS = (VOID,KIDS,PARENS,SLABBED)
+     PRIVATE = (REFC)
+     REFCNT = 1
+     |   
+2    +--enter OP(0xNNN) ===> 3 [nextstate 0xNNN]
+     |   FLAGS = (UNKNOWN,SLABBED,MORESIB)
+     |   
+3    +--nextstate COP(0xNNN) ===> 4 [pushmark 0xNNN]
+     |   FLAGS = (VOID,SLABBED,MORESIB)
+     |   LINE = 1
+     |   PACKAGE = "t"
+     |     |   
+5    +--entersub UNOP(0xNNN) ===> 1 [leave 0xNNN]
+         TARG = 1
+         FLAGS = (VOID,KIDS,STACKED,SLABBED)
+         PRIVATE = (TARG)
+         |   
+6        +--null (ex-list) UNOP(0xNNN) ===> 5 [entersub 0xNNN]
+             FLAGS = (UNKNOWN,KIDS,SLABBED)
+             |   
+4            +--pushmark OP(0xNNN) ===> 7 [gv 0xNNN]
+             |   FLAGS = (SCALAR,SLABBED,MORESIB)
+             |   
+8            +--null (ex-rv2cv) UNOP(0xNNN) ===> 6 [null 0xNNN]
+                 FLAGS = (SCALAR,KIDS,SLABBED)
+                 PRIVATE = (0x1)
+                 |   
+7                +--gv SVOP(0xNNN) ===> 5 [entersub 0xNNN]
+                     FLAGS = (SCALAR,SLABBED)
+                     GV_OR_PADIX
 EODUMP
 
-    $e =~ s/GV_OR_PADIX/$threads ? "PADIX = 2" : "GV = t::DumpProg"/e;
-    $e =~ s/.*PRIVATE = \(0x1\).*\n// if $] < 5.021004;
+    $e =~ s/GV_OR_PADIX/$threads ? "PADIX = 2" : "GV = t::DumpProg (0xNNN)"/e;
+    $e =~ s/SVOP/PADOP/g if $threads;
     my $out = t::runperl
                  switches => ['-Ilib'],
                  prog => 'package t; use Devel::Peek q-DumpProg-; DumpProg();',
                  stderr=>1;
     $out =~ s/ *SEQ = .*\n//;
+    $out =~ s/0x[0-9a-f]{2,}\]/${1}0xNNN]/g;
+    $out =~ s/\(0x[0-9a-f]{3,}\)/(0xNNN)/g;
     is $out, $e, "DumpProg() has no 'Attempt to free X prematurely' warning";
 }
 done_testing();

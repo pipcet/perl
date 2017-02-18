@@ -482,7 +482,6 @@ PP(pp_formline)
     NV value;
     bool gotsome = FALSE;   /* seen at least one non-blank item on this line */
     STRLEN len;             /* length of current sv */
-    STRLEN linemax;	    /* estimate of output size in bytes */
     bool item_is_utf8 = FALSE;
     bool targ_is_utf8 = FALSE;
     const char *fmt;
@@ -490,6 +489,7 @@ PP(pp_formline)
     U8 *source;		    /* source of bytes to append */
     STRLEN to_copy;	    /* how may bytes to append */
     char trans;		    /* what chars to translate */
+    bool copied_form = FALSE; /* have we duplicated the form? */
 
     mg = doparseform(tmpForm);
 
@@ -504,8 +504,11 @@ PP(pp_formline)
 	SvTAINTED_on(PL_formtarget);
     if (DO_UTF8(PL_formtarget))
 	targ_is_utf8 = TRUE;
-    linemax = (SvCUR(formsv) * (IN_BYTES ? 1 : 3) + 1);
-    t = SvGROW(PL_formtarget, len + linemax + 1);
+    /* Usually the output data will be the same size as the format,
+     * so this is a good first guess. Later on, @* or utf8 upgrades
+     * may trigger further growing.
+     */
+    t = SvGROW(PL_formtarget, len + SvCUR(formsv) + 1);
     /* XXX from now onwards, SvCUR(PL_formtarget) is invalid */
     t += len;
     f = SvPV_const(formsv, len);
@@ -687,6 +690,23 @@ PP(pp_formline)
 	case FF_CHOP: /* (for ^*) chop the current item */
 	    if (sv != &PL_sv_no) {
 		const char *s = chophere;
+                if (!copied_form &&
+                    ((sv == tmpForm || SvSMAGICAL(sv))
+                     || (SvGMAGICAL(tmpForm) && !sv_only_taint_gmagic(tmpForm))) ) {
+                    /* sv and tmpForm are either the same SV, or magic might allow modification
+                       of tmpForm when sv is modified, so copy */
+                    SV *newformsv = sv_mortalcopy(formsv);
+                    U32 *new_compiled;
+
+                    f = SvPV_nolen(newformsv) + (f - SvPV_nolen(formsv));
+                    Newx(new_compiled, mg->mg_len / sizeof(U32), U32);
+                    memcpy(new_compiled, mg->mg_ptr, mg->mg_len);
+                    SAVEFREEPV(new_compiled);
+                    fpc = new_compiled + (fpc - (U32*)mg->mg_ptr);
+                    formsv = newformsv;
+
+                    copied_form = TRUE;
+                }
 		if (chopspace) {
 		    while (isSPACE(*s))
 			s++;
@@ -741,10 +761,9 @@ PP(pp_formline)
 	     * if trans, translate certain characters during the copy */
 	    {
 		U8 *tmp = NULL;
-		STRLEN grow = 0;
+                STRLEN cur = t - SvPVX_const(PL_formtarget);
 
-		SvCUR_set(PL_formtarget,
-			  t - SvPVX_const(PL_formtarget));
+		SvCUR_set(PL_formtarget, cur);
 
 		if (targ_is_utf8 && !item_is_utf8) {
 		    source = tmp = bytes_to_utf8(source, &to_copy);
@@ -755,14 +774,10 @@ PP(pp_formline)
 			   a problem we have a simple solution for.
 			   Don't need get magic.  */
 			sv_utf8_upgrade_nomg(PL_formtarget);
+                        cur = SvCUR(PL_formtarget); /* may have changed */
 			targ_is_utf8 = TRUE;
 			/* re-calculate linemark */
 			s = (U8*)SvPVX(PL_formtarget);
-			/* the bytes we initially allocated to append the
-			 * whole line may have been gobbled up during the
-			 * upgrade, so allocate a whole new line's worth
-			 * for safety */
-			grow = linemax;
 			while (linemark--)
 			    s += UTF8SKIP(s);
 			linemark = s - (U8*)SvPVX(PL_formtarget);
@@ -770,17 +785,10 @@ PP(pp_formline)
 		    /* Easy. They agree.  */
 		    assert (item_is_utf8 == targ_is_utf8);
 		}
-		if (!trans)
-		    /* @* and ^* are the only things that can exceed
-		     * the linemax, so grow by the output size, plus
-		     * a whole new form's worth in case of any further
-		     * output */
-		    grow = linemax + to_copy;
-		if (grow)
-		    SvGROW(PL_formtarget, SvCUR(PL_formtarget) + grow + 1);
-		t = SvPVX(PL_formtarget) + SvCUR(PL_formtarget);
 
+                t = SvGROW(PL_formtarget, cur + to_copy + 1) + cur;
 		Copy(source, t, to_copy, char);
+
 		if (trans) {
 		    /* blank out ~ or control chars, depending on trans.
 		     * works on bytes not chars, so relies on not
@@ -796,7 +804,7 @@ PP(pp_formline)
 		}
 
 		t += to_copy;
-		SvCUR_set(PL_formtarget, SvCUR(PL_formtarget) + to_copy);
+		SvCUR_set(PL_formtarget, cur + to_copy);
 		if (tmp)
 		    Safefree(tmp);
 		break;
@@ -1222,6 +1230,8 @@ PP(pp_flop)
 	    const char * const tmps = SvPV_nomg_const(right, len);
 
 	    SV *sv = newSVpvn_flags(lpv, llen, SvUTF8(left)|SVs_TEMP);
+            if (DO_UTF8(right) && IN_UNI_8_BIT)
+                len = sv_len_utf8_nomg(right);
 	    while (!SvNIOKp(sv) && SvCUR(sv) <= len) {
 		XPUSHs(sv);
 	        if (strEQ(SvPVX_const(sv),tmps))
@@ -2926,6 +2936,7 @@ PP(pp_goto)
 	OP *gotoprobe = NULL;
 	bool leaving_eval = FALSE;
 	bool in_block = FALSE;
+	bool pseudo_block = FALSE;
 	PERL_CONTEXT *last_eval_cx = NULL;
 
 	/* find label */
@@ -2964,11 +2975,9 @@ PP(pp_goto)
 		    gotoprobe = PL_main_root;
 		break;
 	    case CXt_SUB:
-		if (CvDEPTH(cx->blk_sub.cv) && !CxMULTICALL(cx)) {
-		    gotoprobe = CvROOT(cx->blk_sub.cv);
-		    break;
-		}
-		/* FALLTHROUGH */
+		gotoprobe = CvROOT(cx->blk_sub.cv);
+		pseudo_block = cBOOL(CxMULTICALL(cx));
+		break;
 	    case CXt_FORMAT:
 	    case CXt_NULL:
 		DIE(aTHX_ "Can't \"goto\" out of a pseudo block");
@@ -2997,6 +3006,8 @@ PP(pp_goto)
 			break;
 		}
 	    }
+	    if (pseudo_block)
+		DIE(aTHX_ "Can't \"goto\" out of a pseudo block");
 	    PL_lastgotoprobe = gotoprobe;
 	}
 	if (!retop)
@@ -5151,7 +5162,7 @@ S_doparseform(pTHX_ SV *sv)
 	SV *old = mg->mg_obj;
 	if ( !(!!SvUTF8(old) ^ !!SvUTF8(sv))
 	      && len == SvCUR(old)
-	      && strnEQ(SvPVX(old), SvPVX(sv), len)
+              && strnEQ(SvPVX(old), s, len)
 	) {
 	    DEBUG_f(PerlIO_printf(Perl_debug_log,"Re-using compiled format\n"));
 	    return mg;

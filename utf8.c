@@ -37,7 +37,7 @@ static const char malformed_text[] = "Malformed UTF-8 character";
 static const char unees[] =
                         "Malformed UTF-8 character (unexpected end of string)";
 static const char cp_above_legal_max[] =
- "Use of code point 0x%" UVXf " is deprecated; the permissible max is 0x%" UVXf;
+ "Use of code point 0x%" UVXf " is deprecated; the permissible max is 0x%" UVXf ". This will be fatal in Perl 5.28";
 
 #define MAX_NON_DEPRECATED_CP ((UV) (IV_MAX))
 
@@ -51,6 +51,54 @@ within non-zero characters.
 
 =cut
 */
+
+void
+Perl__force_out_malformed_utf8_message(pTHX_
+            const U8 *const p,      /* First byte in UTF-8 sequence */
+            const U8 * const e,     /* Final byte in sequence (may include
+                                       multiple chars */
+            const U32 flags,        /* Flags to pass to utf8n_to_uvchr(),
+                                       usually 0, or some DISALLOW flags */
+            const bool die_here)    /* If TRUE, this function does not return */
+{
+    /* This core-only function is to be called when a malformed UTF-8 character
+     * is found, in order to output the detailed information about the
+     * malformation before dieing.  The reason it exists is for the occasions
+     * when such a malformation is fatal, but warnings might be turned off, so
+     * that normally they would not be actually output.  This ensures that they
+     * do get output.  Because a sequence may be malformed in more than one
+     * way, multiple messages may be generated, so we can't make them fatal, as
+     * that would cause the first one to die.
+     *
+     * Instead we pretend -W was passed to perl, then die afterwards.  The
+     * flexibility is here to return to the caller so they can finish up and
+     * die themselves */
+    U32 errors;
+
+    PERL_ARGS_ASSERT__FORCE_OUT_MALFORMED_UTF8_MESSAGE;
+
+    ENTER;
+    SAVEI8(PL_dowarn);
+    SAVESPTR(PL_curcop);
+
+    PL_dowarn = G_WARN_ALL_ON|G_WARN_ON;
+    if (PL_curcop) {
+        PL_curcop->cop_warnings = pWARN_ALL;
+    }
+
+    (void) utf8n_to_uvchr_error(p, e - p, NULL, flags & ~UTF8_CHECK_ONLY, &errors);
+
+    LEAVE;
+
+    if (! errors) {
+	Perl_croak(aTHX_ "panic: _force_out_malformed_utf8_message should"
+                         " be called only when there are errors found");
+    }
+
+    if (die_here) {
+        Perl_croak(aTHX_ "Malformed UTF-8 character (fatal)");
+    }
+}
 
 /*
 =for apidoc uvoffuni_to_utf8_flags
@@ -98,7 +146,7 @@ For details, see the description for L</uvchr_to_utf8_flags>.
 #define MASK    UTF_CONTINUATION_MASK
 
 U8 *
-Perl_uvoffuni_to_utf8_flags(pTHX_ U8 *d, UV uv, UV flags)
+Perl_uvoffuni_to_utf8_flags(pTHX_ U8 *d, UV uv, const UV flags)
 {
     PERL_ARGS_ASSERT_UVOFFUNI_TO_UTF8_FLAGS;
 
@@ -430,6 +478,12 @@ S_does_utf8_overflow(const U8 * const s, const U8 * e)
     const U8 *x;
     const U8 * y = (const U8 *) HIGHEST_REPRESENTABLE_UTF8;
 
+#if ! defined(UV_IS_QUAD) && ! defined(EBCDIC)
+
+    const STRLEN len = e - s;
+
+#endif
+
     /* Returns a boolean as to if this UTF-8 string would overflow a UV on this
      * platform, that is if it represents a code point larger than the highest
      * representable code point.  (For ASCII platforms, we could use memcmp()
@@ -449,10 +503,10 @@ S_does_utf8_overflow(const U8 * const s, const U8 * e)
     /* On 32 bit ASCII machines, many overlongs that start with FF don't
      * overflow */
 
-    if (isFF_OVERLONG(s, e - s)) {
+    if (isFF_OVERLONG(s, len)) {
         const U8 max_32_bit_overlong[] = "\xFF\x80\x80\x80\x80\x80\x80\x84";
         return memGE(s, max_32_bit_overlong,
-                                MIN(e - s, sizeof(max_32_bit_overlong) - 1));
+                                MIN(len, sizeof(max_32_bit_overlong) - 1));
     }
 
 #endif
@@ -644,7 +698,8 @@ Perl__is_utf8_char_helper(const U8 * const s, const U8 * e, const U32 flags)
 #endif
 
         if (  (flags & UTF8_DISALLOW_SUPER)
-            && UNLIKELY(s0 >= FIRST_START_BYTE_THAT_IS_DEFINITELY_SUPER)) {
+            && UNLIKELY(s0 >= FIRST_START_BYTE_THAT_IS_DEFINITELY_SUPER))
+        {
             return 0;           /* Above Unicode */
         }
 
@@ -699,11 +754,15 @@ Perl__is_utf8_char_helper(const U8 * const s, const U8 * e, const U32 flags)
     return UTF8SKIP(s);
 }
 
-STATIC char *
-S__byte_dump_string(pTHX_ const U8 * s, const STRLEN len)
+char *
+Perl__byte_dump_string(pTHX_ const U8 * s, const STRLEN len, const bool format)
 {
     /* Returns a mortalized C string that is a displayable copy of the 'len'
-     * bytes starting at 's', each in a \xXY format. */
+     * bytes starting at 's'.  'format' gives how to display each byte.
+     * Currently, there are only two formats, so it is currently a bool:
+     *      0   \xab
+     *      1    ab         (that is a space between two hex digit bytes)
+     */
 
     const STRLEN output_len = 4 * len + 1;  /* 4 bytes per each input, plus a
                                                trailing NUL */
@@ -721,8 +780,13 @@ S__byte_dump_string(pTHX_ const U8 * s, const STRLEN len)
         const unsigned high_nibble = (*s & 0xF0) >> 4;
         const unsigned low_nibble =  (*s & 0x0F);
 
-        *d++ = '\\';
-        *d++ = 'x';
+        if (format) {
+            *d++ = ' ';
+        }
+        else {
+            *d++ = '\\';
+            *d++ = 'x';
+        }
 
         if (high_nibble < 10) {
             *d++ = high_nibble + '0';
@@ -762,7 +826,6 @@ S_unexpected_non_continuation_text(pTHX_ const U8 * const s,
                                ? "immediately"
                                : Perl_form(aTHX_ "%d bytes",
                                                  (int) non_cont_byte_pos);
-    unsigned int i;
 
     PERL_ARGS_ASSERT_UNEXPECTED_NON_CONTINUATION_TEXT;
 
@@ -770,22 +833,10 @@ S_unexpected_non_continuation_text(pTHX_ const U8 * const s,
      * calculated, it's likely faster to pass it; verify under DEBUGGING */
     assert(expect_len == UTF8SKIP(s));
 
-    /* It is possible that utf8n_to_uvchr() was called incorrectly, with a
-     * length that is larger than is actually available in the buffer.  If we
-     * print all the bytes based on that length, we will read past the buffer
-     * end.  Often, the strings are NUL terminated, so to lower the chances of
-     * this happening, print the malformed bytes only up through any NUL. */
-    for (i = 1; i < print_len; i++) {
-        if (*(s + i) == '\0') {
-            print_len = i + 1;  /* +1 gets the NUL printed */
-            break;
-        }
-    }
-
     return Perl_form(aTHX_ "%s: %s (unexpected non-continuation byte 0x%02x,"
                            " %s after start byte 0x%02x; need %d bytes, got %d)",
                            malformed_text,
-                           _byte_dump_string(s, print_len),
+                           _byte_dump_string(s, print_len, 0),
                            *(s + non_cont_byte_pos),
                            where,
                            *s,
@@ -821,10 +872,10 @@ is, when there is a shorter sequence that can express the same code point;
 overlong sequences are expressly forbidden in the UTF-8 standard due to
 potential security issues).  Another malformation example is the first byte of
 a character not being a legal first byte.  See F<utf8.h> for the list of such
-flags.  For allowed 0 length strings, this function returns 0; for allowed
-overlong sequences, the computed code point is returned; for all other allowed
-malformations, the Unicode REPLACEMENT CHARACTER is returned, as these have no
-determinable reasonable value.
+flags.  Even if allowed, this function generally returns the Unicode
+REPLACEMENT CHARACTER when it encounters a malformation.  There are flags in
+F<utf8.h> to override this behavior for the overlong malformations, but don't
+do that except for very specialized purposes.
 
 The C<UTF8_CHECK_ONLY> flag overrides the behavior when a non-allowed (by other
 flags) malformation is found.  If this flag is set, the routine assumes that
@@ -931,7 +982,7 @@ to a C<U32> variable, which this function sets to indicate any errors found.
 Upon return, if C<*errors> is 0, there were no errors found.  Otherwise,
 C<*errors> is the bit-wise C<OR> of the bits described in the list below.  Some
 of these bits will be set if a malformation is found, even if the input
-C<flags> parameter indicates that the given malformation is allowed; the
+C<flags> parameter indicates that the given malformation is allowed; those
 exceptions are noted:
 
 =over 4
@@ -995,6 +1046,9 @@ This bit is set only if the input C<flags> parameter contains either the
 C<UTF8_DISALLOW_SURROGATE> or the C<UTF8_WARN_SURROGATE> flags.
 
 =back
+
+To do your own error handling, call this function with the C<UTF8_CHECK_ONLY>
+flag to suppress any warnings, and then examine the C<*errors> return.
 
 =cut
 */
@@ -1066,8 +1120,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
     if (UNLIKELY(curlen == 0)) {
         possible_problems |= UTF8_GOT_EMPTY;
         curlen = 0;
-        uv = 0; /* XXX It could be argued that this should be
-                   UNICODE_REPLACEMENT? */
+        uv = UNICODE_REPLACEMENT;
 	goto ready_to_handle_errors;
     }
 
@@ -1095,7 +1148,9 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
     }
 
     /* Here is not a continuation byte, nor an invariant.  The only thing left
-     * is a start byte (possibly for an overlong) */
+     * is a start byte (possibly for an overlong).  (We can't use UTF8_IS_START
+     * because it excludes start bytes like \xC0 that always lead to
+     * overlongs.) */
 
     /* Convert to I8 on EBCDIC (no-op on ASCII), then remove the leading bits
      * that indicate the number of bytes in the character's whole UTF-8
@@ -1133,14 +1188,6 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
     /* Save how many bytes were actually in the character */
     curlen = s - s0;
 
-    /* A convenience macro that matches either of the too-short conditions.  */
-#   define UTF8_GOT_TOO_SHORT (UTF8_GOT_SHORT|UTF8_GOT_NON_CONTINUATION)
-
-    if (UNLIKELY(possible_problems & UTF8_GOT_TOO_SHORT)) {
-        uv_so_far = uv;
-        uv = UNICODE_REPLACEMENT;
-    }
-
     /* Note that there are two types of too-short malformation.  One is when
      * there is actual wrong data before the normal termination of the
      * sequence.  The other is that the sequence wasn't complete before the end
@@ -1148,7 +1195,15 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
      * This means that we were passed data for a partial character, but it is
      * valid as far as we saw.  The other is definitely invalid.  This
      * distinction could be important to a caller, so the two types are kept
-     * separate. */
+     * separate.
+     *
+     * A convenience macro that matches either of the too-short conditions.  */
+#   define UTF8_GOT_TOO_SHORT (UTF8_GOT_SHORT|UTF8_GOT_NON_CONTINUATION)
+
+    if (UNLIKELY(possible_problems & UTF8_GOT_TOO_SHORT)) {
+        uv_so_far = uv;
+        uv = UNICODE_REPLACEMENT;
+    }
 
     /* Check for overflow */
     if (UNLIKELY(does_utf8_overflow(s0, send))) {
@@ -1203,6 +1258,12 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                               /* isn't problematic if < this */
     if (   (   (   LIKELY(! possible_problems) && uv >= UNICODE_SURROGATE_FIRST)
             || (   UNLIKELY(possible_problems)
+
+                          /* if overflow, we know without looking further
+                           * precisely which of the problematic types it is,
+                           * and we deal with those in the overflow handling
+                           * code */
+                && LIKELY(! (possible_problems & UTF8_GOT_OVERFLOW))
                 && isUTF8_POSSIBLY_PROBLEMATIC(*adjusted_s0)))
 	&& ((flags & ( UTF8_DISALLOW_NONCHAR
                       |UTF8_DISALLOW_SURROGATE
@@ -1311,28 +1372,46 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                 if (flags & (UTF8_WARN_SUPER|UTF8_DISALLOW_SUPER)) {
                     *errors |= UTF8_GOT_SUPER;
                 }
-                if (flags & (UTF8_WARN_ABOVE_31_BIT|UTF8_DISALLOW_ABOVE_31_BIT)) {
+                if (flags
+                        & (UTF8_WARN_ABOVE_31_BIT|UTF8_DISALLOW_ABOVE_31_BIT))
+                {
                     *errors |= UTF8_GOT_ABOVE_31_BIT;
                 }
 
-                disallowed = TRUE;
+                /* Disallow if any of the three categories say to */
+                if ( ! (flags & UTF8_ALLOW_OVERFLOW)
+                    || (flags & ( UTF8_DISALLOW_SUPER
+                                 |UTF8_DISALLOW_ABOVE_31_BIT)))
+                {
+                    disallowed = TRUE;
+                }
 
-                /* The warnings code explicitly says it doesn't handle the case
-                 * of packWARN2 and two categories which have parent-child
-                 * relationship.  Even if it works now to raise the warning if
-                 * either is enabled, it wouldn't necessarily do so in the
-                 * future.  We output (only) the most dire warning*/
-                if (! (flags & UTF8_CHECK_ONLY)) {
-                    if (ckWARN_d(WARN_UTF8)) {
-                        pack_warn = packWARN(WARN_UTF8);
-                    }
-                    else if (ckWARN_d(WARN_NON_UNICODE)) {
-                        pack_warn = packWARN(WARN_NON_UNICODE);
-                    }
-                    if (pack_warn) {
-                        message = Perl_form(aTHX_ "%s: %s (overflows)",
-                                        malformed_text,
-                                        _byte_dump_string(s0, send - s0));
+
+                /* Likewise, warn if any say to, plus if deprecation warnings
+                 * are on, because this code point is above IV_MAX */
+                if (  ckWARN_d(WARN_DEPRECATED)
+                    || ! (flags & UTF8_ALLOW_OVERFLOW)
+                    ||   (flags & (UTF8_WARN_SUPER|UTF8_WARN_ABOVE_31_BIT)))
+                {
+
+                    /* The warnings code explicitly says it doesn't handle the
+                     * case of packWARN2 and two categories which have
+                     * parent-child relationship.  Even if it works now to
+                     * raise the warning if either is enabled, it wouldn't
+                     * necessarily do so in the future.  We output (only) the
+                     * most dire warning*/
+                    if (! (flags & UTF8_CHECK_ONLY)) {
+                        if (ckWARN_d(WARN_UTF8)) {
+                            pack_warn = packWARN(WARN_UTF8);
+                        }
+                        else if (ckWARN_d(WARN_NON_UNICODE)) {
+                            pack_warn = packWARN(WARN_NON_UNICODE);
+                        }
+                        if (pack_warn) {
+                            message = Perl_form(aTHX_ "%s: %s (overflows)",
+                                            malformed_text,
+                                            _byte_dump_string(s0, send - s0, 0));
+                        }
                     }
                 }
             }
@@ -1341,6 +1420,12 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                 *errors |= UTF8_GOT_EMPTY;
 
                 if (! (flags & UTF8_ALLOW_EMPTY)) {
+
+                    /* This so-called malformation is now treated as a bug in
+                     * the caller.  If you have nothing to decode, skip calling
+                     * this function */
+                    assert(0);
+
                     disallowed = TRUE;
                     if (ckWARN_d(WARN_UTF8) && ! (flags & UTF8_CHECK_ONLY)) {
                         pack_warn = packWARN(WARN_UTF8);
@@ -1361,7 +1446,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                 "%s: %s (unexpected continuation byte 0x%02x,"
                                 " with no preceding start byte)",
                                 malformed_text,
-                                _byte_dump_string(s0, 1), *s0);
+                                _byte_dump_string(s0, 1, 0), *s0);
                     }
                 }
             }
@@ -1376,7 +1461,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                         message = Perl_form(aTHX_
                                 "%s: %s (too short; %d byte%s available, need %d)",
                                 malformed_text,
-                                _byte_dump_string(s0, send - s0),
+                                _byte_dump_string(s0, send - s0, 0),
                                 (int)avail_len,
                                 avail_len == 1 ? "" : "s",
                                 (int)expectlen);
@@ -1391,10 +1476,17 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                 if (! (flags & UTF8_ALLOW_NON_CONTINUATION)) {
                     disallowed = TRUE;
                     if (ckWARN_d(WARN_UTF8) && ! (flags & UTF8_CHECK_ONLY)) {
+
+                        /* If we don't know for sure that the input length is
+                         * valid, avoid as much as possible reading past the
+                         * end of the buffer */
+                        int printlen = (flags & _UTF8_NO_CONFIDENCE_IN_CURLEN)
+                                       ? s - s0
+                                       : send - s0;
                         pack_warn = packWARN(WARN_UTF8);
                         message = Perl_form(aTHX_ "%s",
                             unexpected_non_continuation_text(s0,
-                                                            send - s0,
+                                                            printlen,
                                                             s - s0,
                                                             (int) expectlen));
                     }
@@ -1404,7 +1496,17 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                 possible_problems &= ~UTF8_GOT_LONG;
                 *errors |= UTF8_GOT_LONG;
 
-                if (! (flags & UTF8_ALLOW_LONG)) {
+                if (flags & UTF8_ALLOW_LONG) {
+
+                    /* We don't allow the actual overlong value, unless the
+                     * special extra bit is also set */
+                    if (! (flags & (   UTF8_ALLOW_LONG_AND_ITS_VALUE
+                                    & ~UTF8_ALLOW_LONG)))
+                    {
+                        uv = UNICODE_REPLACEMENT;
+                    }
+                }
+                else {
                     disallowed = TRUE;
 
                     if (ckWARN_d(WARN_UTF8) && ! (flags & UTF8_CHECK_ONLY)) {
@@ -1423,8 +1525,8 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                     " should be represented with a"
                                     " different, shorter sequence)",
                                     malformed_text,
-                                    _byte_dump_string(s0, send - s0),
-                                    _byte_dump_string(s0, curlen));
+                                    _byte_dump_string(s0, send - s0, 0),
+                                    _byte_dump_string(s0, curlen, 0));
                         }
                         else {
                             U8 tmpbuf[UTF8_MAXBYTES+1];
@@ -1434,8 +1536,8 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                 "%s: %s (overlong; instead use %s to represent"
                                 " U+%0*" UVXf ")",
                                 malformed_text,
-                                _byte_dump_string(s0, send - s0),
-                                _byte_dump_string(tmpbuf, e - tmpbuf),
+                                _byte_dump_string(s0, send - s0, 0),
+                                _byte_dump_string(tmpbuf, e - tmpbuf, 0),
                                 ((uv < 256) ? 2 : 4), /* Field width of 2 for
                                                          small code points */
                                 uv);
@@ -1460,7 +1562,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                             message = Perl_form(aTHX_
                                     "UTF-16 surrogate (any UTF-8 sequence that"
                                     " starts with \"%s\" is for a surrogate)",
-                                    _byte_dump_string(s0, curlen));
+                                    _byte_dump_string(s0, curlen, 0));
                         }
                         else {
                             message = Perl_form(aTHX_
@@ -1490,7 +1592,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                     "Any UTF-8 sequence that starts with"
                                     " \"%s\" is for a non-Unicode code point,"
                                     " may not be portable",
-                                    _byte_dump_string(s0, curlen));
+                                    _byte_dump_string(s0, curlen, 0));
                         }
                         else {
                             message = Perl_form(aTHX_
@@ -1529,7 +1631,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                                         "Any UTF-8 sequence that starts with"
                                         " \"%s\" is for a non-Unicode code"
                                         " point, and is not portable",
-                                        _byte_dump_string(s0, curlen));
+                                        _byte_dump_string(s0, curlen, 0));
                         }
                         else {
                             message = Perl_form(aTHX_
@@ -1539,7 +1641,9 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                         }
                     }
 
-                    if (flags & (UTF8_WARN_ABOVE_31_BIT|UTF8_DISALLOW_ABOVE_31_BIT)) {
+                    if (flags & ( UTF8_WARN_ABOVE_31_BIT
+                                 |UTF8_DISALLOW_ABOVE_31_BIT))
+                    {
                         *errors |= UTF8_GOT_ABOVE_31_BIT;
 
                         if (flags & UTF8_DISALLOW_ABOVE_31_BIT) {
@@ -1604,7 +1708,7 @@ Perl_utf8n_to_uvchr_error(pTHX_ const U8 *s,
                 else
                     Perl_warner(aTHX_ pack_warn, "%s", message);
             }
-        }   /* End of 'while (possible_problems) {' */
+        }   /* End of 'while (possible_problems)' */
 
         /* Since there was a possible problem, the returned length may need to
          * be changed from the one stored at the beginning of this function.
@@ -1653,10 +1757,12 @@ Also implemented as a macro in utf8.h
 UV
 Perl_utf8_to_uvchr_buf(pTHX_ const U8 *s, const U8 *send, STRLEN *retlen)
 {
+    PERL_ARGS_ASSERT_UTF8_TO_UVCHR_BUF;
+
     assert(s < send);
 
     return utf8n_to_uvchr(s, send - s, retlen,
-			  ckWARN_d(WARN_UTF8) ? 0 : UTF8_ALLOW_ANY);
+                     ckWARN_d(WARN_UTF8) ? 0 : UTF8_ALLOW_ANY);
 }
 
 /* This is marked as deprecated
@@ -2059,7 +2165,7 @@ Perl__is_uni_FOO(pTHX_ const U8 classnum, const UV c)
 {
     U8 tmpbuf[UTF8_MAXBYTES+1];
     uvchr_to_utf8(tmpbuf, c);
-    return _is_utf8_FOO(classnum, tmpbuf);
+    return _is_utf8_FOO_with_len(classnum, tmpbuf, tmpbuf + sizeof(tmpbuf));
 }
 
 /* Internal function so we can deprecate the external one, and call
@@ -2080,7 +2186,7 @@ Perl__is_uni_perl_idcont(pTHX_ UV c)
 {
     U8 tmpbuf[UTF8_MAXBYTES+1];
     uvchr_to_utf8(tmpbuf, c);
-    return _is_utf8_perl_idcont(tmpbuf);
+    return _is_utf8_perl_idcont_with_len(tmpbuf, tmpbuf + sizeof(tmpbuf));
 }
 
 bool
@@ -2088,7 +2194,7 @@ Perl__is_uni_perl_idstart(pTHX_ UV c)
 {
     U8 tmpbuf[UTF8_MAXBYTES+1];
     uvchr_to_utf8(tmpbuf, c);
-    return _is_utf8_perl_idstart(tmpbuf);
+    return _is_utf8_perl_idstart_with_len(tmpbuf, tmpbuf + sizeof(tmpbuf));
 }
 
 UV
@@ -2198,13 +2304,15 @@ Perl_to_uni_title(pTHX_ UV c, U8* p, STRLEN *lenp)
 }
 
 STATIC U8
-S_to_lower_latin1(const U8 c, U8* p, STRLEN *lenp)
+S_to_lower_latin1(const U8 c, U8* p, STRLEN *lenp, const char dummy)
 {
     /* We have the latin1-range values compiled into the core, so just use
      * those, converting the result to UTF-8.  Since the result is always just
      * one character, we allow <p> to be NULL */
 
     U8 converted = toLOWER_LATIN1(c);
+
+    PERL_UNUSED_ARG(dummy);
 
     if (p != NULL) {
 	if (NATIVE_BYTE_IS_INVARIANT(converted)) {
@@ -2228,7 +2336,7 @@ Perl_to_uni_lower(pTHX_ UV c, U8* p, STRLEN *lenp)
     PERL_ARGS_ASSERT_TO_UNI_LOWER;
 
     if (c < 256) {
-	return to_lower_latin1((U8) c, p, lenp);
+	return to_lower_latin1((U8) c, p, lenp, 0 /* 0 is a dummy arg */ );
     }
 
     uvchr_to_utf8(p, c);
@@ -2331,13 +2439,13 @@ Perl__to_uni_fold_flags(pTHX_ UV c, U8* p, STRLEN *lenp, U8 flags)
 	uvchr_to_utf8(p, c);
 	return CALL_FOLD_CASE(c, p, p, lenp, flags & FOLD_FLAGS_FULL);
     }
-    else {  /* Otherwise, _to_utf8_fold_flags has the intelligence to deal with
+    else {  /* Otherwise, _toFOLD_utf8_flags has the intelligence to deal with
 	       the special flags. */
 	U8 utf8_c[UTF8_MAXBYTES + 1];
 
       needs_full_generality:
 	uvchr_to_utf8(utf8_c, c);
-	return _to_utf8_fold_flags(utf8_c, p, lenp, flags);
+	return _toFOLD_utf8_flags(utf8_c, utf8_c + sizeof(utf8_c), p, lenp, flags);
     }
 }
 
@@ -2366,16 +2474,12 @@ S_is_utf8_common(pTHX_ const U8 *const p, SV **swash,
      * character without reading beyond the end, and pass that number on to the
      * validating routine */
     if (! isUTF8_CHAR(p, p + UTF8SKIP(p))) {
-        if (ckWARN_d(WARN_UTF8)) {
-            Perl_warner(aTHX_ packWARN2(WARN_DEPRECATED,WARN_UTF8),
-		    "Passing malformed UTF-8 to \"%s\" is deprecated", swashname);
-            if (ckWARN(WARN_UTF8)) {    /* This will output details as to the
-                                           what the malformation is */
-                utf8_to_uvchr_buf(p, p + UTF8SKIP(p), NULL);
-            }
-        }
-        return FALSE;
+        _force_out_malformed_utf8_message(p, p + UTF8SKIP(p),
+                                          _UTF8_NO_CONFIDENCE_IN_CURLEN,
+                                          1 /* Die */ );
+        NOT_REACHED; /* NOTREACHED */
     }
+
     if (!*swash) {
         U8 flags = _CORE_SWASH_INIT_ACCEPT_INVLIST;
         *swash = _core_swash_init("utf8",
@@ -2390,30 +2494,200 @@ S_is_utf8_common(pTHX_ const U8 *const p, SV **swash,
     return swash_fetch(*swash, p, TRUE) != 0;
 }
 
-bool
-Perl__is_utf8_FOO(pTHX_ const U8 classnum, const U8 *p)
+PERL_STATIC_INLINE bool
+S_is_utf8_common_with_len(pTHX_ const U8 *const p, const U8 * const e, SV **swash,
+		          const char *const swashname, SV* const invlist)
 {
-    PERL_ARGS_ASSERT__IS_UTF8_FOO;
+    /* returns a boolean giving whether or not the UTF8-encoded character that
+     * starts at <p>, and extending no further than <e - 1> is in the swash
+     * indicated by <swashname>.  <swash> contains a pointer to where the swash
+     * indicated by <swashname> is to be stored; which this routine will do, so
+     * that future calls will look at <*swash> and only generate a swash if it
+     * is not null.  <invlist> is NULL or an inversion list that defines the
+     * swash.  If not null, it saves time during initialization of the swash.
+     */
 
-    assert(classnum < _FIRST_NON_SWASH_CC);
+    PERL_ARGS_ASSERT_IS_UTF8_COMMON_WITH_LEN;
 
-    return is_utf8_common(p,
-                          &PL_utf8_swash_ptrs[classnum],
-                          swash_property_names[classnum],
-                          PL_XPosix_ptrs[classnum]);
+    if (! isUTF8_CHAR(p, e)) {
+        _force_out_malformed_utf8_message(p, e, 0, 1);
+        NOT_REACHED; /* NOTREACHED */
+    }
+
+    if (!*swash) {
+        U8 flags = _CORE_SWASH_INIT_ACCEPT_INVLIST;
+        *swash = _core_swash_init("utf8",
+
+                                  /* Only use the name if there is no inversion
+                                   * list; otherwise will go out to disk */
+                                  (invlist) ? "" : swashname,
+
+                                  &PL_sv_undef, 1, 0, invlist, &flags);
+    }
+
+    return swash_fetch(*swash, p, TRUE) != 0;
+}
+
+STATIC void
+S_warn_on_first_deprecated_use(pTHX_ const char * const name,
+                                     const char * const alternative,
+                                     const bool use_locale,
+                                     const char * const file,
+                                     const unsigned line)
+{
+    const char * key;
+
+    PERL_ARGS_ASSERT_WARN_ON_FIRST_DEPRECATED_USE;
+
+    if (ckWARN_d(WARN_DEPRECATED)) {
+
+        key = Perl_form(aTHX_ "%s;%d;%s;%d", name, use_locale, file, line);
+	if (! hv_fetch(PL_seen_deprecated_macro, key, strlen(key), 0)) {
+            if (! PL_seen_deprecated_macro) {
+                PL_seen_deprecated_macro = newHV();
+            }
+            if (! hv_store(PL_seen_deprecated_macro, key,
+                           strlen(key), &PL_sv_undef, 0))
+            {
+		Perl_croak(aTHX_ "panic: hv_store() unexpectedly failed");
+            }
+
+            if (instr(file, "mathoms.c")) {
+                Perl_warner(aTHX_ WARN_DEPRECATED,
+                            "In %s, line %d, starting in Perl v5.30, %s()"
+                            " will be removed.  Avoid this message by"
+                            " converting to use %s().\n",
+                            file, line, name, alternative);
+            }
+            else {
+                Perl_warner(aTHX_ WARN_DEPRECATED,
+                            "In %s, line %d, starting in Perl v5.30, %s() will"
+                            " require an additional parameter.  Avoid this"
+                            " message by converting to use %s().\n",
+                            file, line, name, alternative);
+            }
+        }
+    }
 }
 
 bool
-Perl__is_utf8_perl_idstart(pTHX_ const U8 *p)
+Perl__is_utf8_FOO(pTHX_       U8   classnum,
+                        const U8   *p,
+                        const char * const name,
+                        const char * const alternative,
+                        const bool use_utf8,
+                        const bool use_locale,
+                        const char * const file,
+                        const unsigned line)
+{
+    PERL_ARGS_ASSERT__IS_UTF8_FOO;
+
+    warn_on_first_deprecated_use(name, alternative, use_locale, file, line);
+
+    if (use_utf8 && UTF8_IS_ABOVE_LATIN1(*p)) {
+
+        switch (classnum) {
+            case _CC_WORDCHAR:
+            case _CC_DIGIT:
+            case _CC_ALPHA:
+            case _CC_LOWER:
+            case _CC_UPPER:
+            case _CC_PUNCT:
+            case _CC_PRINT:
+            case _CC_ALPHANUMERIC:
+            case _CC_GRAPH:
+            case _CC_CASED:
+
+                return is_utf8_common(p,
+                                      &PL_utf8_swash_ptrs[classnum],
+                                      swash_property_names[classnum],
+                                      PL_XPosix_ptrs[classnum]);
+
+            case _CC_SPACE:
+                return is_XPERLSPACE_high(p);
+            case _CC_BLANK:
+                return is_HORIZWS_high(p);
+            case _CC_XDIGIT:
+                return is_XDIGIT_high(p);
+            case _CC_CNTRL:
+                return 0;
+            case _CC_ASCII:
+                return 0;
+            case _CC_VERTSPACE:
+                return is_VERTWS_high(p);
+            case _CC_IDFIRST:
+                if (! PL_utf8_perl_idstart) {
+                    PL_utf8_perl_idstart
+                                = _new_invlist_C_array(_Perl_IDStart_invlist);
+                }
+                return is_utf8_common(p, &PL_utf8_perl_idstart,
+                                      "_Perl_IDStart", NULL);
+            case _CC_IDCONT:
+                if (! PL_utf8_perl_idcont) {
+                    PL_utf8_perl_idcont
+                                = _new_invlist_C_array(_Perl_IDCont_invlist);
+                }
+                return is_utf8_common(p, &PL_utf8_perl_idcont,
+                                      "_Perl_IDCont", NULL);
+        }
+    }
+
+    /* idcont is the same as wordchar below 256 */
+    if (classnum == _CC_IDCONT) {
+        classnum = _CC_WORDCHAR;
+    }
+    else if (classnum == _CC_IDFIRST) {
+        if (*p == '_') {
+            return TRUE;
+        }
+        classnum = _CC_ALPHA;
+    }
+
+    if (! use_locale) {
+        if (! use_utf8 || UTF8_IS_INVARIANT(*p)) {
+            return _generic_isCC(*p, classnum);
+        }
+
+        return _generic_isCC(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p + 1 )), classnum);
+    }
+    else {
+        if (! use_utf8 || UTF8_IS_INVARIANT(*p)) {
+            return isFOO_lc(classnum, *p);
+        }
+
+        return isFOO_lc(classnum, EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p + 1 )));
+    }
+
+    NOT_REACHED; /* NOTREACHED */
+}
+
+bool
+Perl__is_utf8_FOO_with_len(pTHX_ const U8 classnum, const U8 *p,
+                                                            const U8 * const e)
+{
+    PERL_ARGS_ASSERT__IS_UTF8_FOO_WITH_LEN;
+
+    assert(classnum < _FIRST_NON_SWASH_CC);
+
+    return is_utf8_common_with_len(p,
+                                   e,
+                                   &PL_utf8_swash_ptrs[classnum],
+                                   swash_property_names[classnum],
+                                   PL_XPosix_ptrs[classnum]);
+}
+
+bool
+Perl__is_utf8_perl_idstart_with_len(pTHX_ const U8 *p, const U8 * const e)
 {
     SV* invlist = NULL;
 
-    PERL_ARGS_ASSERT__IS_UTF8_PERL_IDSTART;
+    PERL_ARGS_ASSERT__IS_UTF8_PERL_IDSTART_WITH_LEN;
 
     if (! PL_utf8_perl_idstart) {
         invlist = _new_invlist_C_array(_Perl_IDStart_invlist);
     }
-    return is_utf8_common(p, &PL_utf8_perl_idstart, "_Perl_IDStart", invlist);
+    return is_utf8_common_with_len(p, e, &PL_utf8_perl_idstart,
+                                      "_Perl_IDStart", invlist);
 }
 
 bool
@@ -2427,16 +2701,17 @@ Perl__is_utf8_xidstart(pTHX_ const U8 *p)
 }
 
 bool
-Perl__is_utf8_perl_idcont(pTHX_ const U8 *p)
+Perl__is_utf8_perl_idcont_with_len(pTHX_ const U8 *p, const U8 * const e)
 {
     SV* invlist = NULL;
 
-    PERL_ARGS_ASSERT__IS_UTF8_PERL_IDCONT;
+    PERL_ARGS_ASSERT__IS_UTF8_PERL_IDCONT_WITH_LEN;
 
     if (! PL_utf8_perl_idcont) {
         invlist = _new_invlist_C_array(_Perl_IDCont_invlist);
     }
-    return is_utf8_common(p, &PL_utf8_perl_idcont, "_Perl_IDCont", invlist);
+    return is_utf8_common_with_len(p, e, &PL_utf8_perl_idcont,
+                                   "_Perl_IDCont", invlist);
 }
 
 bool
@@ -2466,10 +2741,12 @@ Perl__is_utf8_mark(pTHX_ const U8 *p)
 /*
 =for apidoc to_utf8_case
 
-Instead use the appropriate one of L</toUPPER_utf8>,
-L</toTITLE_utf8>,
-L</toLOWER_utf8>,
-or L</toFOLD_utf8>.
+Instead use the appropriate one of L</toUPPER_utf8_safe>,
+L</toTITLE_utf8_safe>,
+L</toLOWER_utf8_safe>,
+or L</toFOLD_utf8_safe>.
+
+This function will be removed in Perl v5.28.
 
 C<p> contains the pointer to the UTF-8 string encoding
 the character that is being converted.  This routine assumes that the character
@@ -2502,9 +2779,19 @@ UV
 Perl_to_utf8_case(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp,
 			SV **swashp, const char *normal, const char *special)
 {
+    STRLEN len_cp;
+    UV cp;
+    const U8 * e = p + UTF8SKIP(p);
+
     PERL_ARGS_ASSERT_TO_UTF8_CASE;
 
-    return _to_utf8_case(valid_utf8_to_uvchr(p, NULL), p, ustrp, lenp, swashp, normal, special);
+    cp = utf8n_to_uvchr(p, e - p, &len_cp, UTF8_CHECK_ONLY);
+    if (len_cp == (STRLEN) -1) {
+        _force_out_malformed_utf8_message(p, e,
+                                   _UTF8_NO_CONFIDENCE_IN_CURLEN, 1 /* Die */ );
+    }
+
+    return _to_utf8_case(cp, p, ustrp, lenp, swashp, normal, special);
 }
 
     /* change namve uv1 to 'from' */
@@ -2737,10 +3024,177 @@ S_check_locale_boundary_crossing(pTHX_ const U8* const p, const UV result, U8* c
     return original;
 }
 
+STATIC U32
+S_check_and_deprecate(pTHX_ const U8 *p,
+                            const U8 **e,
+                            const unsigned int type,    /* See below */
+                            const bool use_locale,      /* Is this a 'LC_'
+                                                           macro call? */
+                            const char * const file,
+                            const unsigned line)
+{
+    /* This is a temporary function to deprecate the unsafe calls to the case
+     * changing macros and functions.  It keeps all the special stuff in just
+     * one place.
+     *
+     * It updates *e with the pointer to the end of the input string.  If using
+     * the old-style macros, *e is NULL on input, and so this function assumes
+     * the input string is long enough to hold the entire UTF-8 sequence, and
+     * sets *e accordingly, but it then returns a flag to pass the
+     * utf8n_to_uvchr(), to tell it that this size is a guess, and to avoid
+     * using the full length if possible.
+     *
+     * It also does the assert that *e > p when *e is not NULL.  This should be
+     * migrated to the callers when this function gets deleted.
+     *
+     * The 'type' parameter is used for the caller to specify which case
+     * changing function this is called from: */
+
+#       define DEPRECATE_TO_UPPER 0
+#       define DEPRECATE_TO_TITLE 1
+#       define DEPRECATE_TO_LOWER 2
+#       define DEPRECATE_TO_FOLD  3
+
+    U32 utf8n_flags = 0;
+    const char * name;
+    const char * alternative;
+
+    PERL_ARGS_ASSERT_CHECK_AND_DEPRECATE;
+
+    if (*e == NULL) {
+        utf8n_flags = _UTF8_NO_CONFIDENCE_IN_CURLEN;
+        *e = p + UTF8SKIP(p);
+
+        /* For mathoms.c calls, we use the function name we know is stored
+         * there.  It could be part of a larger path */
+        if (type == DEPRECATE_TO_UPPER) {
+            name = instr(file, "mathoms.c")
+                   ? "to_utf8_upper"
+                   : "toUPPER_utf8";
+            alternative = "toUPPER_utf8_safe";
+        }
+        else if (type == DEPRECATE_TO_TITLE) {
+            name = instr(file, "mathoms.c")
+                   ? "to_utf8_title"
+                   : "toTITLE_utf8";
+            alternative = "toTITLE_utf8_safe";
+        }
+        else if (type == DEPRECATE_TO_LOWER) {
+            name = instr(file, "mathoms.c")
+                   ? "to_utf8_lower"
+                   : "toLOWER_utf8";
+            alternative = "toLOWER_utf8_safe";
+        }
+        else if (type == DEPRECATE_TO_FOLD) {
+            name = instr(file, "mathoms.c")
+                   ? "to_utf8_fold"
+                   : "toFOLD_utf8";
+            alternative = "toFOLD_utf8_safe";
+        }
+        else Perl_croak(aTHX_ "panic: Unexpected case change type");
+
+        warn_on_first_deprecated_use(name, alternative, use_locale, file, line);
+    }
+    else {
+        assert (p < *e);
+    }
+
+    return utf8n_flags;
+}
+
+/* The process for changing the case is essentially the same for the four case
+ * change types, except there are complications for folding.  Otherwise the
+ * difference is only which case to change to.  To make sure that they all do
+ * the same thing, the bodies of the functions are extracted out into the
+ * following two macros.  The functions are written with the same variable
+ * names, and these are known and used inside these macros.  It would be
+ * better, of course, to have inline functions to do it, but since different
+ * macros are called, depending on which case is being changed to, this is not
+ * feasible in C (to khw's knowledge).  Two macros are created so that the fold
+ * function can start with the common start macro, then finish with its special
+ * handling; while the other three cases can just use the common end macro.
+ *
+ * The algorithm is to use the proper (passed in) macro or function to change
+ * the case for code points that are below 256.  The macro is used if using
+ * locale rules for the case change; the function if not.  If the code point is
+ * above 255, it is computed from the input UTF-8, and another macro is called
+ * to do the conversion.  If necessary, the output is converted to UTF-8.  If
+ * using a locale, we have to check that the change did not cross the 255/256
+ * boundary, see check_locale_boundary_crossing() for further details.
+ *
+ * The macros are split with the correct case change for the below-256 case
+ * stored into 'result', and in the middle of an else clause for the above-255
+ * case.  At that point in the 'else', 'result' is not the final result, but is
+ * the input code point calculated from the UTF-8.  The fold code needs to
+ * realize all this and take it from there.
+ *
+ * If you read the two macros as sequential, it's easier to understand what's
+ * going on. */
+#define CASE_CHANGE_BODY_START(locale_flags, LC_L1_change_macro, L1_func,    \
+                               L1_func_extra_param)                          \
+                                                                             \
+    if (flags & (locale_flags)) {                                            \
+        /* Treat a UTF-8 locale as not being in locale at all */             \
+        if (IN_UTF8_CTYPE_LOCALE) {                                          \
+            flags &= ~(locale_flags);                                        \
+        }                                                                    \
+        else {                                                               \
+            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;                              \
+        }                                                                    \
+    }                                                                        \
+                                                                             \
+    if (UTF8_IS_INVARIANT(*p)) {                                             \
+        if (flags & (locale_flags)) {                                        \
+            result = LC_L1_change_macro(*p);                                 \
+        }                                                                    \
+        else {                                                               \
+            return L1_func(*p, ustrp, lenp, L1_func_extra_param);            \
+        }                                                                    \
+    }                                                                        \
+    else if UTF8_IS_NEXT_CHAR_DOWNGRADEABLE(p, e) {                          \
+        if (flags & (locale_flags)) {                                        \
+            result = LC_L1_change_macro(EIGHT_BIT_UTF8_TO_NATIVE(*p,         \
+                                                                 *(p+1)));   \
+        }                                                                    \
+        else {                                                               \
+            return L1_func(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1)),             \
+                           ustrp, lenp,  L1_func_extra_param);               \
+        }                                                                    \
+    }                                                                        \
+    else {  /* malformed UTF-8 or ord above 255 */                           \
+        STRLEN len_result;                                                   \
+        result = utf8n_to_uvchr(p, e - p, &len_result, UTF8_CHECK_ONLY);     \
+        if (len_result == (STRLEN) -1) {                                     \
+            _force_out_malformed_utf8_message(p, e, utf8n_flags,             \
+                                                            1 /* Die */ );   \
+        }
+
+#define CASE_CHANGE_BODY_END(locale_flags, change_macro)                     \
+        result = change_macro(result, p, ustrp, lenp);                       \
+                                                                             \
+        if (flags & (locale_flags)) {                                        \
+            result = check_locale_boundary_crossing(p, result, ustrp, lenp); \
+        }                                                                    \
+        return result;                                                       \
+    }                                                                        \
+                                                                             \
+    /* Here, used locale rules.  Convert back to UTF-8 */                    \
+    if (UTF8_IS_INVARIANT(result)) {                                         \
+        *ustrp = (U8) result;                                                \
+        *lenp = 1;                                                           \
+    }                                                                        \
+    else {                                                                   \
+        *ustrp = UTF8_EIGHT_BIT_HI((U8) result);                             \
+        *(ustrp + 1) = UTF8_EIGHT_BIT_LO((U8) result);                       \
+        *lenp = 2;                                                           \
+    }                                                                        \
+                                                                             \
+    return result;
+
 /*
 =for apidoc to_utf8_upper
 
-Instead use L</toUPPER_utf8>.
+Instead use L</toUPPER_utf8_safe>.
 
 =cut */
 
@@ -2749,67 +3203,30 @@ Instead use L</toUPPER_utf8>.
  *         be used. */
 
 UV
-Perl__to_utf8_upper_flags(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp, bool flags)
+Perl__to_utf8_upper_flags(pTHX_ const U8 *p,
+                                const U8 *e,
+                                U8* ustrp,
+                                STRLEN *lenp,
+                                bool flags,
+                                const char * const file,
+                                const int line)
 {
     UV result;
+    const U32 utf8n_flags = check_and_deprecate(p, &e, DEPRECATE_TO_UPPER,
+                                                cBOOL(flags), file, line);
 
     PERL_ARGS_ASSERT__TO_UTF8_UPPER_FLAGS;
 
-    if (flags) {
-        /* Treat a UTF-8 locale as not being in locale at all */
-        if (IN_UTF8_CTYPE_LOCALE) {
-            flags = FALSE;
-        }
-        else {
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-        }
-    }
-
-    if (UTF8_IS_INVARIANT(*p)) {
-	if (flags) {
-	    result = toUPPER_LC(*p);
-	}
-	else {
-	    return _to_upper_title_latin1(*p, ustrp, lenp, 'S');
-	}
-    }
-    else if UTF8_IS_DOWNGRADEABLE_START(*p) {
-	if (flags) {
-            U8 c = EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1));
-	    result = toUPPER_LC(c);
-	}
-	else {
-	    return _to_upper_title_latin1(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1)),
-				          ustrp, lenp, 'S');
-	}
-    }
-    else {  /* UTF-8, ord above 255 */
-	result = CALL_UPPER_CASE(valid_utf8_to_uvchr(p, NULL), p, ustrp, lenp);
-
-	if (flags) {
-	    result = check_locale_boundary_crossing(p, result, ustrp, lenp);
-	}
-	return result;
-    }
-
-    /* Here, used locale rules.  Convert back to UTF-8 */
-    if (UTF8_IS_INVARIANT(result)) {
-	*ustrp = (U8) result;
-	*lenp = 1;
-    }
-    else {
-	*ustrp = UTF8_EIGHT_BIT_HI((U8) result);
-	*(ustrp + 1) = UTF8_EIGHT_BIT_LO((U8) result);
-	*lenp = 2;
-    }
-
-    return result;
+    /* ~0 makes anything non-zero in 'flags' mean we are using locale rules */
+    /* 2nd char of uc(U+DF) is 'S' */
+    CASE_CHANGE_BODY_START(~0, toUPPER_LC, _to_upper_title_latin1, 'S');
+    CASE_CHANGE_BODY_END  (~0, CALL_UPPER_CASE);
 }
 
 /*
 =for apidoc to_utf8_title
 
-Instead use L</toTITLE_utf8>.
+Instead use L</toTITLE_utf8_safe>.
 
 =cut */
 
@@ -2820,67 +3237,29 @@ Instead use L</toTITLE_utf8>.
  */
 
 UV
-Perl__to_utf8_title_flags(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp, bool flags)
+Perl__to_utf8_title_flags(pTHX_ const U8 *p,
+                                const U8 *e,
+                                U8* ustrp,
+                                STRLEN *lenp,
+                                bool flags,
+                                const char * const file,
+                                const int line)
 {
     UV result;
+    const U32 utf8n_flags = check_and_deprecate(p, &e, DEPRECATE_TO_TITLE,
+                                                cBOOL(flags), file, line);
 
     PERL_ARGS_ASSERT__TO_UTF8_TITLE_FLAGS;
 
-    if (flags) {
-        /* Treat a UTF-8 locale as not being in locale at all */
-        if (IN_UTF8_CTYPE_LOCALE) {
-            flags = FALSE;
-        }
-        else {
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-        }
-    }
-
-    if (UTF8_IS_INVARIANT(*p)) {
-	if (flags) {
-	    result = toUPPER_LC(*p);
-	}
-	else {
-	    return _to_upper_title_latin1(*p, ustrp, lenp, 's');
-	}
-    }
-    else if UTF8_IS_DOWNGRADEABLE_START(*p) {
-	if (flags) {
-            U8 c = EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1));
-	    result = toUPPER_LC(c);
-	}
-	else {
-	    return _to_upper_title_latin1(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1)),
-				          ustrp, lenp, 's');
-	}
-    }
-    else {  /* UTF-8, ord above 255 */
-	result = CALL_TITLE_CASE(valid_utf8_to_uvchr(p, NULL), p, ustrp, lenp);
-
-	if (flags) {
-	    result = check_locale_boundary_crossing(p, result, ustrp, lenp);
-	}
-	return result;
-    }
-
-    /* Here, used locale rules.  Convert back to UTF-8 */
-    if (UTF8_IS_INVARIANT(result)) {
-	*ustrp = (U8) result;
-	*lenp = 1;
-    }
-    else {
-	*ustrp = UTF8_EIGHT_BIT_HI((U8) result);
-	*(ustrp + 1) = UTF8_EIGHT_BIT_LO((U8) result);
-	*lenp = 2;
-    }
-
-    return result;
+    /* 2nd char of ucfirst(U+DF) is 's' */
+    CASE_CHANGE_BODY_START(~0, toUPPER_LC, _to_upper_title_latin1, 's');
+    CASE_CHANGE_BODY_END  (~0, CALL_TITLE_CASE);
 }
 
 /*
 =for apidoc to_utf8_lower
 
-Instead use L</toLOWER_utf8>.
+Instead use L</toLOWER_utf8_safe>.
 
 =cut */
 
@@ -2890,68 +3269,28 @@ Instead use L</toLOWER_utf8>.
  */
 
 UV
-Perl__to_utf8_lower_flags(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp, bool flags)
+Perl__to_utf8_lower_flags(pTHX_ const U8 *p,
+                                const U8 *e,
+                                U8* ustrp,
+                                STRLEN *lenp,
+                                bool flags,
+                                const char * const file,
+                                const int line)
 {
     UV result;
+    const U32 utf8n_flags = check_and_deprecate(p, &e, DEPRECATE_TO_LOWER,
+                                                cBOOL(flags), file, line);
 
     PERL_ARGS_ASSERT__TO_UTF8_LOWER_FLAGS;
 
-    if (flags) {
-        /* Treat a UTF-8 locale as not being in locale at all */
-        if (IN_UTF8_CTYPE_LOCALE) {
-            flags = FALSE;
-        }
-        else {
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-        }
-    }
-
-    if (UTF8_IS_INVARIANT(*p)) {
-	if (flags) {
-	    result = toLOWER_LC(*p);
-	}
-	else {
-	    return to_lower_latin1(*p, ustrp, lenp);
-	}
-    }
-    else if UTF8_IS_DOWNGRADEABLE_START(*p) {
-	if (flags) {
-            U8 c = EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1));
-	    result = toLOWER_LC(c);
-	}
-	else {
-	    return to_lower_latin1(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1)),
-		                   ustrp, lenp);
-	}
-    }
-    else {  /* UTF-8, ord above 255 */
-	result = CALL_LOWER_CASE(valid_utf8_to_uvchr(p, NULL), p, ustrp, lenp);
-
-	if (flags) {
-	    result = check_locale_boundary_crossing(p, result, ustrp, lenp);
-	}
-
-	return result;
-    }
-
-    /* Here, used locale rules.  Convert back to UTF-8 */
-    if (UTF8_IS_INVARIANT(result)) {
-	*ustrp = (U8) result;
-	*lenp = 1;
-    }
-    else {
-	*ustrp = UTF8_EIGHT_BIT_HI((U8) result);
-	*(ustrp + 1) = UTF8_EIGHT_BIT_LO((U8) result);
-	*lenp = 2;
-    }
-
-    return result;
+    CASE_CHANGE_BODY_START(~0, toLOWER_LC, to_lower_latin1, 0 /* 0 is dummy */)
+    CASE_CHANGE_BODY_END  (~0, CALL_LOWER_CASE)
 }
 
 /*
 =for apidoc to_utf8_fold
 
-Instead use L</toFOLD_utf8>.
+Instead use L</toFOLD_utf8_safe>.
 
 =cut */
 
@@ -2966,9 +3305,17 @@ Instead use L</toFOLD_utf8>.
  */
 
 UV
-Perl__to_utf8_fold_flags(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp, U8 flags)
+Perl__to_utf8_fold_flags(pTHX_ const U8 *p,
+                               const U8 *e,
+                               U8* ustrp,
+                               STRLEN *lenp,
+                               U8 flags,
+                               const char * const file,
+                               const int line)
 {
     UV result;
+    const U32 utf8n_flags = check_and_deprecate(p, &e, DEPRECATE_TO_FOLD,
+                                                cBOOL(flags), file, line);
 
     PERL_ARGS_ASSERT__TO_UTF8_FOLD_FLAGS;
 
@@ -2977,38 +3324,10 @@ Perl__to_utf8_fold_flags(pTHX_ const U8 *p, U8* ustrp, STRLEN *lenp, U8 flags)
 
     assert(p != ustrp); /* Otherwise overwrites */
 
-    if (flags & FOLD_FLAGS_LOCALE) {
-        /* Treat a UTF-8 locale as not being in locale at all */
-        if (IN_UTF8_CTYPE_LOCALE) {
-            flags &= ~FOLD_FLAGS_LOCALE;
-        }
-        else {
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-        }
-    }
+    CASE_CHANGE_BODY_START(FOLD_FLAGS_LOCALE, toFOLD_LC, _to_fold_latin1,
+                 ((flags) & (FOLD_FLAGS_FULL | FOLD_FLAGS_NOMIX_ASCII)));
 
-    if (UTF8_IS_INVARIANT(*p)) {
-	if (flags & FOLD_FLAGS_LOCALE) {
-	    result = toFOLD_LC(*p);
-	}
-	else {
-	    return _to_fold_latin1(*p, ustrp, lenp,
-                            flags & (FOLD_FLAGS_FULL | FOLD_FLAGS_NOMIX_ASCII));
-	}
-    }
-    else if UTF8_IS_DOWNGRADEABLE_START(*p) {
-	if (flags & FOLD_FLAGS_LOCALE) {
-            U8 c = EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1));
-	    result = toFOLD_LC(c);
-	}
-	else {
-	    return _to_fold_latin1(EIGHT_BIT_UTF8_TO_NATIVE(*p, *(p+1)),
-                            ustrp, lenp,
-                            flags & (FOLD_FLAGS_FULL | FOLD_FLAGS_NOMIX_ASCII));
-	}
-    }
-    else {  /* UTF-8, ord above 255 */
-	result = CALL_FOLD_CASE(valid_utf8_to_uvchr(p, NULL), p, ustrp, lenp, flags & FOLD_FLAGS_FULL);
+	result = CALL_FOLD_CASE(result, p, ustrp, lenp, flags & FOLD_FLAGS_FULL);
 
 	if (flags & FOLD_FLAGS_LOCALE) {
 
@@ -4233,12 +4552,12 @@ Perl__swash_inversion_hash(pTHX_ SV* const swash)
 	while ((from_list = (AV *) hv_iternextsv(specials_inverse,
 						 &char_to, &to_len)))
 	{
-	    if (av_tindex_nomg(from_list) > 0) {
+	    if (av_tindex_skip_len_mg(from_list) > 0) {
 		SSize_t i;
 
 		/* We iterate over all combinations of i,j to place each code
 		 * point on each list */
-		for (i = 0; i <= av_tindex_nomg(from_list); i++) {
+		for (i = 0; i <= av_tindex_skip_len_mg(from_list); i++) {
 		    SSize_t j;
 		    AV* i_list = newAV();
 		    SV** entryp = av_fetch(from_list, i, FALSE);
@@ -4255,7 +4574,7 @@ Perl__swash_inversion_hash(pTHX_ SV* const swash)
 		    }
 
 		    /* For DEBUG_U: UV u = valid_utf8_to_uvchr((U8*) SvPVX(*entryp), 0);*/
-		    for (j = 0; j <= av_tindex_nomg(from_list); j++) {
+		    for (j = 0; j <= av_tindex_skip_len_mg(from_list); j++) {
 			entryp = av_fetch(from_list, j, FALSE);
 			if (entryp == NULL) {
 			    Perl_croak(aTHX_ "panic: av_fetch() unexpectedly failed");
@@ -4331,7 +4650,7 @@ Perl__swash_inversion_hash(pTHX_ SV* const swash)
 
 	    /* Look through list to see if this inverse mapping already is
 	     * listed, or if there is a mapping to itself already */
-	    for (i = 0; i <= av_tindex_nomg(list); i++) {
+	    for (i = 0; i <= av_tindex_skip_len_mg(list); i++) {
 		SV** entryp = av_fetch(list, i, FALSE);
 		SV* entry;
 		UV uv;
@@ -4458,7 +4777,6 @@ Perl__swash_to_invlist(pTHX_ SV* const swash)
             invlist = _new_invlist(0);
         }
         else {
-            while (isSPACE(*l)) l++;
             l = (U8 *) after_atou;
 
             /* Get the 0th element, which is needed to setup the inversion list */
@@ -4651,7 +4969,6 @@ Perl_check_utf8_print(pTHX_ const U8* s, const STRLEN len)
 	    return FALSE;
 	}
 	if (UNLIKELY(isUTF8_POSSIBLY_PROBLEMATIC(*s))) {
-	    STRLEN char_len;
 	    if (UNLIKELY(UTF8_IS_SUPER(s, e))) {
                 if (   ckWARN_d(WARN_NON_UNICODE)
                     || (   ckWARN_d(WARN_DEPRECATED)
@@ -4671,7 +4988,7 @@ Perl_check_utf8_print(pTHX_ const U8* s, const STRLEN len)
 #endif
                 )) {
                     /* A side effect of this function will be to warn */
-                    (void) utf8n_to_uvchr(s, e - s, &char_len, UTF8_WARN_SUPER);
+                    (void) utf8n_to_uvchr(s, e - s, NULL, UTF8_WARN_SUPER);
                     ok = FALSE;
                 }
 	    }
@@ -4680,7 +4997,7 @@ Perl_check_utf8_print(pTHX_ const U8* s, const STRLEN len)
                     /* This has a different warning than the one the called
                      * function would output, so can't just call it, unlike we
                      * do for the non-chars and above-unicodes */
-		    UV uv = utf8_to_uvchr_buf(s, e, &char_len);
+		    UV uv = utf8_to_uvchr_buf(s, e, NULL);
 		    Perl_warner(aTHX_ packWARN(WARN_SURROGATE),
 			"Unicode surrogate U+%04" UVXf " is illegal in UTF-8", uv);
 		    ok = FALSE;
@@ -4688,7 +5005,7 @@ Perl_check_utf8_print(pTHX_ const U8* s, const STRLEN len)
 	    }
 	    else if (UNLIKELY(UTF8_IS_NONCHAR(s, e)) && (ckWARN_d(WARN_NONCHAR))) {
                 /* A side effect of this function will be to warn */
-                (void) utf8n_to_uvchr(s, e - s, &char_len, UTF8_WARN_NONCHAR);
+                (void) utf8n_to_uvchr(s, e - s, NULL, UTF8_WARN_NONCHAR);
 		ok = FALSE;
 	    }
 	}
@@ -4984,7 +5301,7 @@ Perl_foldEQ_utf8_flags(pTHX_ const char *s1, char **pe1, UV l1, bool u1, const c
                     *foldbuf1 = toFOLD(*p1);
                 }
                 else if (u1) {
-                    _to_utf8_fold_flags(p1, foldbuf1, &n1, flags_for_folder);
+                    _toFOLD_utf8_flags(p1, e1, foldbuf1, &n1, flags_for_folder);
                 }
                 else {  /* Not UTF-8, get UTF-8 fold */
                     _to_uni_fold_flags(*p1, foldbuf1, &n1, flags_for_folder);
@@ -5008,7 +5325,7 @@ Perl_foldEQ_utf8_flags(pTHX_ const char *s1, char **pe1, UV l1, bool u1, const c
                     *foldbuf2 = toFOLD(*p2);
                 }
                 else if (u2) {
-                    _to_utf8_fold_flags(p2, foldbuf2, &n2, flags_for_folder);
+                    _toFOLD_utf8_flags(p2, e2, foldbuf2, &n2, flags_for_folder);
                 }
                 else {
                     _to_uni_fold_flags(*p2, foldbuf2, &n2, flags_for_folder);

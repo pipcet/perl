@@ -15,7 +15,7 @@
 
 #define PERL_REVISION	5		/* age */
 #define PERL_VERSION	25		/* epoch */
-#define PERL_SUBVERSION	8		/* generation */
+#define PERL_SUBVERSION	10		/* generation */
 
 /* The following numbers describe the earliest compatible version of
    Perl ("compatibility" here being defined as sufficient binary/API
@@ -36,7 +36,7 @@
 */
 #define PERL_API_REVISION	5
 #define PERL_API_VERSION	25
-#define PERL_API_SUBVERSION	8
+#define PERL_API_SUBVERSION	10
 /*
    XXX Note:  The selection of non-default Configure options, such
    as -Duselonglong may invalidate these settings.  Currently, Configure
@@ -90,8 +90,8 @@
 
 #!perl
 die "Usage: perl -x patchlevel.h comment ..." unless @ARGV;
-open PLIN, "patchlevel.h" or die "Couldn't open patchlevel.h : $!";
-open PLOUT, ">patchlevel.new" or die "Couldn't write on patchlevel.new : $!";
+open PLIN, "<", "patchlevel.h" or die "Couldn't open patchlevel.h : $!";
+open PLOUT, ">", "patchlevel.new" or die "Couldn't write on patchlevel.new : $!";
 my $seen=0;
 while (<PLIN>) {
     if (/\t,NULL/ and $seen) {

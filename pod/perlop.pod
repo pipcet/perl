@@ -1074,6 +1074,12 @@ If the final value specified is not in the sequence that the magical
 increment would produce, the sequence goes until the next value would
 be longer than the final value specified.
 
+As of Perl 5.26, the list-context range operator on strings works as expected
+in the scope of L<< S<C<"use feature 'unicode_strings">>|feature/The
+'unicode_strings' feature >>. In previous versions, and outside the scope of
+that feature, it exhibits L<perlunicode/The "Unicode Bug">: its behavior
+depends on the internal encoding of the range endpoint.
+
 If the initial value specified isn't part of a magical increment
 sequence (that is, a non-empty string matching C</^[a-zA-Z]*[0-9]*\z/>),
 only the initial value will be returned.  So the following will only
@@ -1262,16 +1268,19 @@ The only operators with lower precedence are the logical operators
 C<"and">, C<"or">, and C<"not">, which may be used to evaluate calls to list
 operators without the need for parentheses:
 
-    open HANDLE, "< :utf8", "filename" or die "Can't open: $!\n";
+    open HANDLE, "< :encoding(UTF-8)", "filename"
+        or die "Can't open: $!\n";
 
 However, some people find that code harder to read than writing
 it with parentheses:
 
-    open(HANDLE, "< :utf8", "filename") or die "Can't open: $!\n";
+    open(HANDLE, "< :encoding(UTF-8)", "filename")
+        or die "Can't open: $!\n";
 
 in which case you might as well just use the more customary C<"||"> operator:
 
-    open(HANDLE, "< :utf8", "filename") || die "Can't open: $!\n";
+    open(HANDLE, "< :encoding(UTF-8)", "filename")
+        || die "Can't open: $!\n";
 
 See also discussion of list operators in L</Terms and List Operators (Leftward)>.
 
@@ -1389,7 +1398,8 @@ Note, however, that this does not always work for quoting Perl code:
 is a syntax error.  The C<L<Text::Balanced>> module (standard as of v5.8,
 and from CPAN before then) is able to do this properly.
 
-There can be whitespace between the operator and the quoting
+There can (and in some cases, must) be whitespace between the operator
+and the quoting
 characters, except when C<#> is being used as the quoting character.
 C<q#foo#> is parsed as the string C<foo>, while S<C<q #foo#>> is the
 operator C<q> followed by a comment.  Its argument will be taken
@@ -1397,6 +1407,12 @@ from the next line.  This allows you to write:
 
     s {foo}  # Replace foo
       {bar}  # with bar.
+
+The cases where whitespace must be used are when the quoting character
+is a word character (meaning it matches C</\w/>):
+
+    q XfooX # Works: means the string 'foo'
+    qXfooX  # WRONG!
 
 The following escape sequences are available in constructs that interpolate,
 and in transliterations:
@@ -1556,12 +1572,9 @@ as a Unicode code point no matter what the native encoding is.  The name of the
 character in the 256th position (indexed by 0) in Unicode is
 C<LATIN CAPITAL LETTER A WITH MACRON>.
 
-There are a couple of exceptions to the above rule.  S<C<\N{U+I<hex number>}>> is
+An exception to the above rule is that S<C<\N{U+I<hex number>}>> is
 always interpreted as a Unicode code point, so that C<\N{U+0050}> is C<"P"> even
-on EBCDIC platforms.  And if C<S<L<use encoding|encoding>>> is in effect, the
-number is considered to be in that encoding, and is translated from that into
-the platform's native encoding if there is a corresponding native character;
-otherwise to Unicode.
+on EBCDIC platforms.
 
 =back
 
@@ -1730,7 +1743,9 @@ Options (specified by the following modifiers) are:
     m	Treat string as multiple lines.
     s	Treat string as single line. (Make . match a newline)
     i	Do case-insensitive pattern matching.
-    x	Use extended regular expressions.
+    x   Use extended regular expressions; specifying two
+        x's means \t and the SPACE character are ignored within
+        square-bracketed character classes
     p	When matching preserve a copy of the matched string so
         that ${^PREMATCH}, ${^MATCH}, ${^POSTMATCH} will be
         defined (ignored starting in v5.20) as these are always

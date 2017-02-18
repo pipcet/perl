@@ -420,10 +420,10 @@ Perl_new_ctype(pTHX_ const char *newctype)
                               : ""
                             );
             /* If we are actually in the scope of the locale or are debugging,
-             * output the message now.  Otherwise we save it to be output at
-             * the first operation using this locale, if that actually happens.
-             * Most programs don't use locales, so they are immune to bad ones.
-             * */
+             * output the message now.  If not in that scope, we save the
+             * message to be output at the first operation using this locale,
+             * if that actually happens.  Most programs don't use locales, so
+             * they are immune to bad ones.  */
             if (IN_LC(LC_CTYPE) || UNLIKELY(DEBUG_L_TEST)) {
 
                 /* We have to save 'newctype' because the setlocale() just
@@ -436,10 +436,14 @@ Perl_new_ctype(pTHX_ const char *newctype)
 
                 /* The '0' below suppresses a bogus gcc compiler warning */
                 Perl_warner(aTHX_ packWARN(WARN_LOCALE), SvPVX(PL_warn_locale), 0);
+
                 setlocale(LC_CTYPE, badlocale);
                 Safefree(badlocale);
-                SvREFCNT_dec_NN(PL_warn_locale);
-                PL_warn_locale = NULL;
+
+                if (IN_LC(LC_CTYPE)) {
+                    SvREFCNT_dec_NN(PL_warn_locale);
+                    PL_warn_locale = NULL;
+                }
             }
         }
     }
@@ -549,7 +553,7 @@ Perl_new_collate(pTHX_ const char *newcoll)
          * This has the desired effect that strcmp() will look at the secondary
          * or tertiary weights only if the strings compare equal at all higher
          * priority weights.  The spaces shown here, like in
-         *  "A¹B¹C¹ * A²B²C² "
+         *  "A¹B¹C¹ A²B²C² "
          * are not just for readability.  In the general case, these must
          * actually be bytes, which we will call here 'separator weights'; and
          * they must be smaller than any other weight value, but since these
@@ -956,9 +960,7 @@ Perl_init_i18nl10n(pTHX_ int printwarn)
 #endif
 
 #ifdef DEBUGGING
-    DEBUG_INITIALIZATION_set((PerlEnv_getenv("PERL_DEBUG_LOCALE_INIT"))
-                           ? TRUE
-                           : FALSE);
+    DEBUG_INITIALIZATION_set(cBOOL(PerlEnv_getenv("PERL_DEBUG_LOCALE_INIT")));
 #   define DEBUG_LOCALE_INIT(category, locale, result)                      \
 	STMT_START {                                                        \
 		if (debug_initialization) {                                 \
@@ -1503,16 +1505,19 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
                     char * x;       /* j's xfrm plus collation index */
                     STRLEN x_len;   /* length of 'x' */
                     STRLEN trial_len = 1;
+                    char cur_source[] = { '\0', '\0' };
 
-                    /* Create a 1 byte string of the current code point */
-                    char cur_source[] = { (char) j, '\0' };
-
+                    /* Skip non-controls the first time through the loop.  The
+                     * controls in a UTF-8 locale are the L1 ones */
                     if (! try_non_controls && (PL_in_utf8_COLLATE_locale)
                                                ? ! isCNTRL_L1(j)
                                                : ! isCNTRL_LC(j))
                     {
                         continue;
                     }
+
+                    /* Create a 1-char string of the current code point */
+                    cur_source[0] = (char) j;
 
                     /* Then transform it */
                     x = _mem_collxfrm(cur_source, trial_len, &x_len,
@@ -1669,9 +1674,10 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
                     for (j = 1; j < 256; j++) {
                         char * x;
                         STRLEN x_len;
+                        char cur_source[] = { '\0', '\0' };
 
-                        /* Create a 1-char string of the current code point. */
-                        char cur_source[] = { (char) j, '\0' };
+                        /* Create a 1-char string of the current code point */
+                        cur_source[0] = (char) j;
 
                         /* Then transform it */
                         x = _mem_collxfrm(cur_source, 1, &x_len, FALSE);
@@ -1723,13 +1729,14 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
                 {
                     STRLEN i;
                     STRLEN d= 0;
+                    char * e = (char *) t + len;
 
                     for (i = 0; i < len; i+= UTF8SKIP(t + i)) {
                         U8 cur_char = t[i];
                         if (UTF8_IS_INVARIANT(cur_char)) {
                             s[d++] = cur_char;
                         }
-                        else if (UTF8_IS_DOWNGRADEABLE_START(cur_char)) {
+                        else if (UTF8_IS_NEXT_CHAR_DOWNGRADEABLE(t + i, e)) {
                             s[d++] = EIGHT_BIT_UTF8_TO_NATIVE(cur_char, t[i+1]);
                         }
                         else {  /* Replace illegal cp with highest collating
@@ -1901,14 +1908,12 @@ Perl__mem_collxfrm(pTHX_ const char *input_string,
 
 #ifdef DEBUGGING
     if (DEBUG_Lv_TEST || debug_initialization) {
-        Size_t i;
 
         print_collxfrm_input_and_return(s, s + len, xlen, utf8);
         PerlIO_printf(Perl_debug_log, "Its xfrm is:");
-        for (i = COLLXFRM_HDR_LEN; i < *xlen + COLLXFRM_HDR_LEN; i++) {
-            PerlIO_printf(Perl_debug_log, " %02x", (U8) xbuf[i]);
-        }
-        PerlIO_printf(Perl_debug_log, "\n");
+        PerlIO_printf(Perl_debug_log, "%s\n",
+                      _byte_dump_string((U8 *) xbuf + COLLXFRM_HDR_LEN,
+                       *xlen, 1));
     }
 #endif
 
@@ -2540,9 +2545,9 @@ Perl_my_strerror(pTHX_ const int errnum)
     dVAR;
 
 #  ifdef USE_THREAD_SAFE_LOCALE
-    locale_t save_locale;
+    locale_t save_locale = NULL;
 #  else
-    char * save_locale;
+    char * save_locale = NULL;
     bool locale_is_C = FALSE;
 
     /* We have a critical section to prevent another thread from changing the

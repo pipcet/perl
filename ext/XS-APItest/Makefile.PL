@@ -31,7 +31,7 @@ my @names = (qw(HV_DELETE HV_DISABLE_UVAR_XKEY HV_FETCH_ISSTORE
 		),
 	     {name=>"G_WANT", default=>["IV", "G_ARRAY|G_VOID"]});
 
-open my $fh, '../../overload.h' or die "Can't open ../../overload.h: $!";
+open my $fh, '<', '../../overload.h' or die "Can't open ../../overload.h: $!";
 while (<$fh>) {
     push @names, {name => $1, macro => 1} if /^\s+([A-Za-z_0-9]+_amg),/;
 }
@@ -59,7 +59,8 @@ sub MY::postamble
 DTRACE_D = ../../perldtrace.d
 
 dtrace\$(OBJ_EXT): \$(DTRACE_D) core\$(OBJ_EXT)
-	$Config{dtrace} -G -s \$(DTRACE_D) -o dtrace\$(OBJ_EXT) core\$(OBJ_EXT)
+	$Config{dtrace} -G -s \$(DTRACE_D) -o dtrace\$(OBJ_EXT) core\$(OBJ_EXT) || \\
+	  ( \$(ECHO) >dtrace.c && \$(CCCMD) \$(CCCDLFLAGS) dtrace.c && rm -f dtrace.c )
 POSTAMBLE
 
     return $post;

@@ -1428,9 +1428,7 @@ S_qsortsv(pTHX_ gptr *list1, size_t nmemb, SVCOMPARE_t cmp, U32 flags)
 
 =for apidoc sortsv
 
-Sort an array.  Here is an example:
-
-    sortsv(AvARRAY(av), av_top_index(av)+1, Perl_sv_cmp_locale);
+In-place sort an array of SV pointers with the given comparison routine.
 
 Currently this always uses mergesort.  See C<L</sortsv_flags>> for a more
 flexible routine.
@@ -1449,7 +1447,8 @@ Perl_sortsv(pTHX_ SV **array, size_t nmemb, SVCOMPARE_t cmp)
 /*
 =for apidoc sortsv_flags
 
-Sort an array, with various options.
+In-place sort an array of SV pointers with the given comparison routine,
+with various SORTf_* flag options.
 
 =cut
 */
@@ -1888,20 +1887,16 @@ S_sortcv_xsub(pTHX_ SV *const a, SV *const b)
 static I32
 S_sv_ncmp(pTHX_ SV *const a, SV *const b)
 {
-    const NV nv1 = SvNSIV(a);
-    const NV nv2 = SvNSIV(b);
+    I32 cmp = do_ncmp(a, b);
 
     PERL_ARGS_ASSERT_SV_NCMP;
 
-#if defined(NAN_COMPARE_BROKEN) && defined(Perl_isnan)
-    if (Perl_isnan(nv1) || Perl_isnan(nv2)) {
-#else
-    if (nv1 != nv1 || nv2 != nv2) {
-#endif
+    if (cmp == 2) {
 	if (ckWARN(WARN_UNINITIALIZED)) report_uninit(NULL);
 	return 0;
     }
-    return nv1 < nv2 ? -1 : nv1 > nv2 ? 1 : 0;
+
+    return cmp;
 }
 
 static I32

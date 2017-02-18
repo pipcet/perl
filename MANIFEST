@@ -968,6 +968,7 @@ cpan/Encode/t/jisx0212.utf		test data
 cpan/Encode/t/jperl.t			test script
 cpan/Encode/t/ksc5601.enc		test data
 cpan/Encode/t/ksc5601.utf		test data
+cpan/Encode/t/magic.t			test script
 cpan/Encode/t/mime-header.t		test script
 cpan/Encode/t/mime-name.t		test script
 cpan/Encode/t/mime_header_iso2022jp.t	test script
@@ -975,6 +976,11 @@ cpan/Encode/t/Mod_EUCJP.pm		module that t/enc_module.enc uses
 cpan/Encode/t/perlio.t			test script
 cpan/Encode/t/piconv.t			Test for piconv.t
 cpan/Encode/t/rt.pl			test script
+cpan/Encode/t/rt113164.t		test script
+cpan/Encode/t/rt65541.t			test script
+cpan/Encode/t/rt76824.t			test script
+cpan/Encode/t/rt85489.t			test script
+cpan/Encode/t/rt86327.t			test script
 cpan/Encode/t/taint.t
 cpan/Encode/t/unibench.pl		benchmark script
 cpan/Encode/t/Unicode.t			test script
@@ -1684,6 +1690,7 @@ cpan/Math-BigInt/lib/Math/BigFloat.pm		An arbitrary precision floating-point ari
 cpan/Math-BigInt/lib/Math/BigInt.pm	An arbitrary precision integer arithmetic package
 cpan/Math-BigInt/lib/Math/BigInt/Calc.pm	Pure Perl module to support Math::BigInt
 cpan/Math-BigInt/lib/Math/BigInt/CalcEmu.pm	Pure Perl module to support Math::BigInt
+cpan/Math-BigInt/lib/Math/BigInt/Lib.pm
 cpan/Math-BigInt/t/_e_math.t		Helper routine in BigFloat for _e math
 cpan/Math-BigInt/t/alias.inc		Support for BigInt tests
 cpan/Math-BigInt/t/bare_mbf.t		Test MBF under Math::BigInt::BareCalc
@@ -1718,13 +1725,17 @@ cpan/Math-BigInt/t/dparts-mbi.t		Test Math::BigInt
 cpan/Math-BigInt/t/eparts-mbf.t		Test Math::BigInt
 cpan/Math-BigInt/t/eparts-mbi.t		Test Math::BigInt
 cpan/Math-BigInt/t/from_bin-mbf.t	Test Math::BigInt
+cpan/Math-BigInt/t/from_bin-mbi.t
 cpan/Math-BigInt/t/from_hex-mbf.t	Test Math::BigInt
+cpan/Math-BigInt/t/from_hex-mbi.t
 cpan/Math-BigInt/t/from_oct-mbf.t	Test Math::BigInt
+cpan/Math-BigInt/t/from_oct-mbi.t
 cpan/Math-BigInt/t/inf_nan.t		Special tests for inf and *NaN* handling
 cpan/Math-BigInt/t/isa.t		Test for Math::BigInt inheritance
 cpan/Math-BigInt/t/lib_load.t		Test sane lib names
 cpan/Math-BigInt/t/Math/BigFloat/Subclass.pm	Empty subclass of BigFloat for test
 cpan/Math-BigInt/t/Math/BigInt/BareCalc.pm	Bigint's simulation of Calc
+cpan/Math-BigInt/t/Math/BigInt/Lib/Minimal.pm
 cpan/Math-BigInt/t/Math/BigInt/Lib/TestUtil.pm	Test Math::BigInt
 cpan/Math-BigInt/t/Math/BigInt/Scalar.pm	Pure Perl module to support Math::BigInt
 cpan/Math-BigInt/t/Math/BigInt/Subclass.pm	Empty subclass of BigInt for test
@@ -1770,6 +1781,8 @@ cpan/Math-BigInt/t/with_sub.t		Test use Math::BigFloat with => package
 cpan/Math-BigInt-FastCalc/FastCalc.xs	Math::BigInt::FastCalc extension
 cpan/Math-BigInt-FastCalc/lib/Math/BigInt/FastCalc.pm	Math::BigInt::FastCalc extension
 cpan/Math-BigInt-FastCalc/t/bigintfc.t	Math::BigInt::FastCalc extension
+cpan/Math-BigInt-FastCalc/t/biglog.t
+cpan/Math-BigInt-FastCalc/t/bigroot.t
 cpan/Math-BigInt-FastCalc/t/bootstrap.t	Math::BigInt::FastCalc extension
 cpan/Math-BigInt-FastCalc/t/leak.t	test for memory leaks in Math::BigInt::FastCalc
 cpan/Math-BigInt-FastCalc/t/mbi_rand.t	Math::BigInt::FastCalc extension
@@ -2601,6 +2614,7 @@ cpan/Test-Simple/lib/Test2/API/Stack.pm
 cpan/Test-Simple/lib/Test2/Event.pm
 cpan/Test-Simple/lib/Test2/Event/Bail.pm
 cpan/Test-Simple/lib/Test2/Event/Diag.pm
+cpan/Test-Simple/lib/Test2/Event/Encoding.pm
 cpan/Test-Simple/lib/Test2/Event/Exception.pm
 cpan/Test-Simple/lib/Test2/Event/Generic.pm
 cpan/Test-Simple/lib/Test2/Event/Info.pm
@@ -2609,6 +2623,7 @@ cpan/Test-Simple/lib/Test2/Event/Ok.pm
 cpan/Test-Simple/lib/Test2/Event/Plan.pm
 cpan/Test-Simple/lib/Test2/Event/Skip.pm
 cpan/Test-Simple/lib/Test2/Event/Subtest.pm
+cpan/Test-Simple/lib/Test2/Event/TAP/Version.pm
 cpan/Test-Simple/lib/Test2/Event/Waiting.pm
 cpan/Test-Simple/lib/Test2/Formatter.pm
 cpan/Test-Simple/lib/Test2/Formatter/TAP.pm
@@ -2619,6 +2634,7 @@ cpan/Test-Simple/lib/Test2/Hub/Subtest.pm
 cpan/Test-Simple/lib/Test2/IPC.pm
 cpan/Test-Simple/lib/Test2/IPC/Driver.pm
 cpan/Test-Simple/lib/Test2/IPC/Driver/Files.pm
+cpan/Test-Simple/lib/Test2/Tools/Tiny.pm
 cpan/Test-Simple/lib/Test2/Transition.pod
 cpan/Test-Simple/lib/Test2/Util.pm
 cpan/Test-Simple/lib/Test2/Util/ExternalMeta.pm
@@ -2704,6 +2720,8 @@ cpan/Test-Simple/t/Legacy/plan_shouldnt_import.t
 cpan/Test-Simple/t/Legacy/plan_skip_all.t
 cpan/Test-Simple/t/Legacy/Regression/637.t
 cpan/Test-Simple/t/Legacy/Regression/683_thread_todo.t
+cpan/Test-Simple/t/Legacy/Regression/6_cmp_ok.t
+cpan/Test-Simple/t/Legacy/Regression/736_use_ok.t
 cpan/Test-Simple/t/Legacy/require_ok.t
 cpan/Test-Simple/t/Legacy/run_test.t
 cpan/Test-Simple/t/Legacy/simple.t
@@ -2748,6 +2766,7 @@ cpan/Test-Simple/t/Legacy/useing.t
 cpan/Test-Simple/t/Legacy/utf8.t
 cpan/Test-Simple/t/Legacy/versions.t
 cpan/Test-Simple/t/Legacy_And_Test2/builder_loaded_late.t
+cpan/Test-Simple/t/Legacy_And_Test2/hidden_warnings.t
 cpan/Test-Simple/t/lib/Dev/Null.pm
 cpan/Test-Simple/t/lib/Dummy.pm
 cpan/Test-Simple/t/lib/MyOverload.pm
@@ -2799,6 +2818,7 @@ cpan/Test-Simple/t/Test2/behavior/special_names.t
 cpan/Test-Simple/t/Test2/behavior/Subtest_buffer_formatter.t
 cpan/Test-Simple/t/Test2/behavior/Subtest_events.t
 cpan/Test-Simple/t/Test2/behavior/Subtest_plan.t
+cpan/Test-Simple/t/Test2/behavior/Subtest_todo.t
 cpan/Test-Simple/t/Test2/behavior/Taint.t
 cpan/Test-Simple/t/Test2/legacy/TAP.t
 cpan/Test-Simple/t/Test2/modules/API.t
@@ -2826,6 +2846,7 @@ cpan/Test-Simple/t/Test2/modules/Hub/Subtest.t
 cpan/Test-Simple/t/Test2/modules/IPC.t
 cpan/Test-Simple/t/Test2/modules/IPC/Driver.t
 cpan/Test-Simple/t/Test2/modules/IPC/Driver/Files.t
+cpan/Test-Simple/t/Test2/modules/Tools/Tiny.t
 cpan/Test-Simple/t/Test2/modules/Util.t
 cpan/Test-Simple/t/Test2/modules/Util/ExternalMeta.t
 cpan/Test-Simple/t/Test2/modules/Util/HashBase.t
@@ -2833,8 +2854,6 @@ cpan/Test-Simple/t/Test2/modules/Util/Trace.t
 cpan/Test-Simple/t/Test2/regression/693_ipc_ordering.t
 cpan/Test-Simple/t/Test2/regression/gh_16.t
 cpan/Test-Simple/t/Test2/regression/ipc_files_abort_exit.t
-cpan/Test-Simple/t/tools.pl
-cpan/Test-Simple/t/tools.t
 cpan/Text-Balanced/lib/Text/Balanced.pm	Text::Balanced
 cpan/Text-Balanced/t/01_compile.t	See if Text::Balanced works
 cpan/Text-Balanced/t/02_extbrk.t	See if Text::Balanced works
@@ -2923,6 +2942,7 @@ cpan/Unicode-Collate/Collate/Locale/fr_ca.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/gu.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ha.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/haw.pl			Unicode::Collate
+cpan/Unicode-Collate/Collate/Locale/he.pl
 cpan/Unicode-Collate/Collate/Locale/hi.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/hr.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/hu.pl			Unicode::Collate
@@ -2970,6 +2990,7 @@ cpan/Unicode-Collate/Collate/Locale/ug_cyrl.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/uk.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/ur.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/vi.pl			Unicode::Collate
+cpan/Unicode-Collate/Collate/Locale/vo.pl
 cpan/Unicode-Collate/Collate/Locale/wae.pl	Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/wo.pl			Unicode::Collate
 cpan/Unicode-Collate/Collate/Locale/yo.pl			Unicode::Collate
@@ -3036,6 +3057,7 @@ cpan/Unicode-Collate/t/loc_frca.t		Unicode::Collate
 cpan/Unicode-Collate/t/loc_gu.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_ha.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_haw.t			Unicode::Collate
+cpan/Unicode-Collate/t/loc_he.t
 cpan/Unicode-Collate/t/loc_hi.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_hr.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_hu.t			Unicode::Collate
@@ -3090,6 +3112,7 @@ cpan/Unicode-Collate/t/loc_ugcy.t		Unicode::Collate
 cpan/Unicode-Collate/t/loc_uk.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_ur.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_vi.t			Unicode::Collate
+cpan/Unicode-Collate/t/loc_vo.t
 cpan/Unicode-Collate/t/loc_wae.t	Unicode::Collate
 cpan/Unicode-Collate/t/loc_wo.t			Unicode::Collate
 cpan/Unicode-Collate/t/loc_yo.t			Unicode::Collate
@@ -3433,6 +3456,7 @@ dist/IO/t/io_dir.t		See if directory-related methods from IO work
 dist/IO/t/io_dup.t		See if dup()-related methods from IO work
 dist/IO/t/io_file.t		See if binmode()-related methods on IO::File work
 dist/IO/t/io_file_export.t	Test IO::File exports
+dist/IO/t/io_leak.t		See if IO leaks SVs (only run in core)
 dist/IO/t/io_linenum.t		See if I/O line numbers are tracked correctly
 dist/IO/t/io_multihomed.t	See if INET sockets work with multi-homed hosts
 dist/IO/t/io_pipe.t		See if pipe()-related methods from IO work
@@ -3665,6 +3689,7 @@ dist/threads/t/free2.t		More ithread destruction tests
 dist/threads/t/join.t		Testing the join function
 dist/threads/t/kill.t		Tests thread signalling
 dist/threads/t/kill2.t		Tests thread signalling
+dist/threads/t/kill3.t		Tests thread signalling
 dist/threads/t/libc.t		testing libc functions for threadsafety
 dist/threads/t/list.t		Test threads->list()
 dist/threads/t/no_threads.t	threads test for non-threaded Perls
@@ -4878,7 +4903,9 @@ pod/perl5203delta.pod		Perl changes in version 5.20.3
 pod/perl5220delta.pod		Perl changes in version 5.22.0
 pod/perl5221delta.pod		Perl changes in version 5.22.1
 pod/perl5222delta.pod		Perl changes in version 5.22.2
+pod/perl5223delta.pod		Perl changes in version 5.22.3
 pod/perl5240delta.pod		Perl changes in version 5.24.0
+pod/perl5241delta.pod		Perl changes in version 5.24.1
 pod/perl5250delta.pod		Perl changes in version 5.25.0
 pod/perl5251delta.pod		Perl changes in version 5.25.1
 pod/perl5252delta.pod		Perl changes in version 5.25.2
@@ -4887,6 +4914,8 @@ pod/perl5254delta.pod		Perl changes in version 5.25.4
 pod/perl5255delta.pod		Perl changes in version 5.25.5
 pod/perl5256delta.pod		Perl changes in version 5.25.6
 pod/perl5257delta.pod		Perl changes in version 5.25.7
+pod/perl5258delta.pod		Perl changes in version 5.25.8
+pod/perl5259delta.pod		Perl changes in version 5.25.9
 pod/perl561delta.pod		Perl changes in version 5.6.1
 pod/perl56delta.pod		Perl changes in version 5.6
 pod/perl581delta.pod		Perl changes in version 5.8.1
@@ -4914,6 +4943,7 @@ pod/perldebguts.pod		Perl debugging guts and tips
 pod/perldebtut.pod		Perl debugging tutorial
 pod/perldebug.pod		Perl debugging
 pod/perldelta.pod		Perl changes since previous version
+pod/perldeprecation.pod		Perl deprecations
 pod/perldiag.pod		Perl diagnostic messages
 pod/perldsc.pod			Perl data structures intro
 pod/perldtrace.pod		Perl's support for DTrace
@@ -5303,6 +5333,7 @@ t/lib/croak/pp_ctl		Test croak calls from pp_ctl.c
 t/lib/croak/pp_hot		Test croak calls from pp_hot.c
 t/lib/croak/pp_sys		Test croak calls from pp_sys.c
 t/lib/croak/toke		Test croak calls from toke.c
+t/lib/croak/toke_l1		Test croak calls from toke.c; file is not UTF-8 encoded
 t/lib/cygwin.t			Builtin cygwin function tests
 t/lib/dbmt_common.pl		Common functionality for ?DBM_File tests
 t/lib/deprecate.t		Test deprecate.pm
@@ -5700,6 +5731,7 @@ t/porting/utils.t		Check that utility scripts still compile
 t/re/anyof.t			See if bracketed char classes [...] compile properly
 t/re/charset.t			See if regex modifiers like /d, /u work properly
 t/re/fold_grind.t		See if case folding works properly
+t/re/keep_tabs.t		Tests where \t can't be expanded.
 t/re/no_utf8_pm.t		Verify utf8.pm doesn't get loaded unless required
 t/re/overload.t		Test against string corruption in pattern matches on overloaded objects
 t/re/pat.t			See if esoteric patterns work
@@ -5861,7 +5893,6 @@ utfebcdic.h			Unicode on EBCDIC (UTF-EBCDIC, tr16) header
 util.c				Utility routines
 util.h				Dummy header
 utils.lst			Lists utilities bundled with Perl
-utils/c2ph.PL			program to translate dbx stabs to perl
 utils/corelist.PL		Module::CoreList
 utils/cpan.PL			easily interact with CPAN from the command line
 utils/enc2xs.PL			Encode module generator

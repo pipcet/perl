@@ -155,7 +155,10 @@ typedef enum {
 /* *** any alterations to the SV types above need to be reflected in
  * SVt_MASK and the various PL_valid_types_* tables.  As of this writing those
  * tables are in perl.h.  There are also two affected names tables in dump.c,
- * one in B.xs, and 'bodies_by_type[]' in sv.c */
+ * one in B.xs, and 'bodies_by_type[]' in sv.c.
+ *
+ * The bits that match 0xf0 are CURRENTLY UNUSED, except that 0xFF means a
+ * freed SV.  The bits above that are for flags, like SVf_IOK */
 
 #define SVt_MASK 0xf	/* smallest bitmask that covers all types */
 
@@ -1806,10 +1809,10 @@ Like C<sv_utf8_upgrade>, but doesn't do magic on C<sv>.
 #define SvSHARED_HASH(sv) (0 + SvSHARED_HEK_FROM_PV(SvPVX_const(sv))->hek_hash)
 
 /* flag values for sv_*_flags functions */
+#define SV_UTF8_NO_ENCODING	0       /* No longer used */
 #define SV_IMMEDIATE_UNREF	1
 #define SV_GMAGIC		2
 #define SV_COW_DROP_PV		4
-#define SV_UTF8_NO_ENCODING	8
 #define SV_NOSTEAL		16
 #define SV_CONST_RETURN		32
 #define SV_MUTABLE_RETURN	64
@@ -2012,6 +2015,9 @@ C<NUL> character).  Calls C<sv_grow> to perform the expansion if necessary.
 Returns a pointer to the character
 buffer.  SV must be of type >= C<SVt_PV>.  One
 alternative is to call C<sv_grow> if you are not sure of the type of SV.
+
+You might mistakenly think that C<len> is the number of bytes to add to the
+existing size, but instead it is the total size C<sv> should be.
 
 =for apidoc Am|char *|SvPVCLEAR|SV* sv
 Ensures that sv is a SVt_PV and that its SvCUR is 0, and that it is

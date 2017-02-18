@@ -150,7 +150,7 @@ PP(pp_padhv)
 	     && block_gimme() == G_VOID  ))
 	  && (!SvRMAGICAL(TARG) || !mg_find(TARG, PERL_MAGIC_tied))
     )
-	SETs(HvUSEDKEYS(TARG) ? &PL_sv_yes : sv_2mortal(newSViv(0)));
+	SETs(HvUSEDKEYS(TARG) ? &PL_sv_yes : &PL_sv_no);
     else if (gimme == G_SCALAR) {
 	SV* const sv = Perl_hv_scalar(aTHX_ MUTABLE_HV(TARG));
 	SETs(sv);
@@ -3626,7 +3626,7 @@ PP(pp_ord)
     const U8 *s = (U8*)SvPV_const(argsv, len);
 
     SETu(DO_UTF8(argsv)
-           ? utf8n_to_uvchr(s, len, 0, UTF8_ALLOW_ANYUV)
+           ? (len ? utf8n_to_uvchr(s, len, 0, UTF8_ALLOW_ANYUV) : 0)
            : (UV)(*s));
 
     return NORMAL;
@@ -3790,16 +3790,16 @@ PP(pp_ucfirst)
         ulen = UTF8SKIP(s);
         if (op_type == OP_UCFIRST) {
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_title_flags(s, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
+	    _toTITLE_utf8_flags(s, s +slen, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-	    _to_utf8_title_flags(s, tmpbuf, &tculen, 0);
+	    _toTITLE_utf8_flags(s, s +slen, tmpbuf, &tculen, 0);
 #endif
 	}
         else {
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_lower_flags(s, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
+	    _toLOWER_utf8_flags(s, s + slen, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-	    _to_utf8_lower_flags(s, tmpbuf, &tculen, 0);
+	    _toLOWER_utf8_flags(s, s + slen, tmpbuf, &tculen, 0);
 #endif
 	}
 
@@ -4090,9 +4090,9 @@ PP(pp_uc)
 
             u = UTF8SKIP(s);
 #ifdef USE_LOCALE_CTYPE
-            uv = _to_utf8_upper_flags(s, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
+            uv = _toUPPER_utf8_flags(s, send, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-            uv = _to_utf8_upper_flags(s, tmpbuf, &ulen, 0);
+            uv = _toUPPER_utf8_flags(s, send, tmpbuf, &ulen, 0);
 #endif
 #define GREEK_CAPITAL_LETTER_IOTA 0x0399
 #define COMBINING_GREEK_YPOGEGRAMMENI 0x0345
@@ -4306,9 +4306,9 @@ PP(pp_lc)
 	    STRLEN ulen;
 
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_lower_flags(s, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
+	    _toLOWER_utf8_flags(s, send, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-	    _to_utf8_lower_flags(s, tmpbuf, &ulen, 0);
+	    _toLOWER_utf8_flags(s, send, tmpbuf, &ulen, 0);
 #endif
 
 	    /* Here is where we would do context-sensitive actions.  See the
@@ -4404,7 +4404,7 @@ PP(pp_quotemeta)
 			to_quote = TRUE;
 		    }
 		}
-		else if (UTF8_IS_DOWNGRADEABLE_START(*s)) {
+		else if (UTF8_IS_NEXT_CHAR_DOWNGRADEABLE(s, s + len)) {
 		    if (
 #ifdef USE_LOCALE_CTYPE
 		    /* In locale, we quote all non-ASCII Latin1 chars.
@@ -4516,7 +4516,7 @@ PP(pp_fc)
             const STRLEN u = UTF8SKIP(s);
             STRLEN ulen;
 
-            _to_utf8_fold_flags(s, tmpbuf, &ulen, flags);
+            _toFOLD_utf8_flags(s, send, tmpbuf, &ulen, flags);
 
             if (ulen > u && (SvLEN(dest) < (min += ulen - u))) {
                 const UV o = d - (U8*)SvPVX_const(dest);
@@ -5794,15 +5794,15 @@ PP(pp_split)
     orig = s;
     if (RX_EXTFLAGS(rx) & RXf_SKIPWHITE) {
 	if (do_utf8) {
-	    while (isSPACE_utf8(s))
+	    while (s < strend && isSPACE_utf8_safe(s, strend))
 		s += UTF8SKIP(s);
 	}
 	else if (get_regex_charset(RX_EXTFLAGS(rx)) == REGEX_LOCALE_CHARSET) {
-	    while (isSPACE_LC(*s))
+	    while (s < strend && isSPACE_LC(*s))
 		s++;
 	}
 	else {
-	    while (isSPACE(*s))
+	    while (s < strend && isSPACE(*s))
 		s++;
 	}
     }
@@ -5819,9 +5819,9 @@ PP(pp_split)
 	    m = s;
 	    /* this one uses 'm' and is a negative test */
 	    if (do_utf8) {
-		while (m < strend && ! isSPACE_utf8(m) ) {
+		while (m < strend && ! isSPACE_utf8_safe(m, strend) ) {
 		    const int t = UTF8SKIP(m);
-		    /* isSPACE_utf8 returns FALSE for malform utf8 */
+		    /* isSPACE_utf8_safe returns FALSE for malform utf8 */
 		    if (strend - m < t)
 			m = strend;
 		    else
@@ -5859,7 +5859,7 @@ PP(pp_split)
 
 	    /* this one uses 's' and is a positive test */
 	    if (do_utf8) {
-		while (s < strend && isSPACE_utf8(s) )
+		while (s < strend && isSPACE_utf8_safe(s, strend) )
 	            s +=  UTF8SKIP(s);
 	    }
 	    else if (get_regex_charset(RX_EXTFLAGS(rx)) == REGEX_LOCALE_CHARSET)
@@ -6142,7 +6142,7 @@ PP(pp_split)
     }
 
     GETTARGET;
-    PUSHi(iters);
+    XPUSHi(iters);
     RETURN;
 }
 

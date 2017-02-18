@@ -171,6 +171,7 @@ Perl_mg_get(pTHX_ SV *sv)
     const I32 mgs_ix = SSNEW(sizeof(MGS));
     bool saved = FALSE;
     bool have_new = 0;
+    bool taint_only = TRUE; /* the only get method seen is taint */
     MAGIC *newmg, *head, *cur, *mg;
 
     PERL_ARGS_ASSERT_MG_GET;
@@ -189,10 +190,13 @@ Perl_mg_get(pTHX_ SV *sv)
 	if (!(mg->mg_flags & MGf_GSKIP) && vtbl && vtbl->svt_get) {
 
 	    /* taint's mg get is so dumb it doesn't need flag saving */
-	    if (!saved && mg->mg_type != PERL_MAGIC_taint) {
-		save_magic(mgs_ix, sv);
-		saved = TRUE;
-	    }
+	    if (mg->mg_type != PERL_MAGIC_taint) {
+                taint_only = FALSE;
+                if (!saved) {
+                    save_magic(mgs_ix, sv);
+                    saved = TRUE;
+                }
+            }
 
 	    vtbl->svt_get(aTHX_ sv, mg);
 
@@ -210,8 +214,23 @@ Perl_mg_get(pTHX_ SV *sv)
 		     ~(SVs_GMG|SVs_SMG|SVs_RMG);
 	}
 	else if (vtbl == &PL_vtbl_utf8) {
-	    /* get-magic can reallocate the PV */
-	    magic_setutf8(sv, mg);
+	    /* get-magic can reallocate the PV, unless there's only taint
+             * magic */
+            if (taint_only) {
+                MAGIC *mg2;
+                for (mg2 = nextmg; mg2; mg2 = mg2->mg_moremagic) {
+                    if (   mg2->mg_type != PERL_MAGIC_taint
+                        && !(mg2->mg_flags & MGf_GSKIP)
+                        && mg2->mg_virtual
+                        && mg2->mg_virtual->svt_get
+                    ) {
+                        taint_only = FALSE;
+                        break;
+                    }
+                }
+            }
+            if (!taint_only)
+                magic_setutf8(sv, mg);
 	}
 
 	mg = nextmg;
@@ -925,7 +944,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 	}
 	break;
     case '\010':		/* ^H */
-	sv_setiv(sv, (IV)PL_hints);
+	sv_setuv(sv, PL_hints);
 	break;
     case '\011':		/* ^I */ /* NOT \t in EBCDIC */
 	sv_setpv(sv, PL_inplace); /* Will undefine sv if PL_inplace is NULL */
@@ -989,7 +1008,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
         break;
     case '\027':		/* ^W  & $^WARNING_BITS */
 	if (nextchar == '\0')
-	    sv_setiv(sv, (IV)((PL_dowarn & G_WARN_ON) ? TRUE : FALSE));
+	    sv_setiv(sv, (IV)cBOOL(PL_dowarn & G_WARN_ON));
 	else if (strEQ(remaining, "ARNING_BITS")) {
 	    if (PL_compiling.cop_warnings == pWARN_NONE) {
 	        sv_setpvn(sv, WARN_NONEstring, WARNsize) ;
@@ -2557,7 +2576,7 @@ S_set_dollarzero(pTHX_ SV *sv)
      * the setproctitle() routine to manipulate that. */
     if (PL_origalen != 1) {
         s = SvPV_const(sv, len);
-#   if __FreeBSD_version > 410001
+#   if __FreeBSD_version > 410001 || defined(__DragonFly__)
         /* The leading "-" removes the "perl: " prefix,
          * but not the "(perl) suffix from the ps(1)
          * output, because that's what ps(1) shows if the
@@ -2709,8 +2728,8 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	else {
             if (strEQ(mg->mg_ptr + 1, "NCODING") && SvOK(sv))
                         if (PL_localizing != 2) {
-                            Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                                    "${^ENCODING} is no longer supported");
+                            deprecate_fatal_in("5.28",
+                               "${^ENCODING} is no longer supported");
                         }
         }
 	break;
@@ -2718,7 +2737,15 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	PL_maxsysfd = SvIV(sv);
 	break;
     case '\010':	/* ^H */
-	PL_hints = SvIV(sv);
+        {
+            U32 save_hints = PL_hints;
+            PL_hints = SvUV(sv);
+
+            /* If wasn't UTF-8, and now is, notify the parser */
+            if ((PL_hints & HINT_UTF8) && ! (save_hints & HINT_UTF8)) {
+                notify_parser_that_changed_to_utf8();
+            }
+        }
 	break;
     case '\011':	/* ^I */ /* NOT \t in EBCDIC */
 	Safefree(PL_inplace);
@@ -2890,17 +2917,19 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
             if (SvROK(sv)) {
                 SV *referent= SvRV(sv);
                 const char *reftype= sv_reftype(referent, 0);
-                /* XXX: dodgy type check: This leaves me feeling dirty, but the alternative
-                 * is to copy pretty much the entire sv_reftype() into this routine, or to do
-                 * a full string comparison on the return of sv_reftype() both of which
-                 * make me feel worse! NOTE, do not modify this comment without reviewing the
-                 * corresponding comment in sv_reftype(). - Yves */
+                /* XXX: dodgy type check: This leaves me feeling dirty, but
+                 * the alternative is to copy pretty much the entire
+                 * sv_reftype() into this routine, or to do a full string
+                 * comparison on the return of sv_reftype() both of which
+                 * make me feel worse! NOTE, do not modify this comment
+                 * without reviewing the corresponding comment in
+                 * sv_reftype(). - Yves */
                 if (reftype[0] == 'S' || reftype[0] == 'L') {
                     IV val= SvIV(referent);
                     if (val <= 0) {
                         tmpsv= &PL_sv_undef;
                         Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                            "Setting $/ to a reference to %s as a form of slurp is deprecated, treating as undef",
+                            "Setting $/ to a reference to %s as a form of slurp is deprecated, treating as undef. This will be fatal in Perl 5.28",
                             SvIV(SvRV(sv)) < 0 ? "a negative integer" : "zero"
                         );
                     }

@@ -17,21 +17,42 @@ expressions display an efficiency and flexibility unknown in most
 other computer languages.  Mastering even the basics of regular
 expressions will allow you to manipulate text with surprising ease.
 
-What is a regular expression?  A regular expression is simply a string
-that describes a pattern.  Patterns are in common use these days;
+What is a regular expression?  At its most basic, a regular expression
+is a template that is used to determine if a string has certain
+characteristics.  The string is most often some text, such as a line,
+sentence, web page, or even a whole book, but less commonly it could be
+some binary data as well.
+Suppose we want to determine if the text in variable, C<$var> contains
+the sequence of characters C<m> C<u> C<s> C<h> C<r> C<o> C<o> C<m>
+(blanks added for legibility).  We can write in Perl
+
+ $var =~ m/mushroom/
+
+The value of this expression will be TRUE if C<$var> contains that
+sequence of characters, and FALSE otherwise.  The portion enclosed in
+C<"E<sol>"> characters denotes the characteristic we are looking for.
+We use the term I<pattern> for it.  The process of looking to see if the
+pattern occurs in the string is called I<matching>, and the C<"=~">
+operator along with the C<"m//"> tell Perl to try to match the pattern
+against the string.  Note that the pattern is also a string, but a very
+special kind of one, as we will see.  Patterns are in common use these
+days;
 examples are the patterns typed into a search engine to find web pages
 and the patterns used to list files in a directory, e.g., C<ls *.txt>
 or C<dir *.*>.  In Perl, the patterns described by regular expressions
-are used to search strings, extract desired parts of strings, and to
-do search and replace operations.
+are used not only to search strings, but to also extract desired parts
+of strings, and to do search and replace operations.
 
 Regular expressions have the undeserved reputation of being abstract
-and difficult to understand.  Regular expressions are constructed using
+and difficult to understand.  This really stems simply because the
+notation used to express them tends to be terse and dense, and not
+because of inherent complexity.  We recommend using the C<"/x"> regular
+expression modifier (described below) along with plenty of white space
+to make them less dense, and easier to read.  Regular expressions are
+constructed using
 simple concepts like conditionals and loops and are no more difficult
 to understand than the corresponding C<if> conditionals and C<while>
-loops in the Perl language itself.  In fact, the main challenge in
-learning regular expressions is just getting used to the terse
-notation used to express these concepts.
+loops in the Perl language itself.
 
 This tutorial flattens the learning curve by discussing regular
 expression concepts, along with their notation, one at a time and with
@@ -58,7 +79,7 @@ find things that, while legal, may not be what you intended.
 =head2 Simple word matching
 
 The simplest regexp is simply a word, or more generally, a string of
-characters.  A regexp consisting of a word matches any string that
+characters.  A regexp consisting of just a word matches any string that
 contains that word:
 
     "Hello World" =~ /World/;  # matches
@@ -1458,7 +1479,7 @@ we can rewrite our 'extended' regexp in the more pleasing form
          |\.\d+     # mantissa of the form .b
          |\d+       # integer of the form a
       )
-      ([eE][+-]?\d+)?  # finally, optionally match an exponent
+      ( [eE] [+-]? \d+ )?  # finally, optionally match an exponent
    $/x;
 
 If whitespace is mostly irrelevant, how does one include space
@@ -1476,7 +1497,7 @@ this to our regexp as follows:
          |\.\d+     # mantissa of the form .b
          |\d+       # integer of the form a
       )
-      ([eE][+-]?\d+)?  # finally, optionally match an exponent
+      ( [eE] [+-]? \d+ )?  # finally, optionally match an exponent
    $/x;
 
 In this form, it is easier to see a way to simplify the
@@ -1492,10 +1513,28 @@ could be factored out:
           )?        # ? takes care of integers of the form a
          |\.\d+     # mantissa of the form .b
       )
-      ([eE][+-]?\d+)?  # finally, optionally match an exponent
+      ( [eE] [+-]? \d+ )?  # finally, optionally match an exponent
    $/x;
 
-or written in the compact form,
+Starting in Perl v5.26, specifying C</xx> changes the square-bracketed
+portions of a pattern to ignore tabs and space characters unless they
+are escaped by preceding them with a backslash.  So, we could write
+
+   /^
+      [ + - ]?\ *   # first, match an optional sign
+      (             # then match integers or f.p. mantissas:
+          \d+       # start out with a ...
+          (
+              \.\d* # mantissa of the form a.b or a.
+          )?        # ? takes care of integers of the form a
+         |\.\d+     # mantissa of the form .b
+      )
+      ( [ e E ] [ + - ]? \d+ )?  # finally, optionally match an exponent
+   $/xx;
+
+This doesn't really improve the legibility of this example, but it's
+available in case you want it.  Squashing the pattern down to the
+compact form, we have
 
     /^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
@@ -2358,7 +2397,7 @@ enclosed in parentheses up to two levels deep.  Then the following
 regexp matches:
 
     $x = "abc(de(fg)h";  # unbalanced parentheses
-    $x =~ /\( ( [^()]+ | \([^()]*\) )+ \)/x;
+    $x =~ /\( ( [ ^ () ]+ | \( [ ^ () ]* \) )+ \)/xx;
 
 The regexp matches an open parenthesis, one or more copies of an
 alternation, and a close parenthesis.  The alternation is two-way, with
@@ -2372,7 +2411,7 @@ was no match possible.  To prevent the exponential blowup, we need to
 prevent useless backtracking at some point.  This can be done by
 enclosing the inner quantifier as an independent subexpression:
 
-    $x =~ /\( ( (?>[^()]+) | \([^()]*\) )+ \)/x;
+    $x =~ /\( ( (?> [ ^ () ]+ ) | \([ ^ () ]* \) )+ \)/xx;
 
 Here, C<< (?>[^()]+) >> breaks the degeneracy of string partitioning
 by gobbling up as much of the string as possible and keeping it.   Then

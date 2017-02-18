@@ -59,7 +59,7 @@ sub _trylocale ($$$$) { # For use only by other functions in this file!
     # Adds the locale given by the first parameter to the list given by the
     # 3rd iff the platform supports the locale in each of the category numbers
     # given by the 2nd parameter, which is either a single category or a
-    # reference to a list of categories.  The list must be sorted so that
+    # reference to a list of categories.  The list MUST be sorted so that
     # CTYPE is first, COLLATE is last unless ALL is present, in which case
     # that comes after COLLATE.  This is because locale.c detects bad locales
     # only with CTYPE, and COLLATE on some platforms can core dump if it is a
@@ -83,8 +83,8 @@ sub _trylocale ($$$$) { # For use only by other functions in this file!
     use warnings 'locale';
 
     local $SIG{__WARN__} = sub {
-        $badutf8 = 1 if $_[0] =~ /Malformed UTF-8/;
-        $plays_well = 0 if $_[0] =~ /Locale .* may not work well/i
+        $badutf8 = 1 if grep { /Malformed UTF-8/ } @_;
+        $plays_well = 0 if grep { /Locale .* may not work well/i } @_;
     };
 
     # Incompatible locales aren't warned about unless using locales.
@@ -95,14 +95,14 @@ sub _trylocale ($$$$) { # For use only by other functions in this file!
                                             unless $category =~ / ^ -? \d+ $ /x;
 
         return unless setlocale($category, $locale);
-        return if ! $plays_well && ! $allow_incompatible;
+        last if $badutf8 || ! $plays_well;
     }
 
     if ($badutf8) {
         ok(0, "Verify locale name doesn't contain malformed utf8");
         return;
     }
-    push @$list, $locale;
+    push @$list, $locale if $plays_well || $allow_incompatible;
 }
 
 sub _decode_encodings { # For use only by other functions in this file!
@@ -299,7 +299,7 @@ sub find_locales ($;$) {
     delete local @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 
     if (-x "/usr/bin/locale"
-        && open(LOCALES, "/usr/bin/locale -a 2>/dev/null|"))
+        && open(LOCALES, '-|', "/usr/bin/locale -a 2>/dev/null"))
     {
         while (<LOCALES>) {
             # It seems that /usr/bin/locale steadfastly outputs 8 bit data, which

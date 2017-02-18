@@ -978,7 +978,8 @@ sub fresh_perl {
     $runperl_args->{progfile} ||= $tmpfile;
     $runperl_args->{stderr}     = 1 unless exists $runperl_args->{stderr};
 
-    open TEST, ">$tmpfile" or die "Cannot open $tmpfile: $!";
+    open TEST, '>', $tmpfile or die "Cannot open $tmpfile: $!";
+    binmode TEST, ':utf8' if $runperl_args->{wide_chars};
     print TEST $prog;
     close TEST or die "Cannot close $tmpfile: $!";
 
@@ -1078,8 +1079,9 @@ sub fresh_perl_like {
 # Each program is source code to run followed by an "EXPECT" line, followed
 # by the expected output.
 #
-# The code to run may begin with a command line switch such as -w or -0777
-# (alphanumerics only), and may contain (note the '# ' on each):
+# The first line of the code to run may be a command line switch such as -wE
+# or -0777 (alphanumerics only; only one cluster, beginning with a minus is
+# allowed).  Later lines may contain (note the '# ' on each):
 #   # TODO reason for todo
 #   # SKIP reason for skip
 #   # SKIP ?code to test if this should be skipped

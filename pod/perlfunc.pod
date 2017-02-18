@@ -3763,8 +3763,8 @@ many elements these have.  For that, use C<scalar @array> and C<scalar keys
 Like all Perl character operations, L<C<length>|/length EXPR> normally
 deals in logical
 characters, not physical bytes.  For how many bytes a string encoded as
-UTF-8 would take up, use C<length(Encode::encode_utf8(EXPR))> (you'll have
-to C<use Encode> first).  See L<Encode> and L<perlunicode>.
+UTF-8 would take up, use C<length(Encode::encode('UTF-8', EXPR))>
+(you'll have to C<use Encode> first).  See L<Encode> and L<perlunicode>.
 
 =item __LINE__
 X<__LINE__>
@@ -6090,7 +6090,7 @@ Note the I<characters>: depending on the status of the socket, either
 (8-bit) bytes or characters are received.  By default all sockets
 operate on bytes, but for example if the socket has been changed using
 L<C<binmode>|/binmode FILEHANDLE, LAYER> to operate with the
-C<:encoding(utf8)> I/O layer (see the L<open> pragma), the I/O will
+C<:encoding(UTF-8)> I/O layer (see the L<open> pragma), the I/O will
 operate on UTF8-encoded Unicode
 characters, not bytes.  Similarly for the C<:encoding> layer: in that
 case pretty much any characters can be read.
@@ -6650,7 +6650,7 @@ of the file) from the L<Fcntl> module.  Returns C<1> on success, false
 otherwise.
 
 Note the emphasis on bytes: even if the filehandle has been set to operate
-on characters (for example using the C<:encoding(utf8)> I/O layer), the
+on characters (for example using the C<:encoding(UTF-8)> I/O layer), the
 L<C<seek>|/seek FILEHANDLE,POSITION,WHENCE>,
 L<C<tell>|/tell FILEHANDLE>, and
 L<C<sysseek>|/sysseek FILEHANDLE,POSITION,WHENCE>
@@ -6889,7 +6889,7 @@ Note the I<characters>: depending on the status of the socket, either
 (8-bit) bytes or characters are sent.  By default all sockets operate
 on bytes, but for example if the socket has been changed using
 L<C<binmode>|/binmode FILEHANDLE, LAYER> to operate with the
-C<:encoding(utf8)> I/O layer (see L<C<open>|/open FILEHANDLE,EXPR>, or
+C<:encoding(UTF-8)> I/O layer (see L<C<open>|/open FILEHANDLE,EXPR>, or
 the L<open> pragma), the I/O will operate on UTF-8
 encoded Unicode characters, not bytes.  Similarly for the C<:encoding>
 layer: in that case pretty much any characters can be sent.
@@ -7167,9 +7167,7 @@ If the subroutine's prototype is C<($$)>, the elements to be compared are
 passed by reference in L<C<@_>|perlvar/@_>, as for a normal subroutine.
 This is slower than unprototyped subroutines, where the elements to be
 compared are passed into the subroutine as the package global variables
-C<$a> and C<$b> (see example below).  Note that in the latter case, it
-is usually highly counter-productive to declare C<$a> and C<$b> as
-lexicals.
+C<$a> and C<$b> (see example below).
 
 If the subroutine is an XSUB, the elements to be compared are pushed on
 to the stack, the way arguments are usually passed to XSUBs.  C<$a> and
@@ -7314,16 +7312,63 @@ C<find_records()> then you can use:
     my @contact = sort(find_records @key);
     my @contact = sort(find_records (@key));
 
-You I<must not> declare C<$a>
-and C<$b> as lexicals.  They are package globals.  That means
-that if you're in the C<main> package and type
+C<$a> and C<$b> are set as package globals in the package the sort() is
+called from.  That means C<$main::a> and C<$main::b> (or C<$::a> and
+C<$::b>) in the C<main> package, C<$FooPack::a> and C<$FooPack::b> in the
+C<FooPack> package, etc.  If the sort block is in scope of a C<my> or
+C<state> declaration of C<$a> and/or C<$b>, you I<must> spell out the full
+name of the variables in the sort block :
 
-    my @articles = sort {$b <=> $a} @files;
+   package main;
+   my $a = "C"; # DANGER, Will Robinson, DANGER !!!
 
-then C<$a> and C<$b> are C<$main::a> and C<$main::b> (or C<$::a> and C<$::b>),
-but if you're in the C<FooPack> package, it's the same as typing
+   print sort { $a cmp $b }               qw(A C E G B D F H);
+                                          # WRONG
+   sub badlexi { $a cmp $b }
+   print sort badlexi                     qw(A C E G B D F H);
+                                          # WRONG
+   # the above prints BACFEDGH or some other incorrect ordering
 
-    my @articles = sort {$FooPack::b <=> $FooPack::a} @files;
+   print sort { $::a cmp $::b }           qw(A C E G B D F H);
+                                          # OK
+   print sort { our $a cmp our $b }       qw(A C E G B D F H);
+                                          # also OK
+   print sort { our ($a, $b); $a cmp $b } qw(A C E G B D F H);
+                                          # also OK
+   sub lexi { our $a cmp our $b }
+   print sort lexi                        qw(A C E G B D F H);
+                                          # also OK
+   # the above print ABCDEFGH
+
+With proper care you may mix package and my (or state) C<$a> and/or C<$b>:
+
+   my $a = {
+      tiny   => -2,
+      small  => -1,
+      normal => 0,
+      big    => 1,
+      huge   => 2
+   };
+
+   say sort { $a->{our $a} <=> $a->{our $b} }
+       qw{ huge normal tiny small big};
+
+   # prints tinysmallnormalbighuge
+
+C<$a> and C<$b> are implicitely local to the sort() execution and regain their
+former values upon completing the sort.
+
+Sort subroutines written using C<$a> and C<$b> are bound to their calling
+package. It is possible, but of limited interest, to define them in a
+different package, since the subroutine must still refer to the calling
+package's C<$a> and C<$b> :
+
+   package Foo;
+   sub lexi { $Bar::a cmp $Bar::b }
+   package Bar;
+   ... sort Foo::lexi ...
+
+Use the prototyped versions (see above) for a more generic alternative.
 
 The comparison function is required to behave.  If it returns
 inconsistent results (sometimes saying C<$x[1]> is less than C<$x[2]> and
@@ -8490,7 +8535,7 @@ to the current position plus POSITION; and C<2> to set it to EOF plus
 POSITION, typically negative.
 
 Note the emphasis on bytes: even if the filehandle has been set to operate
-on characters (for example using the C<:encoding(utf8)> I/O layer), the
+on characters (for example using the C<:encoding(UTF-8)> I/O layer), the
 L<C<seek>|/seek FILEHANDLE,POSITION,WHENCE>,
 L<C<tell>|/tell FILEHANDLE>, and
 L<C<sysseek>|/sysseek FILEHANDLE,POSITION,WHENCE>
@@ -8657,7 +8702,7 @@ the actual filehandle.  If FILEHANDLE is omitted, assumes the file
 last read.
 
 Note the emphasis on bytes: even if the filehandle has been set to operate
-on characters (for example using the C<:encoding(utf8)> I/O layer), the
+on characters (for example using the C<:encoding(UTF-8)> I/O layer), the
 L<C<seek>|/seek FILEHANDLE,POSITION,WHENCE>,
 L<C<tell>|/tell FILEHANDLE>, and
 L<C<sysseek>|/sysseek FILEHANDLE,POSITION,WHENCE>

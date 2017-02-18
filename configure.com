@@ -66,8 +66,6 @@ $ dynamic_ext = ""
 $ nonxs_ext = ""
 $ nonxs_ext2 = ""
 $ vms_default_directory_name = F$ENVIRONMENT("DEFAULT")
-$ max_allowed_dir_depth = 3  ! e.g. [A.B.PERLxxx] not [A.B.C.PERLxxx]
-$! max_allowed_dir_depth = 2 ! e.g. [A.PERLxxx] not [A.B.PERLxxx]
 $!
 $! Sebastian Bazley's request: close the CONFIG handle with /NOLOG
 $! qualifier "just in case" (configure.com is re @ed in a bad state).
@@ -447,28 +445,27 @@ $     GOTO Beyond_manifest
 $   ENDIF
 $ ELSE
 $! MANIFEST. has been found and we have set def'ed there.
-$! Time to bail out before it's too late, i.e. too deep.
-$! Depth check is unnecessary on Alpha VMS V7.2++ (even for ODS-2).
-$   tmp = f$extract(1,3,f$edit(f$getsyi("VERSION"),"TRIM,COLLAPSE"))
-$   IF (tmp .GES. "7.2") .AND. (F$GETSYI("HW_MODEL") .GE. 1024) THEN GOTO Beyond_depth_check
-$! Depth check also unnecessary on ODS 5 (or later) file systems.
-$   tmp = F$INTEGER(F$GETDVI(F$ENVIRONMENT("DEFAULT"),"ACPTYPE") - "F11V")
-$   IF (tmp .GE. 5) THEN GOTO Beyond_depth_check
-$   IF (F$ELEMENT(max_allowed_dir_depth,".",F$ENVIRONMENT("DEFAULT")).nes.".")
-$   THEN
-$     TYPE SYS$INPUT:
-$     DECK
-%Config-E-VMS, ERROR:
- Sorry! It apears as though your perl build sub-directory is already too
- deep into the VMS file system. Please try moving stuff into a shallower 
- directory (or altering the "max_allowed_dir_depth" parameter).
-$     EOD
-$     echo4 "ABORTING..."
-$     SET DEFAULT 'vms_default_directory_name' !be kind rewind
-$     STOP
-$     EXIT !2 !$STATUS = "%X00000002" (error)
-$   ENDIF
-$Beyond_depth_check:
+$!
+$ escape_extended_chars: subroutine
+$   string = 'p1' ! It's the name of the symbol
+$   chars_to_escape = p2
+$   sindex = 0
+$   slength = f$length(string)
+$   loop_over_chars:
+$     if sindex .eq. slength then goto end_loop_over_chars
+$     char = f$extract(sindex, 1, string)
+$     if f$locate(char, chars_to_escape) .lt. f$length(chars_to_escape)
+$     then
+$       string = f$extract(0, sindex, string) + "^" + f$extract(sindex, slength, string)
+$       slength = slength + 1 ! we've increased overall length by 1
+$       sindex = sindex + 1   ! don't check the char we just escaped again
+$     endif
+$     sindex = sindex + 1
+$     goto loop_over_chars
+$ end_loop_over_chars:
+$ 'p1' == string
+$!
+$ endsubroutine
 $!
 $! after finding MANIFEST let's create (but not yet enter) the UU subdirectory
 $!
@@ -511,6 +508,9 @@ $       line = F$EDIT(line,"TRIM, COMPRESS")
 $       file_2_find = F$EXTRACT(0,F$LOCATE(" ",line),line) 
 $       IF F$LOCATE("/",file_2_find) .NE. F$LENGTH(file_2_find) 
 $       THEN 
+$         escaped_fname == file_2_find
+$         call escape_extended_chars escaped_fname "~!#&\'`()+@{},;[]%^=\"
+$         file_2_find = escaped_fname
 $Re_strip_line_manifest:
 $         loca = F$LOCATE("/",file_2_find)
 $         ante = F$EXTRACT(0,loca,file_2_find)
@@ -5533,10 +5533,9 @@ $ IF use64bitint .OR. use64bitint .EQS. "define"
 $ THEN
 $   ivtype = "''i64type'"
 $   uvtype = "''u64type'"
-$ ELSE
-$   i64size="undef"
-$   u64size="undef"
 $ ENDIF
+$ i64size="8"
+$ u64size="8"
 $!
 $ doublemantbits = "52"
 $ IF uselongdouble .OR. uselongdouble .EQS. "define"
@@ -5550,7 +5549,6 @@ $!
 $ tmp = "''ivtype'"
 $ GOSUB type_size_check
 $ ivsize = tmp
-$ IF use64bitint .OR. use64bitint .EQS. "define" THEN i64size = tmp
 $ IF ivtype .eqs. "long"
 $ THEN longsize = tmp
 $ ELSE
@@ -5562,7 +5560,6 @@ $!
 $ tmp = "''uvtype'"
 $ GOSUB type_size_check
 $ uvsize = tmp
-$ IF use64bitint .OR. use64bitint .EQS. "define" THEN u64size = tmp
 $!
 $ tmp = "''i8type'"
 $ GOSUB type_size_check
@@ -7410,7 +7407,6 @@ $ ENDIF
 $ WRITE CONFIG "$!"
 $ WRITE CONFIG "$! Symbols for Perl-based utility programs:"
 $ WRITE CONFIG "$!"
-$ WRITE CONFIG "$ c2ph       == """ + perl_setup_perl + " ''vms_prefix':[utils]c2ph.com"""
 $ WRITE CONFIG "$ corelist   == """ + perl_setup_perl + " ''vms_prefix':[utils]corelist.com"""
 $ WRITE CONFIG "$ cpan       == """ + perl_setup_perl + " ''vms_prefix':[utils]cpan.com"""
 $ WRITE CONFIG "$ enc2xs     == """ + perl_setup_perl + " ''vms_prefix':[utils]enc2xs.com"""
@@ -7433,7 +7429,6 @@ $ WRITE CONFIG "$ pod2usage  == """ + perl_setup_perl + " ''vms_prefix':[utils]p
 $ WRITE CONFIG "$ podchecker == """ + perl_setup_perl + " ''vms_prefix':[utils]podchecker.com"""
 $ WRITE CONFIG "$ podselect  == """ + perl_setup_perl + " ''vms_prefix':[utils]podselect.com"""
 $ WRITE CONFIG "$ prove      == """ + perl_setup_perl + " ''vms_prefix':[utils]prove.com"""
-$ WRITE CONFIG "$ pstruct    == """ + perl_setup_perl + " ''vms_prefix':[utils]pstruct.com"""
 $ WRITE CONFIG "$ ptar       == """ + perl_setup_perl + " ''vms_prefix':[utils]ptar.com"""
 $ WRITE CONFIG "$ ptardiff   == """ + perl_setup_perl + " ''vms_prefix':[utils]ptardiff.com"""
 $ WRITE CONFIG "$ ptargrep   == """ + perl_setup_perl + " ''vms_prefix':[utils]ptargrep.com"""

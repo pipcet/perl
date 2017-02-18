@@ -630,7 +630,7 @@ PP(pp_open)
 
 	if (IoDIRP(io))
 	    Perl_ck_warner_d(aTHX_ packWARN2(WARN_IO, WARN_DEPRECATED),
-			     "Opening dirhandle %" HEKf " also as a file",
+			     "Opening dirhandle %" HEKf " also as a file. This will be a fatal error in Perl 5.28",
 			     HEKfARG(GvENAME_HEK(gv)));
 
 	mg = SvTIED_mg((const SV *)io, PERL_MAGIC_tiedscalar);
@@ -953,13 +953,26 @@ PP(pp_tie)
 	 */
        stash = gv_stashsv(*MARK, 0);
        if (!stash) {
-           SV *stashname = SvOK(*MARK) ? *MARK : &PL_sv_no;
-           if (!SvCUR(*MARK)) {
-               stashname = sv_2mortal(newSVpvs("main"));
+           if (SvROK(*MARK))
+               DIE(aTHX_ "Can't locate object method \"%s\" via package \"%" SVf "\"",
+                   methname, SVfARG(*MARK));
+           else if (isGV(*MARK)) {
+               /* If the glob doesn't name an existing package, using
+                * SVfARG(*MARK) would yield "*Foo::Bar" or *main::Foo. So
+                * generate the name for the error message explicitly. */
+               SV *stashname = sv_2mortal(newSV(0));
+               gv_fullname4(stashname, (GV *) *MARK, NULL, FALSE);
+               DIE(aTHX_ "Can't locate object method \"%s\" via package \"%" SVf "\"",
+                   methname, SVfARG(stashname));
            }
-           DIE(aTHX_ "Can't locate object method \"%s\" via package \"%" SVf "\""
-               " (perhaps you forgot to load \"%" SVf "\"?)",
-               methname, SVfARG(stashname), SVfARG(stashname));
+           else {
+               SV *stashname = !SvPOK(*MARK) ? &PL_sv_no
+                             : SvCUR(*MARK)  ? *MARK
+                             :                 sv_2mortal(newSVpvs("main"));
+               DIE(aTHX_ "Can't locate object method \"%s\" via package \"%" SVf "\""
+                   " (perhaps you forgot to load \"%" SVf "\"?)",
+                   methname, SVfARG(stashname), SVfARG(stashname));
+           }
        }
        else if (!(gv = gv_fetchmethod(stash, methname))) {
            /* The effective name can only be NULL for stashes that have
@@ -1719,7 +1732,8 @@ PP(pp_sysread)
     if ((fp_utf8 = PerlIO_isutf8(IoIFP(io))) && !IN_BYTES) {
         if (PL_op->op_type == OP_SYSREAD || PL_op->op_type == OP_RECV) {
             Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                             "%s() is deprecated on :utf8 handles",
+                             "%s() is deprecated on :utf8 handles. "
+                             "This will be a fatal error in Perl 5.30",
                              OP_DESC(PL_op));
         }
 	buffer = SvPVutf8_force(bufsv, blen);
@@ -1982,7 +1996,8 @@ PP(pp_syswrite)
 
     if (PerlIO_isutf8(IoIFP(io))) {
         Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                         "%s() is deprecated on :utf8 handles",
+                         "%s() is deprecated on :utf8 handles. "
+                         "This will be a fatal error in Perl 5.30",
                          OP_DESC(PL_op));
 	if (!SvUTF8(bufsv)) {
 	    /* We don't modify the original scalar.  */
@@ -3598,14 +3613,14 @@ PP(pp_fttext)
         }
         else
 #endif
-        if (isPRINT_A(*s)
-                   /* VT occurs so rarely in text, that we consider it odd */
-                || (isSPACE_A(*s) && *s != VT_NATIVE)
+             if (  isPRINT_A(*s)
+                    /* VT occurs so rarely in text, that we consider it odd */
+                 || (isSPACE_A(*s) && *s != VT_NATIVE)
 
                     /* But there is a fair amount of backspaces and escapes in
                      * some text */
-                || *s == '\b'
-                || *s == ESC_NATIVE)
+                 || *s == '\b'
+                 || *s == ESC_NATIVE)
         {
             continue;
         }
@@ -4008,7 +4023,7 @@ PP(pp_open_dir)
 
     if ((IoIFP(io) || IoOFP(io)))
 	Perl_ck_warner_d(aTHX_ packWARN2(WARN_IO, WARN_DEPRECATED),
-			 "Opening filehandle %" HEKf " also as a directory",
+			 "Opening filehandle %" HEKf " also as a directory. This will be a fatal error in Perl 5.28",
 			     HEKfARG(GvENAME_HEK(gv)) );
     if (IoDIRP(io))
 	PerlDir_close(IoDIRP(io));

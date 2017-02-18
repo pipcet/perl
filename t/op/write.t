@@ -98,7 +98,7 @@ for my $tref ( @NumTests ){
 my $bas_tests = 21;
 
 # number of tests in section 3
-my $bug_tests = 66 + 3 * 3 * 5 * 2 * 3 + 2 + 66 + 4 + 2 + 3 + 96 + 11 + 4;
+my $bug_tests = 66 + 3 * 3 * 5 * 2 * 3 + 2 + 66 + 6 + 2 + 3 + 96 + 11 + 14;
 
 # number of tests in section 4
 my $hmb_tests = 37;
@@ -1562,6 +1562,22 @@ ok  defined *{$::{CmT}}{FORMAT}, "glob assign";
     formline $format, $orig, 12345;
     is $^A, ("x" x 100) . " 12345\n", "\@* doesn't overflow";
 
+    # ...nor this (RT #130703).
+    # Under 'use bytes', the two bytes (c2, 80) making up each \x80 char
+    # each get expanded to two bytes (so four in total per \x80 char); the
+    # buffer growth wasn't accounting for this doubling in size
+
+    {
+        local $^A = '';
+        my $format = "X\n\x{100}" . ("\x80" x 200);
+        my $expected = $format;
+        utf8::encode($expected);
+        use bytes;
+        formline($format);
+        is $^A, $expected, "RT #130703";
+    }
+
+
     # make sure it can cope with formats > 64k
 
     $format = 'x' x 65537;
@@ -1636,6 +1652,23 @@ formline $zamm;
 printf ">%s<\n", ref $zamm;
 print "$zamm->[0]\n";
 EOP
+
+# [perl #129125] - detected by -fsanitize=address or valgrind
+# the compiled format would be freed when the format string was modified
+# by the chop operator
+fresh_perl_is(<<'EOP', "^", { stderr => 1 }, '#129125 - chop on format');
+my $x = '^@';
+formline$x=>$x;
+print $^A;
+EOP
+
+fresh_perl_is(<<'EOP', '<^< xx AA><xx ^<><>', { stderr => 1 }, '#129125 - chop on format, later values');
+my $x = '^< xx ^<';
+my $y = 'AA';
+formline $x => $x, $y;
+print "<$^A><$x><$y>";
+EOP
+
 
 # [perl #73690]
 
@@ -1984,6 +2017,29 @@ EOP
     { stderr => 1 },
     '#128255 Assert fail in S_sublex_done');
 
+{
+    $^A = "";
+    my $a = *globcopy;
+    my $r = eval { formline "^<<", $a };
+    is $@, "";
+    ok $r, "^ format with glob copy";
+    is $^A, "*ma", "^ format with glob copy";
+    is $a, "in::globcopy", "^ format with glob copy";
+}
+
+{
+    $^A = "";
+    my $r = eval { formline "^<<", *realglob };
+    like $@, qr/\AModification of a read-only value attempted /;
+    is $r, undef, "^ format with real glob";
+    is $^A, "*ma", "^ format with real glob";
+    is ref(\*realglob), "GLOB";
+}
+
+$^A = "";
+
+# [perl #130722] assertion failure
+fresh_perl_is('for(1..2){formline*0}', '', { stderr => 1 } , "#130722 - assertion failure");
 
 #############################
 ## Section 4

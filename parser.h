@@ -42,9 +42,9 @@ typedef struct yy_parser {
     /* Number of tokens to shift before error messages enabled.  */
     int		    yyerrstatus;
 
-    int		    stack_size;
     int		    yylen;	/* length of active reduction */
     yy_stack_frame  *stack;	/* base of stack */
+    yy_stack_frame  *stack_max1;/* (top-1)th element of allocated stack */
     yy_stack_frame  *ps;	/* current stack frame */
 
     /* lexer state */
@@ -114,6 +114,8 @@ typedef struct yy_parser {
     IV          sig_elems;      /* number of signature elements seen so far */
     IV          sig_optelems;   /* number of optional signature elems seen */
     char        sig_slurpy;     /* the sigil of the slurpy var (or null) */
+
+    bool        recheck_utf8_validity;
 
     PERL_BITFIELD16	in_pod:1;      /* lexer is within a =pod section */
     PERL_BITFIELD16	filtered:1;    /* source filters in evalbytes */

@@ -107,7 +107,7 @@ my $HintShift;
 my $HintMask;
 my $Uni8Bit;
 
-open "perl.h", "perl.h" or die "$0 cannot open perl.h: $!";
+open "perl.h", "<", "perl.h" or die "$0 cannot open perl.h: $!";
 while (readline "perl.h") {
     next unless /#\s*define\s+(HINT_FEATURE_MASK|HINT_UNI_8_BIT)/;
     my $is_u8b = $1 =~ 8;
@@ -367,7 +367,7 @@ read_only_bottom_close_and_rename($h);
 __END__
 package feature;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 FEATURES
 
@@ -484,7 +484,9 @@ potentially using Unicode in your program, the
 C<use feature 'unicode_strings'> subpragma is B<strongly> recommended.
 
 This feature is available starting with Perl 5.12; was almost fully
-implemented in Perl 5.14; and extended in Perl 5.16 to cover C<quotemeta>.
+implemented in Perl 5.14; and extended in Perl 5.16 to cover C<quotemeta>;
+and extended further in Perl 5.26 to cover L<the range
+operator|perlop/Range Operators>.
 
 =head2 The 'unicode_eval' and 'evalbytes' features
 

@@ -761,7 +761,11 @@ S_openn_cleanup(pTHX_ GV *gv, IO *io, PerlIO *fp, char *mode, const char *oname,
 #if defined(HAS_FCNTL) && defined(F_SETFD)
 		/* The dup trick has lost close-on-exec on ofd,
                  * and possibly any other flags, so restore them. */
-		fcntl(ofd,F_SETFD, fd_flags);
+		if (fcntl(ofd,F_SETFD, fd_flags) < 0) {
+                    if (dupfd >= 0)
+                        PerlLIO_close(dupfd);
+                    goto say_false;
+                }
 #endif
                 PerlLIO_close(dupfd);
 	    }
@@ -2080,7 +2084,7 @@ nothing in the core.
 #undef APPLY_TAINT_PROPER
 }
 
-/* Do the permissions allow some operation?  Assumes statcache already set. */
+/* Do the permissions in *statbufp allow some operation? */
 #ifndef VMS /* VMS' cando is in vms.c */
 bool
 Perl_cando(pTHX_ Mode_t mode, bool effective, const Stat_t *statbufp)
@@ -2113,7 +2117,7 @@ Perl_cando(pTHX_ Mode_t mode, bool effective, const Stat_t *statbufp)
      /* Atari stat() does pretty much the same thing. we set x_bit_set_in_stat
       * too so it will actually look into the files for magic numbers
       */
-     return (mode & statbufp->st_mode) ? TRUE : FALSE;
+    return cBOOL(mode & statbufp->st_mode);
 
 #else /* ! DOSISH */
 # ifdef __CYGWIN__

@@ -23,7 +23,7 @@ BEGIN {
     skip_all('no re module') unless defined &DynaLoader::boot_DynaLoader;
     skip_all_without_unicode_tables();
 
-plan tests => 827;  # Update this when adding/deleting tests.
+plan tests => 837;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -1860,6 +1860,61 @@ EOF_CODE
             like($got[5],qr/Error: Infinite recursion via empty pattern/,
            "empty pattern in regex codeblock: produced the right exception message" );
         }
+    {
+        # [perl #130495] /x comment skipping stopped a byte short, leading
+        # to assertion failure or 'malformed utf-8 character" warning
+        fresh_perl_is(
+            "use utf8; m{a#\x{124}}x", '', {wide_chars => 1},
+            '[perl #130495] utf-8 character at end of /x comment should not misparse',
+        );
+    }
+    {
+        # [perl #130522] causes out-of-bounds read detected by clang with
+        # address=sanitized when length of the STCLASS string is greater than
+        # length of target string.
+        my $re = qr{(?=\0z)\0?z?$}i;
+        my($yes, $no) = (1, "");
+        for my $test (
+            [ $no,  undef,   '<undef>' ],
+            [ $no,  '',      '' ],
+            [ $no,  "\0",    '\0' ],
+            [ $yes, "\0z",   '\0z' ],
+            [ $no,  "\0z\0", '\0z\0' ],
+            [ $yes, "\0z\n", '\0z\n' ],
+        ) {
+            my($result, $target, $disp) = @$test;
+            no warnings qw/uninitialized/;
+            is($target =~ $re, $result, "[perl #130522] with target '$disp'");
+        }
+    }
+    {
+	# [perl #129377] backref to an unmatched capture should not cause
+	# reading before start of string.
+	SKIP: {
+	    skip "no re-debug under miniperl" if is_miniperl;
+	    my $prog = <<'EOP';
+use re qw(Debug EXECUTE);
+"x" =~ m{ () y | () \1 }x;
+EOP
+	    fresh_perl_like($prog, qr{
+		\A (?! .* ^ \s+ - )
+	    }msx, { stderr => 1 }, "Offsets in debug output are not negative");
+	}
+    }
+    {
+        # buffer overflow
+        fresh_perl_is("BEGIN{\$^H=0x200000}\ns/[(?{//xx",
+                      "Unmatched [ in regex; marked by <-- HERE in m/[ <-- HERE (?{/ at (eval 1) line 1.\n",
+                      {}, "buffer overflow for regexp component");
+    }
+    {
+        # [perl #129281] buffer write overflow, detected by ASAN, valgrind
+        fresh_perl_is('/0(?0)|^*0(?0)|^*(^*())0|/', '', {}, "don't bump whilem_c too much");
+    }
 } # End of sub run_tests
 
 1;
+
+#
+# ex: set ts=8 sts=4 sw=4 et:
+#

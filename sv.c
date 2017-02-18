@@ -2915,8 +2915,8 @@ S_infnan_2pv(NV nv, char* buffer, size_t maxlen, char plus) {
       return 0;
     }
     assert((s == buffer + 3) || (s == buffer + 4));
-    *s++ = 0;
-    return s - buffer - 1; /* -1: excluding the zero byte */
+    *s = 0;
+    return s - buffer;
 }
 
 /*
@@ -4808,8 +4808,13 @@ Perl_sv_set_undef(pTHX_ SV *sv)
 
     if (type <= SVt_IV) {
         assert(!SvGMAGICAL(sv));
-        if (SvREADONLY(sv))
+        if (SvREADONLY(sv)) {
+            /* does undeffing PL_sv_undef count as modifying a read-only
+             * variable? Some XS code does this */
+            if (sv == &PL_sv_undef)
+                return;
             Perl_croak_no_modify();
+        }
 
         if (SvROK(sv)) {
             if (SvWEAKREF(sv))
@@ -4834,8 +4839,8 @@ Perl_sv_set_undef(pTHX_ SV *sv)
     if (isGV_with_GP(sv))
         Perl_ck_warner(aTHX_ packWARN(WARN_MISC),
                        "Undefined value assigned to typeglob");
-
-    SvOK_off(sv);
+    else
+        SvOK_off(sv);
 }
 
 
@@ -4980,6 +4985,8 @@ Perl_sv_setpvn(pTHX_ SV *const sv, const char *const ptr, const STRLEN len)
     PERL_ARGS_ASSERT_SV_SETPVN;
 
     SV_CHECK_THINKFIRST_COW_DROP(sv);
+    if (isGV_with_GP(sv))
+	Perl_croak_no_modify();
     if (!ptr) {
 	(void)SvOK_off(sv);
 	return;
@@ -8653,13 +8660,27 @@ Perl_sv_gets(pTHX_ SV *const sv, PerlIO *const fp, I32 append)
 	if (cnt > 0) {
             /* if there is a separator */
 	    if (rslen) {
-                /* loop until we hit the end of the read-ahead buffer */
-		while (cnt > 0) {		     /* this     |  eat */
-                    /* scan forward copying and searching for rslast as we go */
-		    cnt--;
-		    if ((*bp++ = *ptr++) == rslast)  /* really   |  dust */
-			goto thats_all_folks;	     /* screams  |  sed :-) */
-		}
+                /* find next rslast */
+                STDCHAR *p;
+
+                /* shortcut common case of blank line */
+                cnt--;
+                if ((*bp++ = *ptr++) == rslast)
+                    goto thats_all_folks;
+
+                p = (STDCHAR *)memchr(ptr, rslast, cnt);
+                if (p) {
+                    SSize_t got = p - ptr + 1;
+                    Copy(ptr, bp, got, STDCHAR);
+                    ptr += got;
+                    bp  += got;
+                    cnt -= got;
+                    goto thats_all_folks;
+                }
+                Copy(ptr, bp, cnt, STDCHAR);
+                ptr += cnt;
+                bp  += cnt;
+                cnt = 0;
 	    }
 	    else {
                 /* no separator, slurp the full buffer */
@@ -9304,7 +9325,14 @@ SV is set to 1.  If C<len> is zero, Perl will compute the length using
 C<strlen()>, (which means if you use this option, that C<s> can't have embedded
 C<NUL> characters and has to have a terminating C<NUL> byte).
 
-For efficiency, consider using C<newSVpvn> instead.
+This function can cause reliability issues if you are likely to pass in
+empty strings that are not null terminated, because it will run
+strlen on the string and potentially run past valid memory.
+
+Using L</newSVpvn> is a safer alternative for non C<NUL> terminated strings.
+For string literals use L</newSVpvs> instead.  This function will work fine for
+C<NUL> terminated strings, but if you want to avoid the if statement on whether
+to call C<strlen> use C<newSVpvn> instead (calling C<strlen> yourself).
 
 =cut
 */
@@ -12853,8 +12881,11 @@ Perl_sv_vcatpvfn_flags(pTHX_ SV *const sv, const char *const pat, const STRLEN p
                         Perl_croak_nocontext("panic: quadmath invalid format \"%s\"", ptr);
                     elen = quadmath_snprintf(PL_efloatbuf, PL_efloatsize,
                                              qfmt, nv);
-                    if ((IV)elen == -1)
+                    if ((IV)elen == -1) {
+                        if (qfmt != ptr)
+                            SAVEFREEPV(qfmt);
                         Perl_croak_nocontext("panic: quadmath_snprintf failed, format \"%s\"", qfmt);
+                    }
                     if (qfmt != ptr)
                         Safefree(qfmt);
                 }
@@ -13130,7 +13161,7 @@ Perl_parser_dup(pTHX_ const yy_parser *const proto, CLONE_PARAMS *const param)
     parser->old_parser = NULL;
     parser->stack = NULL;
     parser->ps = NULL;
-    parser->stack_size = 0;
+    parser->stack_max1 = 0;
     /* XXX parser->stack->state = 0; */
 
     /* XXX eventually, just Copy() most of the parser struct ? */
@@ -13173,6 +13204,7 @@ Perl_parser_dup(pTHX_ const yy_parser *const proto, CLONE_PARAMS *const param)
     parser->sig_elems	= proto->sig_elems;
     parser->sig_optelems= proto->sig_optelems;
     parser->sig_slurpy  = proto->sig_slurpy;
+    parser->recheck_utf8_validity = proto->recheck_utf8_validity;
     parser->linestr	= sv_dup_inc(proto->linestr, param);
 
     {
@@ -15311,6 +15343,7 @@ perl_clone_using(PerlInterpreter *proto_perl, UV flags,
     PL_GCB_invlist = sv_dup_inc(proto_perl->IGCB_invlist, param);
     PL_SB_invlist = sv_dup_inc(proto_perl->ISB_invlist, param);
     PL_WB_invlist = sv_dup_inc(proto_perl->IWB_invlist, param);
+    PL_seen_deprecated_macro = hv_dup_inc(proto_perl->Iseen_deprecated_macro, param);
     PL_utf8_mark	= sv_dup_inc(proto_perl->Iutf8_mark, param);
     PL_utf8_toupper	= sv_dup_inc(proto_perl->Iutf8_toupper, param);
     PL_utf8_totitle	= sv_dup_inc(proto_perl->Iutf8_totitle, param);

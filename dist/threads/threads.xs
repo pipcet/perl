@@ -1016,11 +1016,13 @@ S_ithread_create(
     MUTEX_UNLOCK(&my_pool->create_destruct_mutex);
     return (thread);
 
+#if defined(__clang__) || defined(__clang)
     CLANG_DIAG_IGNORE(-Wthread-safety);
     /* warning: mutex 'thread->mutex' is not held on every path through here [-Wthread-safety-analysis] */
+#endif
 }
 #if defined(__clang__) || defined(__clang)
-CLANG_DIAG_RESTORE;
+CLANG_DIAG_RESTORE
 #endif
 
 #endif /* USE_ITHREADS */

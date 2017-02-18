@@ -505,7 +505,7 @@ sub _optree {
     # can return the "else" value.
     return $else if !@conds;
 
-    my $test = $test_type =~ /^cp/ ? "cp" : "((U8*)s)[$depth]";
+    my $test = $test_type =~ /^cp/ ? "cp" : "((const U8*)s)[$depth]";
 
     # First we loop over the possible keys/conditions and find out what they
     # look like; we group conditions with the same optree together.
@@ -1467,7 +1467,7 @@ EOF
         {
             # Depend on mktables’ own sources.  It’s a shorter list of files than
             # those that Unicode::UCD uses.
-            if (! open my $mktables_list, $sources_list) {
+            if (! open my $mktables_list, '<', $sources_list) {
 
                 # This should force a rebuild once $sources_list exists
                 push @sources, $sources_list;

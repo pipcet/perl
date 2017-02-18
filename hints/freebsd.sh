@@ -105,6 +105,14 @@ case "$osvers" in
 	;;
 esac
 
+case "$osvers" in
+10.*)
+	# dtrace on 10.x needs libelf symbols, but we don't know if the
+	# user is going to request usedtrace and there's no .cbu for usedtrace
+	libswanted="$libswanted elf"
+	;;
+esac
+
 # Dynamic Loading flags have not changed much, so they are separated
 # out here to avoid duplicating them everywhere.
 case "$osvers" in
@@ -304,7 +312,7 @@ esac
 # XXX Under FreeBSD 6.0 (and probably most other similar versions)
 # Perl_die(NULL) generates a warning:
 #    pp_sys.c:491: warning: null format string
-# Configure supposedely tests for this, but apparently the test doesn't
+# Configure supposedly tests for this, but apparently the test doesn't
 # work.  Volunteers with FreeBSD are needed to improving the Configure test.
 # Meanwhile, the following workaround should be safe on all versions
 # of FreeBSD.
