@@ -23,7 +23,7 @@ BEGIN {
     skip_all('no re module') unless defined &DynaLoader::boot_DynaLoader;
     skip_all_without_unicode_tables();
 
-plan tests => 837;  # Update this when adding/deleting tests.
+plan tests => 843;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -138,6 +138,21 @@ sub run_tests {
         $null = "";
         $xyz =~ /$null/;
         is($&, $xyz, $message);
+
+        # each entry: regexp, match string, $&, //o match success
+        my @tests =
+          (
+           [ "", "xy", "x", 1 ],
+           [ "y", "yz", "y", !1 ],
+          );
+        for my $test (@tests) {
+            my ($re, $str, $matched, $omatch) = @$test;
+            $xyz =~ /x/o;
+            ok($str =~ /$re/, "$str matches /$re/");
+            is($&, $matched, "on $matched");
+            $xyz =~ /x/o;
+            is($str =~ /$re/o, $omatch, "$str matches /$re/o (or not)");
+        }
     }
 
     {
@@ -1814,11 +1829,6 @@ EOP
             ok($AE =~ $re, '/[\xE6\s]/i matches \xC6 when in UTF-8');
         }
 
-        {   # [perl #126606 crashed the interpreter
-            no warnings 'deprecated';
-            like("sS", qr/\N{}Ss|/i, "\N{} with empty branch alternation works");
-        }
-
         {
             is(0+("\n" =~ m'\n'), 1, q|m'\n' should interpolate escapes|);
         }
@@ -1911,6 +1921,17 @@ EOP
         # [perl #129281] buffer write overflow, detected by ASAN, valgrind
         fresh_perl_is('/0(?0)|^*0(?0)|^*(^*())0|/', '', {}, "don't bump whilem_c too much");
     }
+
+    {
+        # RT #131575 intuit skipping back from the end to find the highest
+        # possible start point, was potentially hopping back beyond pos()
+        # and crashing by calling fbm_instr with a negative length
+
+        my $text = "=t=\x{5000}";
+        pos($text) = 3;
+        ok(scalar($text !~ m{(~*=[a-z]=)}g), "RT #131575");
+    }
+
 } # End of sub run_tests
 
 1;

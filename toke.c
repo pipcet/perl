@@ -464,13 +464,6 @@ S_printbuf(pTHX_ const char *const fmt, const char *const s)
 
 #endif
 
-static int
-S_deprecate_commaless_var_list(pTHX) {
-    PL_expect = XTERM;
-    deprecate_fatal_in("5.28", "Use of comma-less variable list is deprecated");
-    return REPORT(','); /* grandfather non-comma-format format */
-}
-
 /*
  * S_ao
  *
@@ -2595,8 +2588,9 @@ S_get_and_check_backslash_N_name(pTHX_ const char* s, const char* const e)
     PERL_ARGS_ASSERT_GET_AND_CHECK_BACKSLASH_N_NAME;
 
     if (!SvCUR(res)) {
-        deprecate_fatal_in("5.28", "Unknown charname '' is deprecated");
-        return res;
+        /* diag_listed_as: Unknown charname '%s' */
+        yyerror("Unknown charname ''");
+        return NULL;
     }
 
     res = new_constant( NULL, 0, "charnames", res, NULL, backslash_ptr,
@@ -3275,18 +3269,18 @@ S_scan_const(pTHX_ char *start)
 #endif
                 /* Always gets run for ASCII, and sometimes for EBCDIC. */
                 {
-                    SSize_t i;
-
                     /* Here, no conversions are necessary, which means that the
                      * first character in the range is already in 'd' and
                      * valid, so we can skip overwriting it */
                     if (has_utf8) {
+                        SSize_t i;
                         d += UTF8SKIP(d);
                         for (i = range_min + 1; i <= range_max; i++) {
                             append_utf8_from_native_byte((U8) i, (U8 **) &d);
                         }
                     }
                     else {
+                        SSize_t i;
                         d++;
                         assert(range_min + 1 <= range_max);
                         for (i = range_min + 1; i < range_max; i++) {
@@ -5164,12 +5158,23 @@ Perl_yylex(pTHX)
         else {
             c = Perl_form(aTHX_ "\\x%02X", (unsigned char)*s);
         }
-        len = UTF ? Perl_utf8_length(aTHX_ (U8 *) PL_linestart, (U8 *) s) : (STRLEN) (s - PL_linestart);
-        if (len > UNRECOGNIZED_PRECEDE_COUNT) {
-            d = UTF ? (char *) utf8_hop_back((U8 *) s, -UNRECOGNIZED_PRECEDE_COUNT, (U8 *)PL_linestart) : s - UNRECOGNIZED_PRECEDE_COUNT;
-        } else {
+
+        if (s >= PL_linestart) {
             d = PL_linestart;
         }
+        else {
+            /* somehow (probably due to a parse failure), PL_linestart has advanced
+             * pass PL_bufptr, get a reasonable beginning of line
+             */
+            d = s;
+            while (d > SvPVX(PL_linestr) && d[-1] && d[-1] != '\n')
+                --d;
+        }
+        len = UTF ? Perl_utf8_length(aTHX_ (U8 *) d, (U8 *) s) : (STRLEN) (s - d);
+        if (len > UNRECOGNIZED_PRECEDE_COUNT) {
+            d = UTF ? (char *) utf8_hop_back((U8 *) s, -UNRECOGNIZED_PRECEDE_COUNT, (U8 *)d) : s - UNRECOGNIZED_PRECEDE_COUNT;
+        }
+
         Perl_croak(aTHX_  "Unrecognized character %s; marked by <-- HERE after %" UTF8f "<-- HERE near column %d", c,
                           UTF8fARG(UTF, (s - d), d),
                          (int) len + 1);
@@ -5396,8 +5401,6 @@ Perl_yylex(pTHX)
 		d = instr(s,"perl -");
 		if (!d) {
 		    d = instr(s,"perl");
-                    if (d && d[4] == '6')
-                        d = NULL;
 #if defined(DOSISH)
 		    /* avoid getting into infinite loops when shebang
 		     * line contains "Perl" rather than "perl" */
@@ -5899,26 +5902,11 @@ Perl_yylex(pTHX)
 		    PL_lex_stuff = NULL;
 		}
 		else {
-		    if (len == 6 && strnEQ(SvPVX(sv), "unique", len)) {
-			sv_free(sv);
-			if (PL_in_my == KEY_our) {
-                            deprecate_disappears_in("5.28",
-                                "Attribute \"unique\" is deprecated");
-			}
-			else
-			    Perl_croak(aTHX_ "The 'unique' attribute may only be applied to 'our' variables");
-		    }
-
 		    /* NOTE: any CV attrs applied here need to be part of
 		       the CVf_BUILTIN_ATTRS define in cv.h! */
-		    else if (!PL_in_my && len == 6 && strnEQ(SvPVX(sv), "lvalue", len)) {
+		    if (!PL_in_my && len == 6 && strnEQ(SvPVX(sv), "lvalue", len)) {
 			sv_free(sv);
 			CvLVALUE_on(PL_compcv);
-		    }
-		    else if (!PL_in_my && len == 6 && strnEQ(SvPVX(sv), "locked", len)) {
-			sv_free(sv);
-                        deprecate_disappears_in("5.28",
-                            "Attribute \"locked\" is deprecated");
 		    }
 		    else if (!PL_in_my && len == 6 && strnEQ(SvPVX(sv), "method", len)) {
 			sv_free(sv);
@@ -6565,12 +6553,7 @@ Perl_yylex(pTHX)
     case '$':
 	CLINE;
 
-	if (PL_expect == XOPERATOR) {
-	    if (PL_lex_formbrack && PL_lex_brackets == PL_lex_formbrack) {
-		return deprecate_commaless_var_list();
-	    }
-	}
-	else if (PL_expect == XPOSTDEREF) {
+        if (PL_expect == XPOSTDEREF) {
 	    if (s[1] == '#') {
 		s++;
 		POSTDEREF(DOLSHARP);
@@ -6860,10 +6843,6 @@ Perl_yylex(pTHX)
 	TERM(THING);
 
     case '\'':
-	if (   PL_expect == XOPERATOR
-	    && (PL_lex_formbrack && PL_lex_brackets == PL_lex_formbrack))
-		return deprecate_commaless_var_list();
-
 	s = scan_str(s,FALSE,FALSE,FALSE,NULL);
 	if (!s)
 	    missingterm(NULL);
@@ -6876,10 +6855,6 @@ Perl_yylex(pTHX)
 	TERM(sublex_start());
 
     case '"':
-	if (   PL_expect == XOPERATOR
-	    && (PL_lex_formbrack && PL_lex_brackets == PL_lex_formbrack))
-		return deprecate_commaless_var_list();
-
 	s = scan_str(s,FALSE,FALSE,FALSE,NULL);
 	DEBUG_T( {
 	    if (s)
@@ -7913,6 +7888,7 @@ Perl_yylex(pTHX)
                 && isIDFIRST_lazy_if_safe(s, PL_bufend, UTF))
             {
 		char *p = s;
+                SSize_t s_off = s - SvPVX(PL_linestr);
 
 		if ((PL_bufend - p) >= 3
                     && strEQs(p, "my") && isSPACE(*(p + 2)))
@@ -7930,6 +7906,9 @@ Perl_yylex(pTHX)
 		}
 		if (*p != '$' && *p != '\\')
 		    Perl_croak(aTHX_ "Missing $ on loop variable");
+
+                /* The buffer may have been reallocated, update s */
+                s = SvPVX(PL_linestr) + s_off;
 	    }
 	    OPERATOR(FOR);
 
@@ -8880,7 +8859,8 @@ S_pending_ident(pTHX)
         if (PL_in_my == KEY_our) {	/* "our" is merely analogous to "my" */
             if (has_colon)
                 yyerror_pv(Perl_form(aTHX_ "No package name allowed for "
-                                  "variable %s in \"our\"",
+                                  "%se %s in \"our\"",
+                                  *PL_tokenbuf=='&' ?"subroutin":"variabl",
                                   PL_tokenbuf), UTF ? SVf_UTF8 : 0);
             tmp = allocmy(PL_tokenbuf, tokenbuf_len, UTF ? SVf_UTF8 : 0);
         }
@@ -9040,7 +9020,6 @@ S_checkcomma(pTHX_ const char *s, const char *name, const char *what)
 	    s++;
 	if (*s == ',') {
 	    GV* gv;
-	    PADOFFSET off;
 	    if (keyword(w, s - w, 0))
 		return;
 
@@ -9048,6 +9027,7 @@ S_checkcomma(pTHX_ const char *s, const char *name, const char *what)
 	    if (gv && GvCVu(gv))
 		return;
 	    if (s - w <= 254) {
+                PADOFFSET off;
 		char tmpbuf[256];
 		Copy(w, tmpbuf+1, s - w, char);
 		*tmpbuf = '&';
@@ -9384,19 +9364,36 @@ S_scan_ident(pTHX_ char *s, char *dest, STRLEN destlen, I32 ck_uni)
         bool skip;
         char *s2;
         /* If we were processing {...} notation then...  */
-        if (isIDFIRST_lazy_if_safe(d, e, is_utf8)) {
-            /* if it starts as a valid identifier, assume that it is one.
-               (the later check for } being at the expected point will trap
-               cases where this doesn't pan out.)  */
-            d += is_utf8 ? UTF8SKIP(d) : 1;
-            parse_ident(&s, &d, e, 1, is_utf8, TRUE);
-	    *d = '\0';
+        if (isIDFIRST_lazy_if_safe(d, e, is_utf8)
+            || (!isPRINT(*d) /* isCNTRL(d), plus all non-ASCII */
+                 && isWORDCHAR(*s))
+        ) {
+            /* note we have to check for a normal identifier first,
+             * as it handles utf8 symbols, and only after that has
+             * been ruled out can we look at the caret words */
+            if (isIDFIRST_lazy_if_safe(d, e, is_utf8) ) {
+                /* if it starts as a valid identifier, assume that it is one.
+                   (the later check for } being at the expected point will trap
+                   cases where this doesn't pan out.)  */
+                d += is_utf8 ? UTF8SKIP(d) : 1;
+                parse_ident(&s, &d, e, 1, is_utf8, TRUE);
+                *d = '\0';
+            }
+            else { /* caret word: ${^Foo} ${^CAPTURE[0]} */
+                d++;
+                while (isWORDCHAR(*s) && d < e) {
+                    *d++ = *s++;
+                }
+                if (d >= e)
+                    Perl_croak(aTHX_ "%s", ident_too_long);
+                *d = '\0';
+            }
             tmp_copline = CopLINE(PL_curcop);
             if (s < PL_bufend && isSPACE(*s)) {
                 s = skipspace(s);
             }
 	    if ((*s == '[' || (*s == '{' && strNE(dest, "sub")))) {
-                /* ${foo[0]} and ${foo{bar}} notation.  */
+                /* ${foo[0]} and ${foo{bar}} and ${^CAPTURE[0]} notation.  */
 		if (ckWARN(WARN_AMBIGUOUS) && keyword(dest, d - dest, 0)) {
 		    const char * const brack =
 			(const char *)
@@ -9414,19 +9411,6 @@ S_scan_ident(pTHX_ char *s, char *dest, STRLEN destlen, I32 ck_uni)
 		PL_lex_allbrackets++;
 		return s;
 	    }
-	}
-	/* Handle extended ${^Foo} variables
-	 * 1999-02-27 mjd-perl-patch@plover.com */
-	else if (! isPRINT(*d) /* isCNTRL(d), plus all non-ASCII */
-		 && isWORDCHAR(*s))
-	{
-	    d++;
-	    while (isWORDCHAR(*s) && d < e) {
-		*d++ = *s++;
-	    }
-	    if (d >= e)
-		Perl_croak(aTHX_ "%s", ident_too_long);
-	    *d = '\0';
 	}
 
         if ( !tmp_copline )
@@ -9878,7 +9862,7 @@ S_scan_heredoc(pTHX_ char *s)
 	else
 	    term = '"';
 	if (! isWORDCHAR_lazy_if_safe(s, PL_bufend, UTF))
-	    deprecate_fatal_in("5.28", "Use of bare << to mean <<\"\" is deprecated");
+	    Perl_croak(aTHX_ "Use of bare << to mean <<\"\" is forbidden");
 	peek = s;
         while (
                isWORDCHAR_lazy_if_safe(peek, PL_bufend, UTF))
@@ -11209,9 +11193,11 @@ Perl_scan_num(pTHX_ const char *start, YYSTYPE* lvalp)
               || UNLIKELY(hexfp && isALPHA_FOLD_EQ(*s, 'p')))
             && strchr("+-0123456789_", s[1]))
         {
-            floatit = TRUE;
+            int exp_digits = 0;
+            const char *save_s = s;
+            char * save_d = d;
 
-	    /* regardless of whether user said 3E5 or 3e5, use lower 'e',
+            /* regardless of whether user said 3E5 or 3e5, use lower 'e',
                ditto for p (hexfloats) */
             if ((isALPHA_FOLD_EQ(*s, 'e'))) {
 		/* At least some Mach atof()s don't grok 'E' */
@@ -11243,6 +11229,7 @@ Perl_scan_num(pTHX_ const char *start, YYSTYPE* lvalp)
 	    /* read digits of exponent */
 	    while (isDIGIT(*s) || *s == '_') {
 	        if (isDIGIT(*s)) {
+                    ++exp_digits;
 		    if (d >= e)
 		        Perl_croak(aTHX_ "%s", number_too_long);
 		    *d++ = *s++;
@@ -11254,6 +11241,20 @@ Perl_scan_num(pTHX_ const char *start, YYSTYPE* lvalp)
 		   lastub = s++;
 		}
 	    }
+
+            if (!exp_digits) {
+                /* no exponent digits, the [eEpP] could be for something else,
+                 * though in practice we don't get here for p since that's preparsed
+                 * earlier, and results in only the 0xX being consumed, so behave similarly
+                 * for decimal floats and consume only the D.DD, leaving the [eE] to the
+                 * next token.
+                 */
+                s = save_s;
+                d = save_d;
+            }
+            else {
+                floatit = TRUE;
+            }
 	}
 
 
@@ -11335,8 +11336,6 @@ Perl_scan_num(pTHX_ const char *start, YYSTYPE* lvalp)
 STATIC char *
 S_scan_formline(pTHX_ char *s)
 {
-    char *eol;
-    char *t;
     SV * const stuff = newSVpvs("");
     bool needargs = FALSE;
     bool eofmt = FALSE;
@@ -11344,8 +11343,9 @@ S_scan_formline(pTHX_ char *s)
     PERL_ARGS_ASSERT_SCAN_FORMLINE;
 
     while (!needargs) {
+        char *eol;
 	if (*s == '.') {
-	    t = s+1;
+            char *t = s+1;
 #ifdef PERL_STRICT_CR
 	    while (SPACE_OR_TAB(*t))
 		t++;
@@ -11362,6 +11362,7 @@ S_scan_formline(pTHX_ char *s)
 	if (!eol++)
 		eol = PL_bufend;
 	if (*s != '#') {
+            char *t;
 	    for (t = s; t < eol; t++) {
 		if (*t == '~' && t[1] == '~' && SvCUR(stuff)) {
 		    needargs = FALSE;

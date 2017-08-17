@@ -629,8 +629,7 @@ PP(pp_open)
 	IoFLAGS(GvIOp(gv)) &= ~IOf_UNTAINT;
 
 	if (IoDIRP(io))
-	    Perl_ck_warner_d(aTHX_ packWARN2(WARN_IO, WARN_DEPRECATED),
-			     "Opening dirhandle %" HEKf " also as a file. This will be a fatal error in Perl 5.28",
+	    Perl_croak(aTHX_ "Cannot open %" HEKf " as a filehandle: it is already open as a dirhandle",
 			     HEKfARG(GvENAME_HEK(gv)));
 
 	mg = SvTIED_mg((const SV *)io, PERL_MAGIC_tiedscalar);
@@ -656,7 +655,7 @@ PP(pp_open)
     if (ok)
 	PUSHi( (I32)PL_forkprocess );
     else if (PL_forkprocess == 0)		/* we are a new child */
-	PUSHi(0);
+	PUSHs(&PL_sv_zero);
     else
 	RETPUSHUNDEF;
     RETURN;
@@ -665,6 +664,8 @@ PP(pp_open)
 PP(pp_close)
 {
     dSP;
+    /* pp_coreargs pushes a NULL to indicate no args passed to
+     * CORE::close() */
     GV * const gv =
 	MAXARG == 0 || (!TOPs && !POPs) ? PL_defoutgv : MUTABLE_GV(POPs);
 
@@ -1150,6 +1151,7 @@ PP(pp_sselect)
     struct timeval *tbuf = &timebuf;
     I32 growsize;
     char *fd_sets[4];
+    SV *svs[4];
 #if BYTEORDER != 0x1234 && BYTEORDER != 0x12345678
 	I32 masksize;
 	I32 offset;
@@ -1165,7 +1167,7 @@ PP(pp_sselect)
 
     SP -= 4;
     for (i = 1; i <= 3; i++) {
-	SV * const sv = SP[i];
+	SV * const sv = svs[i] = SP[i];
 	SvGETMAGIC(sv);
 	if (!SvOK(sv))
 	    continue;
@@ -1178,9 +1180,14 @@ PP(pp_sselect)
 	    if (!SvPOKp(sv))
 		Perl_ck_warner(aTHX_ packWARN(WARN_MISC),
 				    "Non-string passed as bitmask");
-	    SvPV_force_nomg_nolen(sv);	/* force string conversion */
+	    if (SvGAMAGIC(sv)) {
+		svs[i] = sv_newmortal();
+		sv_copypv_nomg(svs[i], sv);
+	    }
+	    else
+		SvPV_force_nomg_nolen(sv); /* force string conversion */
 	}
-	j = SvCUR(sv);
+	j = SvCUR(svs[i]);
 	if (maxlen < j)
 	    maxlen = j;
     }
@@ -1229,7 +1236,7 @@ PP(pp_sselect)
 	tbuf = NULL;
 
     for (i = 1; i <= 3; i++) {
-	sv = SP[i];
+	sv = svs[i];
 	if (!SvOK(sv) || SvCUR(sv) == 0) {
 	    fd_sets[i] = 0;
 	    continue;
@@ -1276,7 +1283,7 @@ PP(pp_sselect)
 #endif
     for (i = 1; i <= 3; i++) {
 	if (fd_sets[i]) {
-	    sv = SP[i];
+	    sv = svs[i];
 #if BYTEORDER != 0x1234 && BYTEORDER != 0x12345678
 	    s = SvPVX(sv);
 	    for (offset = 0; offset < growsize; offset += masksize) {
@@ -1285,7 +1292,10 @@ PP(pp_sselect)
 	    }
 	    Safefree(fd_sets[i]);
 #endif
-	    SvSETMAGIC(sv);
+	    if (sv != SP[i])
+		SvSetMagicSV(SP[i], sv);
+	    else
+		SvSETMAGIC(sv);
 	}
     }
 
@@ -1361,6 +1371,8 @@ PP(pp_select)
 PP(pp_getc)
 {
     dSP; dTARGET;
+    /* pp_coreargs pushes a NULL to indicate no args passed to
+     * CORE::getc() */
     GV * const gv =
 	MAXARG==0 || (!TOPs && !POPs) ? PL_stdingv : MUTABLE_GV(POPs);
     IO *const io = GvIO(gv);
@@ -1432,7 +1444,6 @@ PP(pp_enterwrite)
     IO *io;
     GV *fgv;
     CV *cv = NULL;
-    SV *tmpsv = NULL;
 
     if (MAXARG == 0) {
 	EXTEND(SP, 1);
@@ -1456,7 +1467,7 @@ PP(pp_enterwrite)
 
     cv = GvFORM(fgv);
     if (!cv) {
-	tmpsv = sv_newmortal();
+        SV * const tmpsv = sv_newmortal();
 	gv_efullname4(tmpsv, fgv, NULL, FALSE);
 	DIE(aTHX_ "Undefined format \"%" SVf "\" called", SVfARG(tmpsv));
     }
@@ -1555,6 +1566,8 @@ PP(pp_leavewrite)
     cx_popblock(cx);
     retop = cx->blk_sub.retop;
     CX_POP(cx);
+
+    EXTEND(SP, 1);
 
     if (is_return)
         /* XXX the semantics of doing 'return' in a format aren't documented.
@@ -1660,7 +1673,7 @@ PP(pp_sysopen)
 
     /* Need TIEHANDLE method ? */
     const char * const tmps = SvPV_const(sv, len);
-    if (do_open_raw(gv, tmps, len, mode, perm)) {
+    if (do_open_raw(gv, tmps, len, mode, perm, NULL)) {
 	IoLINES(GvIOp(gv)) = 0;
 	PUSHs(&PL_sv_yes);
     }
@@ -1760,7 +1773,7 @@ PP(pp_sysread)
 	char namebuf[MAXPATHLEN];
         if (fd < 0) {
             SETERRNO(EBADF,SS_IVCHAN);
-            RETPUSHUNDEF;
+            goto say_undef;
         }
 #if (defined(VMS_DO_SOCKETS) && defined(DECCRTL_SOCKETS)) || defined(__QNXNTO__)
 	bufsize = sizeof (struct sockaddr_in);
@@ -1776,7 +1789,7 @@ PP(pp_sysread)
 	count = PerlSock_recvfrom(fd, buffer, length, offset,
 				  (struct sockaddr *)namebuf, &bufsize);
 	if (count < 0)
-	    RETPUSHUNDEF;
+            goto say_undef;
 	/* MSG_TRUNC can give oversized count; quietly lose it */
 	if (count > length)
 	    count = length;
@@ -3284,7 +3297,7 @@ PP(pp_ftis)
 	    break;
 	}
 	SvSETMAGIC(TARG);
-	return SvTRUE_nomg(TARG)
+	return SvTRUE_nomg_NN(TARG)
             ? S_ft_return_true(aTHX_ TARG) : S_ft_return_false(aTHX_ TARG);
     }
 }
@@ -3651,7 +3664,7 @@ PP(pp_chdir)
                                 "chdir() on unopened filehandle %" SVf, sv);
                 }
                 SETERRNO(EBADF,RMS_IFI);
-                PUSHi(0);
+                PUSHs(&PL_sv_zero);
                 TAINT_PROPER("chdir");
                 RETURN;
             }
@@ -3674,7 +3687,7 @@ PP(pp_chdir)
             tmps = SvPV_nolen_const(*svp);
         }
         else {
-            PUSHi(0);
+            PUSHs(&PL_sv_zero);
             SETERRNO(EINVAL, LIB_INVARG);
             TAINT_PROPER("chdir");
             RETURN;
@@ -3719,7 +3732,7 @@ PP(pp_chdir)
  nuts:
     report_evil_fh(gv);
     SETERRNO(EBADF,RMS_IFI);
-    PUSHi(0);
+    PUSHs(&PL_sv_zero);
     RETURN;
 #endif
 }
@@ -4022,9 +4035,8 @@ PP(pp_open_dir)
     IO * const io = GvIOn(gv);
 
     if ((IoIFP(io) || IoOFP(io)))
-	Perl_ck_warner_d(aTHX_ packWARN2(WARN_IO, WARN_DEPRECATED),
-			 "Opening filehandle %" HEKf " also as a directory. This will be a fatal error in Perl 5.28",
-			     HEKfARG(GvENAME_HEK(gv)) );
+	Perl_croak(aTHX_ "Cannot open %" HEKf " as a dirhandle: it is already open as a filehandle",
+			 HEKfARG(GvENAME_HEK(gv)));
     if (IoDIRP(io))
 	PerlDir_close(IoDIRP(io));
     if (!(IoDIRP(io) = PerlDir_open(dirname)))
@@ -4439,10 +4451,9 @@ PP(pp_system)
 	    if (did_pipes) {
 		int errkid;
 		unsigned n = 0;
-		SSize_t n1;
 
 		while (n < sizeof(int)) {
-		    n1 = PerlLIO_read(pp[0],
+                    const SSize_t n1 = PerlLIO_read(pp[0],
 				      (void*)(((char*)&errkid)+n),
 				      (sizeof(int)) - n);
 		    if (n1 <= 0)
@@ -4851,7 +4862,6 @@ PP(pp_alarm)
 PP(pp_sleep)
 {
     dSP; dTARGET;
-    I32 duration;
     Time_t lasttime;
     Time_t when;
 
@@ -4859,13 +4869,13 @@ PP(pp_sleep)
     if (MAXARG < 1 || (!TOPs && !POPs))
 	PerlProc_pause();
     else {
-	duration = POPi;
+        const I32 duration = POPi;
         if (duration < 0) {
           /* diag_listed_as: %s() with negative argument */
           Perl_ck_warner_d(aTHX_ packWARN(WARN_MISC),
                            "sleep() with negative argument");
           SETERRNO(EINVAL, LIB_INVARG);
-          XPUSHi(0);
+          XPUSHs(&PL_sv_zero);
           RETURN;
         } else {
           PerlProc_sleep((unsigned int)duration);

@@ -11,8 +11,8 @@
 /* IMPORTANT NOTE: Everything whose name begins with an underscore is for
  * internal core Perl use only. */
 
-#ifndef HANDY_H /* Guard against nested #inclusion */
-#define HANDY_H
+#ifndef PERL_HANDY_H_ /* Guard against nested #inclusion */
+#define PERL_HANDY_H_
 
 #if !defined(__STDC__)
 #ifdef NULL
@@ -485,8 +485,13 @@ Returns zero if non-equal, or non-zero if equal.
 #define strnNE(s1,s2,l) (strncmp(s1,s2,l))
 #define strnEQ(s1,s2,l) (!strncmp(s1,s2,l))
 
+/* These names are controversial, so guarding against their being used in more
+ * places than they already are.  strBEGs and StrStartsWith are potential
+ * candidates */
+#if defined(PERL_IN_DOIO_C) || defined(PERL_IN_GV_C) || defined(PERL_IN_HV_C) || defined(PERL_IN_LOCALE_C) || defined(PERL_IN_PERL_C) || defined(PERL_IN_TOKE_C) || defined(PERL_EXT)
 #define strNEs(s1,s2) (strncmp(s1,"" s2 "", sizeof(s2)-1))
 #define strEQs(s1,s2) (!strncmp(s1,"" s2 "", sizeof(s2)-1))
+#endif
 
 #ifdef HAS_MEMCMP
 #  define memNE(s1,s2,l) (memcmp(s1,s2,l))
@@ -2516,7 +2521,7 @@ void Perl_mem_log_del_sv(const SV *sv, const char *filename, const int linenumbe
 
 #endif
 
-#endif  /* HANDY_H */
+#endif  /* PERL_HANDY_H_ */
 
 /*
  * ex: set ts=8 sts=4 sw=4 et:

@@ -937,7 +937,7 @@ d_wcstombs=''
 d_wcsxfrm=''
 d_wctomb=''
 d_writev=''
-default_inc_excludes_dot='undef'
+default_inc_excludes_dot=''
 dlext=''
 bin_ELF=''
 cccdlflags=''
@@ -2896,7 +2896,6 @@ case "$lns" in
 *)	echo "No symbolic links, so not testing for their testing..." >&4
 	;;
 esac
-echo " "
 
 : Make symlinks util
 case "$mksymlinks" in
@@ -17120,8 +17119,9 @@ $volatile int bletched = 0;
 $signal_t blech(int s) { bletched = 1; }
 #endif
 
-int checkit($nvtype d, char *where) {
-    unsigned char *p = (char *)&d;
+int checkit($nvtype d, const char *where) {
+    void *v = &d;
+    unsigned char *p = (unsigned char *)v;
     unsigned char *end = p + sizeof(d);
     int fail = 0;
 
@@ -17131,7 +17131,7 @@ int checkit($nvtype d, char *where) {
     if (!fail)
 	return 0;
 
-    p = (char *)&d;
+    p = (unsigned char *)v;
     printf("No - %s: 0x", where);
     while (p < end)
 	printf ("%02X", *p++);
@@ -20644,15 +20644,15 @@ a shared directory. This can lead to executing unexpected code.
 EOM
 
 # When changing to exclude by default:
-#case "$default_inc_excludes_dot" in
-#    $undef|false|[nN]*) dflt="n" ;;
-#    *)                  dflt="y" ;;
-#esac
-# For now:
 case "$default_inc_excludes_dot" in
-    $define|true|[yY]*) dflt="y" ;;
-    *)                  dflt="n" ;;
+    $undef|false|[nN]*) dflt="n" ;;
+    *)                  dflt="y" ;;
 esac
+# To turn exclude off by default:
+#case "$default_inc_excludes_dot" in
+#    $define|true|[yY]*) dflt="y" ;;
+#    *)                  dflt="n" ;;
+#esac
 
 rp='Exclude '.' from @INC by default? '
 . ./myread
@@ -20672,8 +20672,12 @@ $cat >try.c <<EOP
 #define LONG_DOUBLEKIND $longdblkind
 #endif
 #$i_math I_MATH
+#$i_string I_STRING
 #ifdef I_MATH
 #include <math.h>
+#endif
+#ifdef I_STRING
+#  include <string.h>
 #endif
 #include <stdio.h>
 /* Note that whether the sign bit is on or off
@@ -20691,7 +20695,8 @@ $cat >try.c <<EOP
  * to even mention, causing immediate SIGFPE or equivalent: this is
  * the case with VAX floating point, for example.
  */
-static void bytes(unsigned char *p, unsigned int n) {
+static void bytes(void *v, unsigned int n) {
+  unsigned char *p = (unsigned char *)v;
   int i;
   for (i = 0; i < n; i++) {
     printf("0x%02x%s", p[i], i < n - 1 ? ", " : "\n");
@@ -21021,7 +21026,7 @@ EOM
         ;;
     *) dtraceobject=$undef ;;
     esac
-    $rm -f try.c try.o perldtrace.o perldtrace.h
+    $rm_try perldtrace.o perldtrace.h
 esac
 
 : Determine if this is an EBCDIC system
@@ -23061,7 +23066,7 @@ main(int argc, char **argv) {
 	return 4;
     }
 
-    buffer = malloc(size);
+    buffer = (char *)malloc(size);
     if (!buffer) {
 	perror("malloc");
 	return 5;
@@ -23160,7 +23165,7 @@ main(int argc, char **argv) {
 	return 2;
     }
 
-    buffer = malloc(size);
+    buffer = (char *)malloc(size);
     if (!buffer) {
 	perror("malloc");
 	return 3;
@@ -23613,7 +23618,7 @@ fi
 
 : add -D_FORTIFY_SOURCE if feasible and not already there
 case "$gccversion" in
-[45].*)	case "$optimize$ccflags" in
+[4567].*)	case "$optimize$ccflags" in
 	*-O*)	case "$ccflags$cppsymbols" in
 		*_FORTIFY_SOURCE=*) # Don't add it again.
 			echo "You seem to have -D_FORTIFY_SOURCE already, not adding it." >&4

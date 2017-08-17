@@ -1016,12 +1016,13 @@ S_ithread_create(
     MUTEX_UNLOCK(&my_pool->create_destruct_mutex);
     return (thread);
 
-#if defined(__clang__) || defined(__clang)
+#if defined(CLANG_DIAG_IGNORE)
     CLANG_DIAG_IGNORE(-Wthread-safety);
     /* warning: mutex 'thread->mutex' is not held on every path through here [-Wthread-safety-analysis] */
 #endif
 }
-#if defined(__clang__) || defined(__clang)
+/* perl.h defines CLANG_DIAG_* but only in 5.24+ */
+#if defined(CLANG_DIAG_RESTORE)
 CLANG_DIAG_RESTORE
 #endif
 
@@ -1359,6 +1360,9 @@ ithread_join(...)
             ptr_table_store(PL_ptr_table, &other_perl->Isv_undef, &PL_sv_undef);
             ptr_table_store(PL_ptr_table, &other_perl->Isv_no, &PL_sv_no);
             ptr_table_store(PL_ptr_table, &other_perl->Isv_yes, &PL_sv_yes);
+#  ifdef PL_sv_zero
+            ptr_table_store(PL_ptr_table, &other_perl->Isv_zero, &PL_sv_zero);
+#  endif
             params = (AV *)sv_dup((SV*)params_copy, clone_params);
             S_ithread_set(aTHX_ current_thread);
             Perl_clone_params_del(clone_params);
@@ -1787,6 +1791,9 @@ ithread_error(...)
             ptr_table_store(PL_ptr_table, &other_perl->Isv_undef, &PL_sv_undef);
             ptr_table_store(PL_ptr_table, &other_perl->Isv_no, &PL_sv_no);
             ptr_table_store(PL_ptr_table, &other_perl->Isv_yes, &PL_sv_yes);
+#  ifdef PL_sv_zero
+            ptr_table_store(PL_ptr_table, &other_perl->Isv_zero, &PL_sv_zero);
+#  endif
             err = sv_dup(thread->err, clone_params);
             S_ithread_set(aTHX_ current_thread);
             Perl_clone_params_del(clone_params);

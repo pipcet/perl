@@ -503,9 +503,10 @@ initially consists of the arguments to any B<-I> command-line
 switches, followed by the default Perl library, probably
 F</usr/local/lib/perl>, followed by ".", to represent the current
 directory.  ("." will not be appended if taint checks are enabled,
-either by C<-T> or by C<-t>.)  If you need to modify this at runtime,
-you should use the C<use lib> pragma to get the machine-dependent
-library properly loaded also:
+either by C<-T> or by C<-t>, or if configured not to do so by the
+C<-Ddefault_inc_excludes_dot> compile time option.)  If you need to
+modify this at runtime, you should use the C<use lib> pragma to get
+the machine-dependent library properly loaded also:
 
     use lib '/mypath/libdir/';
     use SomeMod;
@@ -924,8 +925,8 @@ Mnemonic: like \digits.
 =item @{^CAPTURE}
 X<@{^CAPTURE}> X<@^CAPTURE>
 
-An array which contains the capture buffers, if any, of the last
-successful pattern match, not counting patterns matched
+An array which exposes the contents of the capture buffers, if any, of
+the last successful pattern match, not counting patterns matched
 in nested blocks that have been exited already.
 
 Note that the 0 index of @{^CAPTURE} is equivalent to $1, the 1 index
@@ -938,6 +939,9 @@ is equivalent to $2, etc.
 should output "f-o-a-l".
 
 See also L</$I<digits>>, L</%{^CAPTURE}> and L</%{^CAPTURE_ALL}>.
+
+Note that unlike most other regex magic variables there is no single
+letter equivalent to C<@{^CAPTURE}>.
 
 This variable was added in 5.25.7
 
@@ -1986,6 +1990,7 @@ undefines the variable during the scope of execution of the including
 function.
 
 This variable was added in Perl 5.8.2 and removed in 5.26.0.
+Setting it to anything other than C<undef> was made fatal in Perl 5.28.0.
 
 =item ${^GLOBAL_PHASE}
 X<${^GLOBAL_PHASE}>

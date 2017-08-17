@@ -1577,6 +1577,19 @@ ok  defined *{$::{CmT}}{FORMAT}, "glob assign";
         is $^A, $expected, "RT #130703";
     }
 
+    # further buffer overflows with RT #130703
+
+    {
+        local $^A = '';
+        my $n = 200;
+        my $long = 'x' x 300;
+        my $numf = ('@###' x $n);
+        my $expected = $long . "\n" . ("   1" x $n);
+        formline("@*\n$numf", $long, ('1') x $n);
+
+        is $^A, $expected, "RT #130703 part 2";
+    }
+
 
     # make sure it can cope with formats > 64k
 
@@ -2004,18 +2017,6 @@ EOP
 a    x
 EXPECT
 	      { stderr => 1 }, '#123538 crash in FF_MORE');
-
-# this used to assert fail
-fresh_perl_like(<<'EOP',
-format STDOUT =
-@
-0"$x"
-.
-print "got here\n";
-EOP
-    qr/Use of comma-less variable list is deprecated.*got here/s,
-    { stderr => 1 },
-    '#128255 Assert fail in S_sublex_done');
 
 {
     $^A = "";

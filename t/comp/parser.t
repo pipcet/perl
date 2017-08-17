@@ -8,7 +8,7 @@ BEGIN {
     chdir 't' if -d 't';
 }
 
-print "1..187\n";
+print "1..188\n";
 
 sub failed {
     my ($got, $expected, $name) = @_;
@@ -582,13 +582,16 @@ is $@, "", 'read into keys';
 eval 'substr keys(%h),0,=3';
 is $@, "", 'substr keys assignment';
 
-# very large utf8 char in error message was overflowing buffer
-{
-
-    no warnings;
-    eval "q" . chr(100000000064);
-    like $@, qr/Can't find string terminator "." anywhere before EOF/,
-        'RT 128952';
+{ # very large utf8 char in error message was overflowing buffer
+    if (length sprintf("%x", ~0) <= 8) {
+        is 1, 1, "skip because overflows on 32-bit machine";
+    }
+    else {
+        no warnings;
+        eval "q" . chr(100000000064);
+        like $@, qr/Can't find string terminator "." anywhere before EOF/,
+            'RT 128952';
+    }
 }
 
 # RT #130311: many parser shifts before a reduce
@@ -598,6 +601,12 @@ is $@, "", 'substr keys assignment';
     like $@, qr/Missing right curly or square bracket/, 'RT #130311';
 }
 
+# RT #130815: crash in ck_return for malformed code
+{
+    eval 'm(@{if(0){sub d{]]])}return';
+    like $@, qr/^syntax error at \(eval \d+\) line 1, near "\{\]"/,
+        'RT #130815: null pointer deref';
+}
 
 # Add new tests HERE (above this line)
 

@@ -7,7 +7,7 @@ BEGIN {
         print "1..0 # Skip -- Perl configured without B module\n";
         exit 0;
     }
-    require 'test.pl';
+    require './test.pl';
 }
 
 use warnings;
@@ -63,7 +63,7 @@ while (<DATA>) {
 	    new B::Deparse split /,/, $meta{options}
 	: $deparse;
 
-    my $coderef = eval "$meta{context};\n" . <<'EOC' . "sub {$input\n}";
+    my $code = "$meta{context};\n" . <<'EOC' . "sub {$input\n}";
 # Tell B::Deparse about our ambient pragmas
 my ($hint_bits, $warning_bits, $hinthash);
 BEGIN {
@@ -75,10 +75,14 @@ $deparse->ambient_pragmas (
     '%^H'        => $hinthash,
 );
 EOC
+    my $coderef = eval $code;
 
     local $::TODO = $meta{todo};
     if ($@) {
-	is($@, "", "compilation of $desc");
+	is($@, "", "compilation of $desc")
+            or diag "=============================================\n"
+                  . "CODE:\n--------\n$code\n--------\n"
+                  . "=============================================\n";
     }
     else {
 	my $deparsed = $deparse->coderef2text( $coderef );
@@ -2610,3 +2614,92 @@ sub ($a, $=) {
     $a;
 }
 ;
+####
+# padrange op within pattern code blocks
+/(?{ my($x, $y) = (); })/;
+my $a;
+/$a(?{ my($x, $y) = (); })/;
+my $r1 = qr/(?{ my($x, $y) = (); })/;
+my $r2 = qr/$a(?{ my($x, $y) = (); })/;
+####
+# don't remove pattern whitespace escapes
+/a\ b/;
+/a\ b/x;
+/a\	b/;
+/a\	b/x;
+####
+# my attributes
+my $s1 :foo(f1, f2) bar(b1, b2);
+my @a1 :foo(f1, f2) bar(b1, b2);
+my %h1 :foo(f1, f2) bar(b1, b2);
+my($s2, @a2, %h2) :foo(f1, f2) bar(b1, b2);
+####
+# my class attributes
+package Foo::Bar;
+my Foo::Bar $s1 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar @a1 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar %h1 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar ($s2, @a2, %h2) :foo(f1, f2) bar(b1, b2);
+package main;
+my Foo::Bar $s3 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar @a3 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar %h3 :foo(f1, f2) bar(b1, b2);
+my Foo::Bar ($s4, @a4, %h4) :foo(f1, f2) bar(b1, b2);
+####
+# avoid false positives in my $x :attribute
+'attributes'->import('main', \my $x1, 'foo(bar)'), my $y1;
+'attributes'->import('Fooo', \my $x2, 'foo(bar)'), my $y2;
+####
+# hash slices and hash key/value slices
+my(@a, %h);
+our(@oa, %oh);
+@a = @h{'foo', 'bar'};
+@a = %h{'foo', 'bar'};
+@a = delete @h{'foo', 'bar'};
+@a = delete %h{'foo', 'bar'};
+@oa = @oh{'foo', 'bar'};
+@oa = %oh{'foo', 'bar'};
+@oa = delete @oh{'foo', 'bar'};
+@oa = delete %oh{'foo', 'bar'};
+####
+# keys optimised away in void and scalar context
+no warnings;
+;
+our %h1;
+my($x, %h2);
+%h1;
+keys %h1;
+$x = %h1;
+$x = keys %h1;
+%h2;
+keys %h2;
+$x = %h2;
+$x = keys %h2;
+####
+# eq,const optimised away for (index() == -1)
+my($a, $b);
+our $c;
+$c = index($a, $b) == 2;
+$c = rindex($a, $b) == 2;
+$c = index($a, $b) == -1;
+$c = rindex($a, $b) == -1;
+$c = index($a, $b) != -1;
+$c = rindex($a, $b) != -1;
+$c = (index($a, $b) == -1);
+$c = (rindex($a, $b) == -1);
+$c = (index($a, $b) != -1);
+$c = (rindex($a, $b) != -1);
+####
+# eq,const,sassign,madmy optimised away for (index() == -1)
+my($a, $b);
+my $c;
+$c = index($a, $b) == 2;
+$c = rindex($a, $b) == 2;
+$c = index($a, $b) == -1;
+$c = rindex($a, $b) == -1;
+$c = index($a, $b) != -1;
+$c = rindex($a, $b) != -1;
+$c = (index($a, $b) == -1);
+$c = (rindex($a, $b) == -1);
+$c = (index($a, $b) != -1);
+$c = (rindex($a, $b) != -1);

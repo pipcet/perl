@@ -607,9 +607,9 @@ Perl_mg_free_type(pTHX_ SV *sv, int how)
     MAGIC *mg, *prevmg, *moremg;
     PERL_ARGS_ASSERT_MG_FREE_TYPE;
     for (prevmg = NULL, mg = SvMAGIC(sv); mg; prevmg = mg, mg = moremg) {
-	MAGIC *newhead;
 	moremg = mg->mg_moremagic;
 	if (mg->mg_type == how) {
+            MAGIC *newhead;
 	    /* temporarily move to the head of the magic chain, in case
 	       custom free code relies on this historical aspect of mg_free */
 	    if (prevmg) {
@@ -638,8 +638,8 @@ Perl_magic_regdata_cnt(pTHX_ SV *sv, MAGIC *mg)
     if (PL_curpm) {
         REGEXP * const rx = PM_GETRE(PL_curpm);
 	if (rx) {
-            UV uv= (UV)mg->mg_obj;
-            if (uv == '+') {          /* @+ */
+            const SSize_t n = (SSize_t)mg->mg_obj;
+            if (n == '+') {          /* @+ */
 		/* return the number possible */
 		return RX_NPARENS(rx);
             } else {   /* @- @^CAPTURE  @{^CAPTURE} */
@@ -650,7 +650,7 @@ Perl_magic_regdata_cnt(pTHX_ SV *sv, MAGIC *mg)
 			&& (RX_OFFS(rx)[paren].start == -1
 			    || RX_OFFS(rx)[paren].end == -1) )
 		    paren--;
-                if (uv == '-') {
+                if (n == '-') {
                     /* @- */
                     return (U32)paren;
                 } else {
@@ -674,10 +674,10 @@ Perl_magic_regdatum_get(pTHX_ SV *sv, MAGIC *mg)
     if (PL_curpm) {
         REGEXP * const rx = PM_GETRE(PL_curpm);
 	if (rx) {
-            const UV uv= (UV)mg->mg_obj;
+            const SSize_t n = (SSize_t)mg->mg_obj;
             /* @{^CAPTURE} does not contain $&, so we need to increment by 1 */
             const I32 paren = mg->mg_len
-                            + (uv == '\003' ? 1 : 0);
+                            + (n == '\003' ? 1 : 0);
 	    SSize_t s;
 	    SSize_t t;
 	    if (paren < 0)
@@ -688,9 +688,9 @@ Perl_magic_regdatum_get(pTHX_ SV *sv, MAGIC *mg)
 		{
 		    SSize_t i;
 
-                    if (uv == '+')                /* @+ */
+                    if (n == '+')                /* @+ */
 			i = t;
-                    else if (uv == '-')           /* @- */
+                    else if (n == '-')           /* @- */
 			i = s;
                     else {                        /* @^CAPTURE @{^CAPTURE} */
                         CALLREG_NUMBUF_FETCH(rx,paren,sv);
@@ -710,7 +710,7 @@ Perl_magic_regdatum_get(pTHX_ SV *sv, MAGIC *mg)
 		}
 	}
     }
-    sv_setsv(sv, NULL);
+    sv_set_undef(sv);
     return 0;
 }
 
@@ -849,7 +849,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
     case '\005':  /* ^E */
 	 if (nextchar != '\0') {
             if (strEQ(remaining, "NCODING"))
-                sv_setsv(sv, NULL);
+                sv_set_undef(sv);
             break;
         }
 
@@ -960,7 +960,8 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 		SvROK_on(sv);
 		sv_rvweaken(sv);
 	    }
-	    else sv_setsv_nomg(sv, NULL);
+	    else
+                sv_set_undef(sv);
 	}
 	break;
     case '\017':		/* ^O & ^OPEN */
@@ -1138,9 +1139,9 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 #ifdef HAS_GETGROUPS
 	{
 	    Groups_t *gary = NULL;
-	    I32 i;
             I32 num_groups = getgroups(0, gary);
             if (num_groups > 0) {
+                I32 i;
                 Newx(gary, num_groups, Groups_t);
                 num_groups = getgroups(num_groups, gary);
                 for (i = 0; i < num_groups; i++)
@@ -2061,7 +2062,7 @@ Perl_magic_getarylen(pTHX_ SV *sv, const MAGIC *mg)
     if (obj) {
 	sv_setiv(sv, AvFILL(obj));
     } else {
-	sv_setsv(sv, NULL);
+        sv_set_undef(sv);
     }
     return 0;
 }
@@ -2139,7 +2140,7 @@ Perl_magic_getpos(pTHX_ SV *sv, MAGIC *mg)
 	    sv_setuv(sv, i);
 	    return 0;
     }
-    sv_setsv(sv,NULL);
+    sv_set_undef(sv);
     return 0;
 }
 
@@ -2149,7 +2150,6 @@ Perl_magic_setpos(pTHX_ SV *sv, MAGIC *mg)
     SV* const lsv = LvTARG(sv);
     SSize_t pos;
     STRLEN len;
-    STRLEN ulen = 0;
     MAGIC* found;
     const char *s;
 
@@ -2171,7 +2171,7 @@ Perl_magic_setpos(pTHX_ SV *sv, MAGIC *mg)
     pos = SvIV(sv);
 
     if (DO_UTF8(lsv)) {
-	ulen = sv_or_pv_len_utf8(lsv, s, len);
+        const STRLEN ulen = sv_or_pv_len_utf8(lsv, s, len);
 	if (ulen)
 	    len = ulen;
     }
@@ -2198,8 +2198,8 @@ Perl_magic_getsubstr(pTHX_ SV *sv, MAGIC *mg)
     const char * const tmps = SvPV_const(lsv,len);
     STRLEN offs = LvTARGOFF(sv);
     STRLEN rem = LvTARGLEN(sv);
-    const bool negoff = LvFLAGS(sv) & 1;
-    const bool negrem = LvFLAGS(sv) & 2;
+    const bool negoff = LvFLAGS(sv) & LVf_NEG_OFF;
+    const bool negrem = LvFLAGS(sv) & LVf_NEG_LEN;
 
     PERL_ARGS_ASSERT_MAGIC_GETSUBSTR;
     PERL_UNUSED_ARG(mg);
@@ -2230,8 +2230,8 @@ Perl_magic_setsubstr(pTHX_ SV *sv, MAGIC *mg)
     SV * const lsv = LvTARG(sv);
     STRLEN lvoff = LvTARGOFF(sv);
     STRLEN lvlen = LvTARGLEN(sv);
-    const bool negoff = LvFLAGS(sv) & 1;
-    const bool neglen = LvFLAGS(sv) & 2;
+    const bool negoff = LvFLAGS(sv) & LVf_NEG_OFF;
+    const bool neglen = LvFLAGS(sv) & LVf_NEG_LEN;
 
     PERL_ARGS_ASSERT_MAGIC_SETSUBSTR;
     PERL_UNUSED_ARG(mg);
@@ -2306,11 +2306,14 @@ int
 Perl_magic_getvec(pTHX_ SV *sv, MAGIC *mg)
 {
     SV * const lsv = LvTARG(sv);
+    char errflags = LvFLAGS(sv);
 
     PERL_ARGS_ASSERT_MAGIC_GETVEC;
     PERL_UNUSED_ARG(mg);
 
-    sv_setuv(sv, do_vecget(lsv, LvTARGOFF(sv), LvTARGLEN(sv)));
+    /* non-zero errflags implies deferred out-of-range condition */
+    assert(!(errflags & ~(LVf_NEG_OFF|LVf_OUT_OF_RANGE)));
+    sv_setuv(sv, errflags ? 0 : do_vecget(lsv, LvTARGOFF(sv), LvTARGLEN(sv)));
 
     return 0;
 }
@@ -2725,13 +2728,8 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 #  endif
 #endif
 	}
-	else {
-            if (strEQ(mg->mg_ptr + 1, "NCODING") && SvOK(sv))
-                        if (PL_localizing != 2) {
-                            deprecate_fatal_in("5.28",
-                               "${^ENCODING} is no longer supported");
-                        }
-        }
+	else if (strEQ(mg->mg_ptr + 1, "NCODING") && SvOK(sv))
+            Perl_croak(aTHX_ "${^ENCODING} is no longer supported");
 	break;
     case '\006':	/* ^F */
 	PL_maxsysfd = SvIV(sv);
@@ -2913,10 +2911,9 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	break;
     case '/':
         {
-            SV *tmpsv= sv;
             if (SvROK(sv)) {
-                SV *referent= SvRV(sv);
-                const char *reftype= sv_reftype(referent, 0);
+                SV *referent = SvRV(sv);
+                const char *reftype = sv_reftype(referent, 0);
                 /* XXX: dodgy type check: This leaves me feeling dirty, but
                  * the alternative is to copy pretty much the entire
                  * sv_reftype() into this routine, or to do a full string
@@ -2925,23 +2922,21 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
                  * without reviewing the corresponding comment in
                  * sv_reftype(). - Yves */
                 if (reftype[0] == 'S' || reftype[0] == 'L') {
-                    IV val= SvIV(referent);
+                    IV val = SvIV(referent);
                     if (val <= 0) {
-                        tmpsv= &PL_sv_undef;
-                        Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                            "Setting $/ to a reference to %s as a form of slurp is deprecated, treating as undef. This will be fatal in Perl 5.28",
-                            SvIV(SvRV(sv)) < 0 ? "a negative integer" : "zero"
-                        );
+                        sv_setsv(sv, PL_rs);
+                        Perl_croak(aTHX_ "Setting $/ to a reference to %s is forbidden",
+                                         val < 0 ? "a negative integer" : "zero");
                     }
                 } else {
                     sv_setsv(sv, PL_rs);
-              /* diag_listed_as: Setting $/ to %s reference is forbidden */
+                    /* diag_listed_as: Setting $/ to %s reference is forbidden */
                     Perl_croak(aTHX_ "Setting $/ to a%s %s reference is forbidden",
                                       *reftype == 'A' ? "n" : "", reftype);
                 }
             }
             SvREFCNT_dec(PL_rs);
-            PL_rs = newSVsv(tmpsv);
+            PL_rs = newSVsv(sv);
         }
 	break;
     case '\\':

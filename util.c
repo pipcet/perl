@@ -619,11 +619,11 @@ Perl_ninstr(const char *big, const char *bigend, const char *little, const char 
         return (char*)big;
     {
         const char first = *little;
-        const char *s, *x;
         bigend -= lend - little++;
     OUTER:
         while (big <= bigend) {
             if (*big++ == first) {
+                const char *s, *x;
                 for (x=big,s=little; s < lend; x++,s++) {
                     if (*s != *x)
                         goto OUTER;
@@ -815,6 +815,8 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
     bool tail = valid ? cBOOL(SvTAIL(littlestr)) : FALSE;
 
     PERL_ARGS_ASSERT_FBM_INSTR;
+
+    assert(bigend >= big);
 
     if ((STRLEN)(bigend - big) < littlelen) {
 	if (     tail
@@ -1020,89 +1022,6 @@ Perl_fbm_instr(pTHX_ unsigned char *big, unsigned char *bigend, SV *littlestr, U
 	    return (char*)bigend - littlelen;
 	return NULL;
     }
-}
-
-
-/*
-=for apidoc foldEQ
-
-Returns true if the leading C<len> bytes of the strings C<s1> and C<s2> are the
-same
-case-insensitively; false otherwise.  Uppercase and lowercase ASCII range bytes
-match themselves and their opposite case counterparts.  Non-cased and non-ASCII
-range bytes match only themselves.
-
-=cut
-*/
-
-
-I32
-Perl_foldEQ(const char *s1, const char *s2, I32 len)
-{
-    const U8 *a = (const U8 *)s1;
-    const U8 *b = (const U8 *)s2;
-
-    PERL_ARGS_ASSERT_FOLDEQ;
-
-    assert(len >= 0);
-
-    while (len--) {
-	if (*a != *b && *a != PL_fold[*b])
-	    return 0;
-	a++,b++;
-    }
-    return 1;
-}
-I32
-Perl_foldEQ_latin1(const char *s1, const char *s2, I32 len)
-{
-    /* Compare non-utf8 using Unicode (Latin1) semantics.  Does not work on
-     * MICRO_SIGN, LATIN_SMALL_LETTER_SHARP_S, nor
-     * LATIN_SMALL_LETTER_Y_WITH_DIAERESIS, and does not check for these.  Nor
-     * does it check that the strings each have at least 'len' characters */
-
-    const U8 *a = (const U8 *)s1;
-    const U8 *b = (const U8 *)s2;
-
-    PERL_ARGS_ASSERT_FOLDEQ_LATIN1;
-
-    assert(len >= 0);
-
-    while (len--) {
-	if (*a != *b && *a != PL_fold_latin1[*b]) {
-	    return 0;
-	}
-	a++, b++;
-    }
-    return 1;
-}
-
-/*
-=for apidoc foldEQ_locale
-
-Returns true if the leading C<len> bytes of the strings C<s1> and C<s2> are the
-same case-insensitively in the current locale; false otherwise.
-
-=cut
-*/
-
-I32
-Perl_foldEQ_locale(const char *s1, const char *s2, I32 len)
-{
-    dVAR;
-    const U8 *a = (const U8 *)s1;
-    const U8 *b = (const U8 *)s2;
-
-    PERL_ARGS_ASSERT_FOLDEQ_LOCALE;
-
-    assert(len >= 0);
-
-    while (len--) {
-	if (*a != *b && *a != PL_fold_locale[*b])
-	    return 0;
-	a++,b++;
-    }
-    return 1;
 }
 
 /* copy a string to a safe spot */
@@ -2540,10 +2459,9 @@ Perl_my_popen_list(pTHX_ const char *mode, int n, SV **args)
     if (did_pipes && pid > 0) {
 	int errkid;
 	unsigned n = 0;
-	SSize_t n1;
 
 	while (n < sizeof(int)) {
-	    n1 = PerlLIO_read(pp[0],
+            const SSize_t n1 = PerlLIO_read(pp[0],
 			      (void*)(((char*)&errkid)+n),
 			      (sizeof(int)) - n);
 	    if (n1 <= 0)
@@ -2698,10 +2616,9 @@ Perl_my_popen(pTHX_ const char *cmd, const char *mode)
     if (did_pipes && pid > 0) {
 	int errkid;
 	unsigned n = 0;
-	SSize_t n1;
 
 	while (n < sizeof(int)) {
-	    n1 = PerlLIO_read(pp[0],
+            const SSize_t n1 = PerlLIO_read(pp[0],
 			      (void*)(((char*)&errkid)+n),
 			      (sizeof(int)) - n);
 	    if (n1 <= 0)
@@ -3437,9 +3354,8 @@ Perl_find_script(pTHX_ const char *scriptname, bool dosearch,
 	    if (len < sizeof tmpbuf)
 		tmpbuf[len] = '\0';
 #  else
-	    s = delimcpy(tmpbuf, tmpbuf + sizeof tmpbuf, s, bufend,
-			':',
-			&len);
+	    s = delimcpy_no_escape(tmpbuf, tmpbuf + sizeof tmpbuf, s, bufend,
+                                   ':', &len);
 #  endif
 	    if (s < bufend)
 		s++;
@@ -4717,7 +4633,6 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
     env_pv= PerlEnv_getenv("PERL_HASH_SEED");
 
     if ( env_pv )
-#  ifndef USE_HASH_SEED_EXPLICIT
     {
         /* ignore leading spaces */
         while (isSPACE(*env_pv))
@@ -4752,8 +4667,7 @@ Perl_get_hash_seed(pTHX_ unsigned char * const seed_buffer)
         /* should we warn about insufficient hex? */
     }
     else
-#  endif
-#endif
+#endif /* NO_PERL_HASH_ENV */
     {
         (void)seedDrand01((Rand_seed_t)seed());
 
@@ -5425,21 +5339,19 @@ Perl_my_cxt_init(pTHX_ int *index, size_t size)
     PERL_ARGS_ASSERT_MY_CXT_INIT;
     if (*index == -1) {
 	/* this module hasn't been allocated an index yet */
-#if defined(USE_ITHREADS)
 	MUTEX_LOCK(&PL_my_ctx_mutex);
-#endif
 	*index = PL_my_cxt_index++;
-#if defined(USE_ITHREADS)
 	MUTEX_UNLOCK(&PL_my_ctx_mutex);
-#endif
     }
     
     /* make sure the array is big enough */
     if (PL_my_cxt_size <= *index) {
 	if (PL_my_cxt_size) {
-	    while (PL_my_cxt_size <= *index)
-		PL_my_cxt_size *= 2;
-	    Renew(PL_my_cxt_list, PL_my_cxt_size, void *);
+            IV new_size = PL_my_cxt_size;
+	    while (new_size <= *index)
+		new_size *= 2;
+	    Renew(PL_my_cxt_list, new_size, void *);
+            PL_my_cxt_size = new_size;
 	}
 	else {
 	    PL_my_cxt_size = 16;
@@ -5486,13 +5398,9 @@ Perl_my_cxt_init(pTHX_ const char *my_cxt_key, size_t size)
     index = Perl_my_cxt_index(aTHX_ my_cxt_key);
     if (index == -1) {
 	/* this module hasn't been allocated an index yet */
-#if defined(USE_ITHREADS)
 	MUTEX_LOCK(&PL_my_ctx_mutex);
-#endif
 	index = PL_my_cxt_index++;
-#if defined(USE_ITHREADS)
 	MUTEX_UNLOCK(&PL_my_ctx_mutex);
-#endif
     }
 
     /* make sure the array is big enough */
@@ -5500,10 +5408,12 @@ Perl_my_cxt_init(pTHX_ const char *my_cxt_key, size_t size)
 	int old_size = PL_my_cxt_size;
 	int i;
 	if (PL_my_cxt_size) {
-	    while (PL_my_cxt_size <= index)
-		PL_my_cxt_size *= 2;
-	    Renew(PL_my_cxt_list, PL_my_cxt_size, void *);
-	    Renew(PL_my_cxt_keys, PL_my_cxt_size, const char *);
+            IV new_size = PL_my_cxt_size;
+	    while (new_size <= index)
+		new_size *= 2;
+	    Renew(PL_my_cxt_list, new_size, void *);
+	    Renew(PL_my_cxt_keys, new_size, const char *);
+            PL_my_cxt_size = new_size;
 	}
 	else {
 	    PL_my_cxt_size = 16;

@@ -385,6 +385,7 @@ Perl_gv_init_pvn(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len, U32 flag
 	case SVt_PVIO:
             Perl_croak(aTHX_ "Cannot convert a reference to %s to typeglob",
 		       sv_reftype(has_constant, 0));
+            NOT_REACHED; /* NOTREACHED */
             break;
 
 	default: NOOP;
@@ -421,7 +422,7 @@ Perl_gv_init_pvn(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len, U32 flag
 	/* Not actually a constant.  Just a regular sub.  */
 	CV * const cv = (CV *)has_constant;
 	GvCV_set(gv,cv);
-	if (CvSTASH(cv) == stash && (
+	if (CvNAMED(cv) && CvSTASH(cv) == stash && (
 	       CvNAME_HEK(cv) == GvNAME_HEK(gv)
 	    || (  HEK_LEN(CvNAME_HEK(cv)) == HEK_LEN(GvNAME_HEK(gv))
 	       && HEK_FLAGS(CvNAME_HEK(cv)) != HEK_FLAGS(GvNAME_HEK(gv))
@@ -607,11 +608,12 @@ S_maybe_add_coresub(pTHX_ HV * const stash, GV *gv,
 	PL_compcv = oldcompcv;
     }
     if (cv) {
-        SV *opnumsv = opnum ? newSVuv((UV)opnum) : (SV *)NULL;
-        cv_set_call_checker(
-          cv, Perl_ck_entersub_args_core, opnumsv ? opnumsv : (SV *)cv
-        );
-        SvREFCNT_dec(opnumsv);
+	SV *opnumsv = newSViv(
+	    (opnum == OP_ENTEREVAL && len == 9 && memEQ(name, "evalbytes", 9)) ?
+		(OP_ENTEREVAL | (1<<16))
+	    : opnum ? opnum : (((I32)name[2]) << 16));
+        cv_set_call_checker_flags(cv, Perl_ck_entersub_args_core, opnumsv, 0);
+	SvREFCNT_dec_NN(opnumsv);
     }
 
     return gv;
@@ -1209,16 +1211,14 @@ Perl_gv_autoload_pvn(pTHX_ HV *stash, const char *name, STRLEN len, U32 flags)
 	return NULL;
 
     /*
-     * Inheriting AUTOLOAD for non-methods works ... for now.
+     * Inheriting AUTOLOAD for non-methods no longer works
      */
     if (
         !(flags & GV_AUTOLOAD_ISMETHOD)
      && (GvCVGEN(gv) || GvSTASH(gv) != stash)
     )
-	Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-			 "Use of inherited AUTOLOAD for non-method %" SVf
-			 "::%" UTF8f "() is deprecated. This will be "
-                         "fatal in Perl 5.28",
+        Perl_croak(aTHX_ "Use of inherited AUTOLOAD for non-method %" SVf
+                         "::%" UTF8f "() is no longer allowed",
 			 SVfARG(packname),
                          UTF8fARG(is_utf8, len, name));
 
@@ -1338,6 +1338,7 @@ S_require_tie_mod(pTHX_ GV *gv, const char varname, const char * name,
       GV **gvp;
       dSP;
 
+      PUSHSTACKi(PERLSI_MAGIC);
       ENTER;
 
 #define HV_FETCH_TIE_FUNC (GV **)hv_fetchs(stash, "_tie_it", 0)
@@ -1367,6 +1368,7 @@ S_require_tie_mod(pTHX_ GV *gv, const char varname, const char * name,
       PUTBACK;
       call_sv((SV *)*gvp, G_VOID|G_DISCARD);
       LEAVE;
+      POPSTACK;
     }
 }
 
@@ -1496,7 +1498,14 @@ S_gv_stashsvpvn_cached(pTHX_ SV *namesv, const char *name, U32 namelen, I32 flag
         (flags & SVf_UTF8) ? HVhek_UTF8 : 0, 0, NULL, 0
     );
 
-    if (he) return INT2PTR(HV*,SvIVX(HeVAL(he)));
+    if (he) {
+        SV *sv = HeVAL(he);
+        HV *hv;
+        assert(SvIOK(sv));
+        hv = INT2PTR(HV*, SvIVX(sv));
+        assert(SvTYPE(hv) == SVt_PVHV);
+        return hv;
+    }
     else if (flags & GV_CACHE_ONLY) return NULL;
 
     if (namesv) {
@@ -1987,9 +1996,9 @@ S_gv_magicalize(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len,
                                 /* @{^CAPTURE} %{^CAPTURE} */
                 if (memEQs(name, len, "\003APTURE")) {
                     AV* const av = GvAVn(gv);
-                    UV uv= *name;
+                    const Size_t n = *name;
 
-                    sv_magic(MUTABLE_SV(av), (SV*)uv, PERL_MAGIC_regdata, NULL, 0);
+                    sv_magic(MUTABLE_SV(av), (SV*)n, PERL_MAGIC_regdata, NULL, 0);
                     SvREADONLY_on(av);
 
                     if (sv_type == SVt_PVHV || sv_type == SVt_PVGV)
@@ -2155,9 +2164,9 @@ S_gv_magicalize(pTHX_ GV *gv, HV *stash, const char *name, STRLEN len,
             }
             {   /* @- @+ */
                 AV* const av = GvAVn(gv);
-                const UV uv = (UV)*name;
+                const Size_t n = *name;
 
-                sv_magic(MUTABLE_SV(av), (SV*)uv, PERL_MAGIC_regdata, NULL, 0);
+                sv_magic(MUTABLE_SV(av), (SV*)n, PERL_MAGIC_regdata, NULL, 0);
                 SvREADONLY_on(av);
             }
             break;
@@ -3172,11 +3181,11 @@ Perl_amagic_call(pTHX_ SV *left, SV *right, int method, int flags)
 	 case abs_amg:
 	   if ((cvp[off1=lt_amg] || cvp[off1=ncmp_amg])
 	       && ((cv = cvp[off=neg_amg]) || (cv = cvp[off=subtr_amg]))) {
-	     SV* const nullsv=sv_2mortal(newSViv(0));
+	     SV* const nullsv=&PL_sv_zero;
 	     if (off1==lt_amg) {
 	       SV* const lessp = amagic_call(left,nullsv,
 				       lt_amg,AMGf_noright);
-	       logic = SvTRUE(lessp);
+	       logic = SvTRUE_NN(lessp);
 	     } else {
 	       SV* const lessp = amagic_call(left,nullsv,
 				       ncmp_amg,AMGf_noright);
@@ -3196,7 +3205,7 @@ Perl_amagic_call(pTHX_ SV *left, SV *right, int method, int flags)
 	 case neg_amg:
 	   if ((cv = cvp[off=subtr_amg])) {
 	     right = left;
-	     left = sv_2mortal(newSViv(0));
+	     left = &PL_sv_zero;
 	     lr = 1;
 	   }
 	   break;
@@ -3549,7 +3558,7 @@ Perl_amagic_call(pTHX_ SV *left, SV *right, int method, int flags)
       case dec_amg:
 	SvSetSV(left,res); return left;
       case not_amg:
-	ans=!SvTRUE(res); break;
+	ans=!SvTRUE_NN(res); break;
       default:
         ans=0; break;
       }

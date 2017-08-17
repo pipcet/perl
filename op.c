@@ -487,13 +487,13 @@ void
 Perl_opslab_force_free(pTHX_ OPSLAB *slab)
 {
     OPSLAB *slab2;
-    OPSLOT *slot;
 #ifdef DEBUGGING
     size_t savestack_count = 0;
 #endif
     PERL_ARGS_ASSERT_OPSLAB_FORCE_FREE;
     slab2 = slab;
     do {
+        OPSLOT *slot;
 	for (slot = slab2->opslab_first;
 	     slot->opslot_next;
 	     slot = slot->opslot_next) {
@@ -1865,7 +1865,6 @@ Perl_scalarvoid(pTHX_ OP *arg)
     dVAR;
     OP *kid;
     SV* sv;
-    U8 want;
     SSize_t defer_stack_alloc = 0;
     SSize_t defer_ix = -1;
     OP **defer_stack = NULL;
@@ -1874,6 +1873,7 @@ Perl_scalarvoid(pTHX_ OP *arg)
     PERL_ARGS_ASSERT_SCALARVOID;
 
     do {
+        U8 want;
         SV *useless_sv = NULL;
         const char* useless = NULL;
 
@@ -3092,7 +3092,7 @@ Perl_op_lvalue_flags(pTHX_ OP *o, I32 type, U32 flags)
         goto nomod;
     case OP_AVHVSWITCH:
 	if (type == OP_LEAVESUBLV
-	 && (o->op_private & 3) + OP_EACH == OP_KEYS)
+	 && (o->op_private & OPpAVHVSWITCH_MASK) + OP_EACH == OP_KEYS)
 	    o->op_private |= OPpMAYBE_LVSUB;
         goto nomod;
     case OP_AV2ARYLEN:
@@ -3826,9 +3826,9 @@ S_my_kid(pTHX_ OP *o, OP *attrs, OP **imopsp)
 	    PL_parser->in_my = FALSE;
 	    PL_parser->in_my_stash = NULL;
 	    apply_attrs(GvSTASH(gv),
-			(type == OP_RV2SV ? GvSV(gv) :
-			 type == OP_RV2AV ? MUTABLE_SV(GvAV(gv)) :
-			 type == OP_RV2HV ? MUTABLE_SV(GvHV(gv)) : MUTABLE_SV(gv)),
+			(type == OP_RV2SV ? GvSVn(gv) :
+			 type == OP_RV2AV ? MUTABLE_SV(GvAVn(gv)) :
+			 type == OP_RV2HV ? MUTABLE_SV(GvHVn(gv)) : MUTABLE_SV(gv)),
 			attrs);
 	}
 	o->op_private |= OPpOUR_INTRO;
@@ -4642,7 +4642,7 @@ S_gen_constant_list(pTHX_ OP *o)
     old_next = o->op_next;
     o->op_next = 0;
     op_was_null = o->op_type == OP_NULL;
-    if (op_was_null)
+    if (op_was_null) /* b3698342565fb462291fba4b432cfcd05b6eb4e1 */
 	o->op_type = OP_CUSTOM;
     CALL_PEEP(curop);
     if (op_was_null)
@@ -4669,6 +4669,9 @@ S_gen_constant_list(pTHX_ OP *o)
 
     switch (ret) {
     case 0:
+#if defined DEBUGGING && !defined DEBUGGING_RE_ONLY
+        PL_curstackinfo->si_stack_hwm = 0; /* stop valgrind complaining */
+#endif
 	Perl_pp_pushmark(aTHX);
 	CALLRUNOPS(aTHX);
 	PL_op = curop;
@@ -9468,6 +9471,8 @@ Perl_oopsHV(pTHX_ OP *o)
     case OP_RV2SV:
     case OP_RV2AV:
         OpTYPE_set(o, OP_RV2HV);
+        /* rv2hv steals the bottom bit for its own uses */
+        o->op_private &= ~OPpARG1_MASK;
 	ref(o, OP_RV2HV);
 	break;
 
@@ -9676,11 +9681,27 @@ is_dollar_bracket(pTHX_ const OP * const o)
 	&& strEQ(GvNAME(cGVOPx_gv(kid)), "[");
 }
 
+/* for lt, gt, le, ge, eq, ne and their i_ variants */
+
 OP *
 Perl_ck_cmp(pTHX_ OP *o)
 {
+    bool is_eq;
+    bool neg;
+    bool reverse;
+    bool iv0;
+    OP *indexop, *constop, *start;
+    SV *sv;
+    IV iv;
+
     PERL_ARGS_ASSERT_CK_CMP;
-    if (ckWARN(WARN_SYNTAX)) {
+
+    is_eq = (   o->op_type == OP_EQ
+             || o->op_type == OP_NE
+             || o->op_type == OP_I_EQ
+             || o->op_type == OP_I_NE);
+
+    if (!is_eq && ckWARN(WARN_SYNTAX)) {
 	const OP *kid = cUNOPo->op_first;
 	if (kid &&
             (
@@ -9695,8 +9716,86 @@ Perl_ck_cmp(pTHX_ OP *o)
 	    Perl_warner(aTHX_ packWARN(WARN_SYNTAX),
 			"$[ used in %s (did you mean $] ?)", OP_DESC(o));
     }
-    return o;
+
+    /* convert (index(...) == -1) and variations into
+     *   (r)index/BOOL(,NEG)
+     */
+
+    reverse = FALSE;
+
+    indexop = cUNOPo->op_first;
+    constop = OpSIBLING(indexop);
+    start = NULL;
+    if (indexop->op_type == OP_CONST) {
+        constop = indexop;
+        indexop = OpSIBLING(constop);
+        start = constop;
+        reverse = TRUE;
+    }
+
+    if (indexop->op_type != OP_INDEX && indexop->op_type != OP_RINDEX)
+        return o;
+
+    /* ($lex = index(....)) == -1 */
+    if (indexop->op_private & OPpTARGET_MY)
+        return o;
+
+    if (constop->op_type != OP_CONST)
+        return o;
+
+    sv = cSVOPx_sv(constop);
+    if (!(sv && SvIOK_notUV(sv)))
+        return o;
+
+    iv = SvIVX(sv);
+    if (iv != -1 && iv != 0)
+        return o;
+    iv0 = (iv == 0);
+
+    if (o->op_type == OP_LT || o->op_type == OP_I_LT) {
+        if (!(iv0 ^ reverse))
+            return o;
+        neg = iv0;
+    }
+    else if (o->op_type == OP_LE || o->op_type == OP_I_LE) {
+        if (iv0 ^ reverse)
+            return o;
+        neg = !iv0;
+    }
+    else if (o->op_type == OP_GE || o->op_type == OP_I_GE) {
+        if (!(iv0 ^ reverse))
+            return o;
+        neg = !iv0;
+    }
+    else if (o->op_type == OP_GT || o->op_type == OP_I_GT) {
+        if (iv0 ^ reverse)
+            return o;
+        neg = iv0;
+    }
+    else if (o->op_type == OP_EQ || o->op_type == OP_I_EQ) {
+        if (iv0)
+            return o;
+        neg = TRUE;
+    }
+    else {
+        assert(o->op_type == OP_NE || o->op_type == OP_I_NE);
+        if (iv0)
+            return o;
+        neg = FALSE;
+    }
+
+    indexop->op_flags &= ~OPf_PARENS;
+    indexop->op_flags |= (o->op_flags & OPf_PARENS);
+    indexop->op_private |= OPpTRUEBOOL;
+    if (neg)
+        indexop->op_private |= OPpINDEX_BOOLNEG;
+    /* cut out the index op and free the eq,const ops */
+    (void)op_sibling_splice(o, start, 1, NULL);
+    op_free(o);
+
+    return indexop;
 }
+
 
 OP *
 Perl_ck_concat(pTHX_ OP *o)
@@ -9773,11 +9872,11 @@ Perl_ck_delete(pTHX_ OP *o)
 	case OP_HELEM:
 	    break;
 	case OP_KVASLICE:
-	    Perl_croak(aTHX_ "delete argument is index/value array slice,"
-			     " use array slice");
+            o->op_flags |= OPf_SPECIAL;
+            /* FALLTHROUGH */
 	case OP_KVHSLICE:
-	    Perl_croak(aTHX_ "delete argument is key/value hash slice, use"
-			     " hash slice");
+            o->op_private |= OPpKVSLICE;
+            break;
 	default:
 	    Perl_croak(aTHX_ "delete argument is not a HASH or ARRAY "
 			     "element or slice");
@@ -9809,6 +9908,7 @@ Perl_ck_eof(pTHX_ OP *o)
     }
     return o;
 }
+
 
 OP *
 Perl_ck_eval(pTHX_ OP *o)
@@ -9921,6 +10021,10 @@ Perl_ck_rvconst(pTHX_ OP *o)
     SVOP * const kid = (SVOP*)cUNOPo->op_first;
 
     PERL_ARGS_ASSERT_CK_RVCONST;
+
+    if (o->op_type == OP_RV2HV)
+        /* rv2hv steals the bottom bit for its own uses */
+        o->op_private &= ~OPpARG1_MASK;
 
     o->op_private |= (PL_hints & HINT_STRICT_REFS);
 
@@ -10425,7 +10529,9 @@ Perl_ck_index(pTHX_ OP *o)
 	if (kid && kid->op_type == OP_CONST) {
 	    const bool save_taint = TAINT_get;
 	    SV *sv = kSVOP->op_sv;
-	    if ((!SvPOK(sv) || SvNIOKp(sv)) && SvOK(sv) && !SvROK(sv)) {
+	    if (   (!SvPOK(sv) || SvNIOKp(sv) || isREGEXP(sv))
+                && SvOK(sv) && !SvROK(sv))
+            {
 		sv = newSV(0);
 		sv_copypv(sv, kSVOP->op_sv);
 		SvREFCNT_dec_NN(kSVOP->op_sv);
@@ -10895,7 +11001,6 @@ Perl_ck_require(pTHX_ OP *o)
 
     if (o->op_flags & OPf_KIDS) {	/* Shall we supply missing .pm? */
 	SVOP * const kid = (SVOP*)cUNOPo->op_first;
-	HEK *hek;
 	U32 hash;
 	char *s;
 	STRLEN len;
@@ -10905,6 +11010,7 @@ Perl_ck_require(pTHX_ OP *o)
 	  if (kid->op_private & OPpCONST_BARE) {
             dVAR;
 	    const char *end;
+            HEK *hek;
 
 	    if (was_readonly) {
 		    SvREADONLY_off(sv);
@@ -10947,6 +11053,7 @@ Perl_ck_require(pTHX_ OP *o)
 	    }
 	    else {
                 dVAR;
+                HEK *hek;
 		if (was_readonly) SvREADONLY_off(sv);
 		PERL_HASH(hash, s, len);
 		hek = share_hek(s,
@@ -10987,7 +11094,7 @@ Perl_ck_return(pTHX_ OP *o)
     PERL_ARGS_ASSERT_CK_RETURN;
 
     kid = OpSIBLING(cLISTOPo->op_first);
-    if (CvLVALUE(PL_compcv)) {
+    if (PL_compcv && CvLVALUE(PL_compcv)) {
 	for (; kid; kid = OpSIBLING(kid))
 	    op_lvalue(kid, OP_LEAVESUBLV);
     }
@@ -11126,7 +11233,7 @@ Perl_ck_sort(pTHX_ OP *o)
 }
 
 /* for sort { X } ..., where X is one of
- *   $a <=> $b, $b <= $a, $a cmp $b, $b cmp $a
+ *   $a <=> $b, $b <=> $a, $a cmp $b, $b cmp $a
  * elide the second child of the sort (the one containing X),
  * and set these flags as appropriate
 	OPpSORT_NUMERIC;
@@ -11822,7 +11929,8 @@ Perl_ck_entersub_args_proto_or_list(pTHX_ OP *entersubop,
 OP *
 Perl_ck_entersub_args_core(pTHX_ OP *entersubop, GV *namegv, SV *protosv)
 {
-    int opnum = SvTYPE(protosv) == SVt_PVCV ? 0 : (int)SvUV(protosv);
+    IV cvflags = SvIVX(protosv);
+    int opnum = cvflags & 0xffff;
     OP *aop = cUNOPx(entersubop)->op_first;
 
     PERL_ARGS_ASSERT_CK_ENTERSUB_ARGS_CORE;
@@ -11833,11 +11941,14 @@ Perl_ck_entersub_args_core(pTHX_ OP *entersubop, GV *namegv, SV *protosv)
 	    aop = cUNOPx(aop)->op_first;
 	aop = OpSIBLING(aop);
 	for (cvop = aop; OpSIBLING(cvop); cvop = OpSIBLING(cvop)) ;
-	if (aop != cvop)
-	    (void)too_many_arguments_pv(entersubop, GvNAME(namegv), 0);
+	if (aop != cvop) {
+	    SV *namesv = cv_name((CV *)namegv, NULL, CV_NAME_NOTQUAL);
+	    yyerror_pv(Perl_form(aTHX_ "Too many arguments for %" SVf,
+		SVfARG(namesv)), SvUTF8(namesv));
+	}
 	
 	op_free(entersubop);
-	switch(GvNAME(namegv)[2]) {
+	switch(cvflags >> 16) {
 	case 'F': return newSVOP(OP_CONST, 0,
 					newSVpv(CopFILE(PL_curcop),0));
 	case 'L': return newSVOP(
@@ -11890,8 +12001,7 @@ Perl_ck_entersub_args_core(pTHX_ OP *entersubop, GV *namegv, SV *protosv)
             op_sibling_splice(parent, first, -1, NULL);
 	op_free(entersubop);
 
-	if (opnum == OP_ENTEREVAL
-	 && GvNAMELEN(namegv)==9 && strnEQ(GvNAME(namegv), "evalbytes", 9))
+	if (cvflags == (OP_ENTEREVAL | (1<<16)))
 	    flags |= OPpEVAL_BYTES <<8;
 	
 	switch (PL_opargs[opnum] & OA_CLASS_MASK) {
@@ -11901,7 +12011,9 @@ Perl_ck_entersub_args_core(pTHX_ OP *entersubop, GV *namegv, SV *protosv)
 	    return aop ? newUNOP(opnum,flags,aop) : newOP(opnum,flags);
 	case OA_BASEOP:
 	    if (aop) {
-		    (void)too_many_arguments_pv(aop, GvNAME(namegv), 0);
+		SV *namesv = cv_name((CV *)namegv, NULL, CV_NAME_NOTQUAL);
+		yyerror_pv(Perl_form(aTHX_ "Too many arguments for %" SVf,
+		    SVfARG(namesv)), SvUTF8(namesv));
 		op_free(aop);
 	    }
 	    return opnum == OP_RUNCV
@@ -11916,70 +12028,101 @@ Perl_ck_entersub_args_core(pTHX_ OP *entersubop, GV *namegv, SV *protosv)
 }
 
 /*
-=for apidoc Am|void|cv_get_call_checker|CV *cv|Perl_call_checker *ckfun_p|SV **ckobj_p
+=for apidoc Am|void|cv_get_call_checker_flags|CV *cv|U32 gflags|Perl_call_checker *ckfun_p|SV **ckobj_p|U32 *ckflags_p
 
 Retrieves the function that will be used to fix up a call to C<cv>.
 Specifically, the function is applied to an C<entersub> op tree for a
 subroutine call, not marked with C<&>, where the callee can be identified
 at compile time as C<cv>.
 
-The C-level function pointer is returned in C<*ckfun_p>, and an SV
-argument for it is returned in C<*ckobj_p>.  The function is intended
-to be called in this manner:
+The C-level function pointer is returned in C<*ckfun_p>, an SV argument
+for it is returned in C<*ckobj_p>, and control flags are returned in
+C<*ckflags_p>.  The function is intended to be called in this manner:
 
  entersubop = (*ckfun_p)(aTHX_ entersubop, namegv, (*ckobj_p));
 
 In this call, C<entersubop> is a pointer to the C<entersub> op,
-which may be replaced by the check function, and C<namegv> is a GV
-supplying the name that should be used by the check function to refer
+which may be replaced by the check function, and C<namegv> supplies
+the name that should be used by the check function to refer
 to the callee of the C<entersub> op if it needs to emit any diagnostics.
 It is permitted to apply the check function in non-standard situations,
 such as to a call to a different subroutine or to a method call.
 
-By default, the function is
+C<namegv> may not actually be a GV.  If the C<CALL_CHECKER_REQUIRE_GV>
+bit is clear in C<*ckflags_p>, it is permitted to pass a CV or other SV
+instead, anything that can be used as the first argument to L</cv_name>.
+If the C<CALL_CHECKER_REQUIRE_GV> bit is set in C<*ckflags_p> then the
+check function requires C<namegv> to be a genuine GV.
+
+By default, the check function is
 L<Perl_ck_entersub_args_proto_or_list|/ck_entersub_args_proto_or_list>,
-and the SV parameter is C<cv> itself.  This implements standard
-prototype processing.  It can be changed, for a particular subroutine,
-by L</cv_set_call_checker>.
+the SV parameter is C<cv> itself, and the C<CALL_CHECKER_REQUIRE_GV>
+flag is clear.  This implements standard prototype processing.  It can
+be changed, for a particular subroutine, by L</cv_set_call_checker_flags>.
+
+If the C<CALL_CHECKER_REQUIRE_GV> bit is set in C<gflags> then it
+indicates that the caller only knows about the genuine GV version of
+C<namegv>, and accordingly the corresponding bit will always be set in
+C<*ckflags_p>, regardless of the check function's recorded requirements.
+If the C<CALL_CHECKER_REQUIRE_GV> bit is clear in C<gflags> then it
+indicates the caller knows about the possibility of passing something
+other than a GV as C<namegv>, and accordingly the corresponding bit may
+be either set or clear in C<*ckflags_p>, indicating the check function's
+recorded requirements.
+
+C<gflags> is a bitset passed into C<cv_get_call_checker_flags>, in which
+only the C<CALL_CHECKER_REQUIRE_GV> bit currently has a defined meaning
+(for which see above).  All other bits should be clear.
+
+=for apidoc Am|void|cv_get_call_checker|CV *cv|Perl_call_checker *ckfun_p|SV **ckobj_p
+
+The original form of L</cv_get_call_checker_flags>, which does not return
+checker flags.  When using a checker function returned by this function,
+it is only safe to call it with a genuine GV as its C<namegv> argument.
 
 =cut
 */
 
-static void
-S_cv_get_call_checker(CV *cv, Perl_call_checker *ckfun_p, SV **ckobj_p,
-		      U8 *flagsp)
+void
+Perl_cv_get_call_checker_flags(pTHX_ CV *cv, U32 gflags,
+	Perl_call_checker *ckfun_p, SV **ckobj_p, U32 *ckflags_p)
 {
     MAGIC *callmg;
+    PERL_ARGS_ASSERT_CV_GET_CALL_CHECKER_FLAGS;
+    PERL_UNUSED_CONTEXT;
     callmg = SvMAGICAL((SV*)cv) ? mg_find((SV*)cv, PERL_MAGIC_checkcall) : NULL;
     if (callmg) {
 	*ckfun_p = DPTR2FPTR(Perl_call_checker, callmg->mg_ptr);
 	*ckobj_p = callmg->mg_obj;
-	if (flagsp) *flagsp = callmg->mg_flags;
+	*ckflags_p = (callmg->mg_flags | gflags) & MGf_REQUIRE_GV;
     } else {
 	*ckfun_p = Perl_ck_entersub_args_proto_or_list;
 	*ckobj_p = (SV*)cv;
-	if (flagsp) *flagsp = 0;
+	*ckflags_p = gflags & MGf_REQUIRE_GV;
     }
 }
 
 void
 Perl_cv_get_call_checker(pTHX_ CV *cv, Perl_call_checker *ckfun_p, SV **ckobj_p)
 {
+    U32 ckflags;
     PERL_ARGS_ASSERT_CV_GET_CALL_CHECKER;
     PERL_UNUSED_CONTEXT;
-    S_cv_get_call_checker(cv, ckfun_p, ckobj_p, NULL);
+    cv_get_call_checker_flags(cv, CALL_CHECKER_REQUIRE_GV, ckfun_p, ckobj_p,
+	&ckflags);
 }
 
 /*
-=for apidoc Am|void|cv_set_call_checker_flags|CV *cv|Perl_call_checker ckfun|SV *ckobj|U32 flags
+=for apidoc Am|void|cv_set_call_checker_flags|CV *cv|Perl_call_checker ckfun|SV *ckobj|U32 ckflags
 
 Sets the function that will be used to fix up a call to C<cv>.
 Specifically, the function is applied to an C<entersub> op tree for a
 subroutine call, not marked with C<&>, where the callee can be identified
 at compile time as C<cv>.
 
-The C-level function pointer is supplied in C<ckfun>, and an SV argument
-for it is supplied in C<ckobj>.  The function should be defined like this:
+The C-level function pointer is supplied in C<ckfun>, an SV argument for
+it is supplied in C<ckobj>, and control flags are supplied in C<ckflags>.
+The function should be defined like this:
 
     STATIC OP * ckfun(pTHX_ OP *op, GV *namegv, SV *ckobj)
 
@@ -11997,15 +12140,21 @@ such as to a call to a different subroutine or to a method call.
 C<namegv> may not actually be a GV.  For efficiency, perl may pass a
 CV or other SV instead.  Whatever is passed can be used as the first
 argument to L</cv_name>.  You can force perl to pass a GV by including
-C<CALL_CHECKER_REQUIRE_GV> in the C<flags>.
+C<CALL_CHECKER_REQUIRE_GV> in the C<ckflags>.
+
+C<ckflags> is a bitset, in which only the C<CALL_CHECKER_REQUIRE_GV>
+bit currently has a defined meaning (for which see above).  All other
+bits should be clear.
 
 The current setting for a particular CV can be retrieved by
-L</cv_get_call_checker>.
+L</cv_get_call_checker_flags>.
 
 =for apidoc Am|void|cv_set_call_checker|CV *cv|Perl_call_checker ckfun|SV *ckobj
 
 The original form of L</cv_set_call_checker_flags>, which passes it the
-C<CALL_CHECKER_REQUIRE_GV> flag for backward-compatibility.
+C<CALL_CHECKER_REQUIRE_GV> flag for backward-compatibility.  The effect
+of that flag setting is that the check function is guaranteed to get a
+genuine GV as its C<namegv> argument.
 
 =cut
 */
@@ -12019,7 +12168,7 @@ Perl_cv_set_call_checker(pTHX_ CV *cv, Perl_call_checker ckfun, SV *ckobj)
 
 void
 Perl_cv_set_call_checker_flags(pTHX_ CV *cv, Perl_call_checker ckfun,
-				     SV *ckobj, U32 flags)
+				     SV *ckobj, U32 ckflags)
 {
     PERL_ARGS_ASSERT_CV_SET_CALL_CHECKER_FLAGS;
     if (ckfun == Perl_ck_entersub_args_proto_or_list && ckobj == (SV*)cv) {
@@ -12041,7 +12190,7 @@ Perl_cv_set_call_checker_flags(pTHX_ CV *cv, Perl_call_checker ckfun,
 	    callmg->mg_flags |= MGf_REFCOUNTED;
 	}
 	callmg->mg_flags = (callmg->mg_flags &~ MGf_REQUIRE_GV)
-			 | (U8)(flags & MGf_REQUIRE_GV) | MGf_COPY;
+			 | (U8)(ckflags & MGf_REQUIRE_GV) | MGf_COPY;
     }
 }
 
@@ -12122,8 +12271,8 @@ Perl_ck_subr(pTHX_ OP *o)
     } else {
 	Perl_call_checker ckfun;
 	SV *ckobj;
-	U8 flags;
-	S_cv_get_call_checker(cv, &ckfun, &ckobj, &flags);
+	U32 ckflags;
+	cv_get_call_checker_flags(cv, 0, &ckfun, &ckobj, &ckflags);
 	if (CvISXSUB(cv) || !CvROOT(cv))
 	    S_entersub_alloc_targ(aTHX_ o);
 	if (!namegv) {
@@ -12133,7 +12282,7 @@ Perl_ck_subr(pTHX_ OP *o)
 	       the CV’s GV, unless this is an anonymous sub.  This is not
 	       ideal for lexical subs, as its stringification will include
 	       the package.  But it is the best we can do.  */
-	    if (flags & MGf_REQUIRE_GV) {
+	    if (ckflags & CALL_CHECKER_REQUIRE_GV) {
 		if (!CvANON(cv) && (!CvNAMED(cv) || CvNAME_HEK(cv)))
 		    namegv = CvGV(cv);
 	    }
@@ -13084,9 +13233,9 @@ S_maybe_multideref(pTHX_ OP *start, OP *orig_o, UV orig_action, U8 hints)
                 case OP_GV:
                     /* it may be a package var index */
 
-                    ASSUME(!(o->op_flags & ~(OPf_WANT|OPf_SPECIAL)));
+                    ASSUME(!(o->op_flags & ~(OPf_WANT|OPf_PARENS|OPf_SPECIAL)));
                     ASSUME(!(o->op_private & ~(OPpEARLY_CV)));
-                    if (  (o->op_flags &~ OPf_SPECIAL) != OPf_WANT_SCALAR
+                    if (  (o->op_flags & ~(OPf_PARENS|OPf_SPECIAL)) != OPf_WANT_SCALAR
                         || o->op_private != 0
                     )
                         break;
@@ -13193,7 +13342,13 @@ S_maybe_multideref(pTHX_ OP *start, OP *orig_o, UV orig_action, U8 hints)
                  * block of code would need rethinking.
                  */
                 if (is_deref && (o->op_private & OPpLVAL_INTRO)) {
-                    assert(o->op_next->op_type == OP_LEAVE);
+#ifdef DEBUGGING
+                    OP *n = o->op_next;
+                    while (n && (  n->op_type == OP_NULL
+                                || n->op_type == OP_LIST))
+                        n = n->op_next;
+                    assert(n && n->op_type == OP_LEAVE);
+#endif
                     o->op_private &= ~OPpDEREF;
                     is_deref = FALSE;
                 }
@@ -13478,18 +13633,67 @@ S_maybe_multideref(pTHX_ OP *start, OP *orig_o, UV orig_action, U8 hints)
 
 /* See if the ops following o are such that o will always be executed in
  * boolean context: that is, the SV which o pushes onto the stack will
- * only ever be used by later ops with SvTRUE(sv) or similar.
+ * only ever be consumed by later ops via SvTRUE(sv) or similar.
  * If so, set a suitable private flag on o. Normally this will be
- * bool_flag; but if it's only possible to determine booleaness at run
- * time (e.g. sub f { ....; (%h || $y) }), then set maybe_flag instead.
+ * bool_flag; but see below why maybe_flag is needed too.
+ *
+ * Typically the two flags you pass will be the generic OPpTRUEBOOL and
+ * OPpMAYBE_TRUEBOOL, buts it's possible that for some ops those bits may
+ * already be taken, so you'll have to give that op two different flags.
+ *
+ * More explanation of 'maybe_flag' and 'safe_and' parameters.
+ * The binary logical ops &&, ||, // (plus 'if' and 'unless' which use
+ * those underlying ops) short-circuit, which means that rather than
+ * necessarily returning a truth value, they may return the LH argument,
+ * which may not be boolean. For example in $x = (keys %h || -1), keys
+ * should return a key count rather than a boolean, even though its
+ * sort-of being used in boolean context.
+ *
+ * So we only consider such logical ops to provide boolean context to
+ * their LH argument if they themselves are in void or boolean context.
+ * However, sometimes the context isn't known until run-time. In this
+ * case the op is marked with the maybe_flag flag it.
+ *
+ * Consider the following.
+ *
+ *     sub f { ....;  if (%h) { .... } }
+ *
+ * This is actually compiled as
+ *
+ *     sub f { ....;  %h && do { .... } }
+ *
+ * Here we won't know until runtime whether the final statement (and hence
+ * the &&) is in void context and so is safe to return a boolean value.
+ * So mark o with maybe_flag rather than the bool_flag.
+ * Note that there is cost associated with determining context at runtime
+ * (e.g. a call to block_gimme()), so it may not be worth setting (at
+ * compile time) and testing (at runtime) maybe_flag if the scalar verses
+ * boolean costs savings are marginal.
+ *
+ * However, we can do slightly better with && (compared to || and //):
+ * this op only returns its LH argument when that argument is false. In
+ * this case, as long as the op promises to return a false value which is
+ * valid in both boolean and scalar contexts, we can mark an op consumed
+ * by && with bool_flag rather than maybe_flag.
+ * For example as long as pp_padhv and pp_rv2hv return &PL_sv_zero rather
+ * than &PL_sv_no for a false result in boolean context, then it's safe. An
+ * op which promises to handle this case is indicated by setting safe_and
+ * to true.
  */
 
 static void
-S_check_for_bool_cxt(pTHX_ OP*o, U8 bool_flag, U8 maybe_flag)
+S_check_for_bool_cxt(OP*o, bool safe_and, U8 bool_flag, U8 maybe_flag)
 {
     OP *lop;
+    U8 flag = 0;
 
     assert((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR);
+
+    /* OPpTARGET_MY and boolean context probably don't mix well.
+     * If someone finds a valid use case, maybe add an extra flag to this
+     * function which indicates its safe to do so for this op? */
+    assert(!(   (PL_opargs[o->op_type] & OA_TARGLEX)
+             && (o->op_private & OPpTARGET_MY)));
 
     lop = o->op_next;
 
@@ -13515,7 +13719,7 @@ S_check_for_bool_cxt(pTHX_ OP*o, U8 bool_flag, U8 maybe_flag)
         case OP_XOR:
         case OP_COND_EXPR:
         case OP_GREPWHILE:
-            o->op_private |= bool_flag;
+            flag = bool_flag;
             lop = NULL;
             break;
 
@@ -13525,16 +13729,22 @@ S_check_for_bool_cxt(pTHX_ OP*o, U8 bool_flag, U8 maybe_flag)
          * that whatever follows consumes the arg only in boolean context
          * too.
          */
+        case OP_AND:
+            if (safe_and) {
+                flag = bool_flag;
+                lop = NULL;
+                break;
+            }
+            /* FALLTHROUGH */
         case OP_OR:
         case OP_DOR:
-        case OP_AND:
             if ((lop->op_flags & OPf_WANT) == OPf_WANT_VOID) {
-                o->op_private |= bool_flag;
+                flag = bool_flag;
                 lop = NULL;
             }
             else if (!(lop->op_flags & OPf_WANT)) {
                 /* unknown context - decide at runtime */
-                o->op_private |= maybe_flag;
+                flag = maybe_flag;
                 lop = NULL;
             }
             break;
@@ -13547,6 +13757,8 @@ S_check_for_bool_cxt(pTHX_ OP*o, U8 bool_flag, U8 maybe_flag)
         if (lop)
             lop = lop->op_next;
     }
+
+    o->op_private |= flag;
 }
 
 
@@ -14278,15 +14490,54 @@ Perl_rpeep(pTHX_ OP *o)
             break;
         }
 
+	case OP_RV2AV:
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
+            break;
+
 	case OP_RV2HV:
 	case OP_PADHV:
+            /*'keys %h' in void or scalar context: skip the OP_KEYS
+             * and perform the functionality directly in the RV2HV/PADHV
+             * op
+             */
+            if (o->op_flags & OPf_REF) {
+                OP *k = o->op_next;
+                U8 want = (k->op_flags & OPf_WANT);
+                if (   k
+                    && k->op_type == OP_KEYS
+                    && (   want == OPf_WANT_VOID
+                        || want == OPf_WANT_SCALAR)
+                    && !(k->op_private & OPpMAYBE_LVSUB)
+                    && !(k->op_flags & OPf_MOD)
+                ) {
+                    o->op_next     = k->op_next;
+                    o->op_flags   &= ~(OPf_REF|OPf_WANT);
+                    o->op_flags   |= want;
+                    o->op_private |= (o->op_type == OP_PADHV ?
+                                      OPpRV2HV_ISKEYS : OPpRV2HV_ISKEYS);
+                    /* for keys(%lex), hold onto the OP_KEYS's targ
+                     * since padhv doesn't have its own targ to return
+                     * an int with */
+                    if (!(o->op_type ==OP_PADHV && want == OPf_WANT_SCALAR))
+                        op_null(k);
+                }
+            }
+
             /* see if %h is used in boolean context */
             if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
-                S_check_for_bool_cxt(aTHX_ o, OPpTRUEBOOL, OPpMAYBE_TRUEBOOL);
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, OPpMAYBE_TRUEBOOL);
+
+
             if (o->op_type != OP_PADHV)
                 break;
             /* FALLTHROUGH */
 	case OP_PADAV:
+            if (   o->op_type == OP_PADAV
+                && (o->op_flags & OPf_WANT) == OPf_WANT_SCALAR
+            )
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
+            /* FALLTHROUGH */
 	case OP_PADSV:
             /* Skip over state($x) in void context.  */
             if (oldop && o->op_private == (OPpPAD_STATE|OPpLVAL_INTRO)
@@ -14407,9 +14658,12 @@ Perl_rpeep(pTHX_ OP *o)
 	    o->op_opt = 1;
 	    break;
 	
+	case OP_GREPWHILE:
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
+            /* FALLTHROUGH */
 	case OP_COND_EXPR:
 	case OP_MAPWHILE:
-	case OP_GREPWHILE:
 	case OP_ANDASSIGN:
 	case OP_ORASSIGN:
 	case OP_DORASSIGN:
@@ -14441,6 +14695,8 @@ Perl_rpeep(pTHX_ OP *o)
 	    break;
 
 	case OP_SUBST:
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
 	    assert(!(cPMOP->op_pmflags & PMf_ONCE));
 	    while (cPMOP->op_pmstashstartu.op_pmreplstart &&
 		   cPMOP->op_pmstashstartu.op_pmreplstart->op_type == OP_NULL)
@@ -14774,8 +15030,31 @@ Perl_rpeep(pTHX_ OP *o)
                 o->op_private &=
                         ~(OPpASSIGN_COMMON_SCALAR|OPpASSIGN_COMMON_RC1);
 
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpASSIGN_TRUEBOOL, 0);
 	    break;
         }
+
+        case OP_REF:
+            /* see if ref() is used in boolean context */
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, OPpMAYBE_TRUEBOOL);
+            break;
+
+        case OP_LENGTH:
+            /* see if the op is used in known boolean context,
+             * but not if OA_TARGLEX optimisation is enabled */
+            if (   (o->op_flags & OPf_WANT) == OPf_WANT_SCALAR
+                && !(o->op_private & OPpTARGET_MY)
+            )
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
+            break;
+
+        case OP_POS:
+            /* see if the op is used in known boolean context */
+            if ((o->op_flags & OPf_WANT) == OPf_WANT_SCALAR)
+                S_check_for_bool_cxt(o, 1, OPpTRUEBOOL, 0);
+            break;
 
 	case OP_CUSTOM: {
 	    Perl_cpeep_t cpeep = 
@@ -15183,20 +15462,8 @@ C<opcode> specifies which type of op is to be affected.  C<new_checker>
 is a pointer to the C function that is to be added to that opcode's
 check chain, and C<old_checker_p> points to the storage location where a
 pointer to the next function in the chain will be stored.  The value of
-C<new_pointer> is written into the L</PL_check> array, while the value
+C<new_checker> is written into the L</PL_check> array, while the value
 previously stored there is written to C<*old_checker_p>.
-
-The function should be defined like this:
-
-    static OP *new_checker(pTHX_ OP *op) { ... }
-
-It is intended to be called in this manner:
-
-    new_checker(aTHX_ op)
-
-C<old_checker_p> should be defined like this:
-
-    static Perl_check_t old_checker_p;
 
 L</PL_check> is global to an entire process, and a module wishing to
 hook op checking may find itself invoked more than once per process,
@@ -15219,9 +15486,22 @@ decides not to do anything special with an op that it is given (which
 is the usual case for most uses of op check hooking), it must chain the
 check function referenced by C<*old_checker_p>.
 
+Taken all together, XS code to hook an op checker should typically look
+something like this:
+
+    static Perl_check_t nxck_frob;
+    static OP *myck_frob(pTHX_ OP *op) {
+	...
+	op = nxck_frob(aTHX_ op);
+	...
+	return op;
+    }
+    BOOT:
+	wrap_op_checker(OP_FROB, myck_frob, &nxck_frob);
+
 If you want to influence compilation of calls to a specific subroutine,
-then use L</cv_set_call_checker> rather than hooking checking of all
-C<entersub> ops.
+then use L</cv_set_call_checker_flags> rather than hooking checking of
+all C<entersub> ops.
 
 =cut
 */

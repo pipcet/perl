@@ -4,8 +4,6 @@ toke.c	AOK
 
  
  		$a = <<;
- 		Use of comma-less variable list is deprecated. Its use will be fatal in Perl 5.28
-		(called 3 times via depcom)
 
      \1 better written as $1 
  	use warnings 'syntax' ;
@@ -125,39 +123,6 @@ toke.c	AOK
         *foo *foo
 
 __END__
-# toke.c 
-format STDOUT =
-@<<<  @|||  @>>>  @>>>
-$a    $b    "abc" 'def'
-.
-no warnings 'deprecated' ;
-format STDOUT =
-@<<<  @|||  @>>>  @>>>
-$a    $b    "abc" 'def'
-.
-EXPECT
-Use of comma-less variable list is deprecated. Its use will be fatal in Perl 5.28 at - line 4.
-Use of comma-less variable list is deprecated. Its use will be fatal in Perl 5.28 at - line 4.
-Use of comma-less variable list is deprecated. Its use will be fatal in Perl 5.28 at - line 4.
-########
-# toke.c
-$a = <<;
-
-no warnings 'deprecated' ;
-$a = <<;
-
-EXPECT
-Use of bare << to mean <<"" is deprecated. Its use will be fatal in Perl 5.28 at - line 2.
-########
-# toke.c
-$a = <<~;
-
-$a = <<~ ;
-
-EXPECT
-Use of bare << to mean <<"" is deprecated. Its use will be fatal in Perl 5.28 at - line 2.
-Use of bare << to mean <<"" is deprecated. Its use will be fatal in Perl 5.28 at - line 4.
-########
 # toke.c
 $a =~ m/$foo/eq;
 $a =~ s/$foo/fool/seq;
@@ -1265,26 +1230,6 @@ EXPECT
 !=~ should be !~ at - line 7.
 !=~ should be !~ at - line 8.
 !=~ should be !~ at - line 9.
-########
-# toke.c
-our $foo :unique;
-sub pam :locked;
-sub glipp :locked {
-}
-sub whack_eth ($) : locked {
-}
-no warnings 'deprecated';
-our $bar :unique;
-sub zapeth :locked;
-sub ker_plop :locked {
-}
-sub swa_a_p ($) : locked {
-}
-EXPECT
-Attribute "unique" is deprecated, and will disappear in Perl 5.28 at - line 2.
-Attribute "locked" is deprecated, and will disappear in Perl 5.28 at - line 3.
-Attribute "locked" is deprecated, and will disappear in Perl 5.28 at - line 4.
-Attribute "locked" is deprecated, and will disappear in Perl 5.28 at - line 6.
 ########
 # toke.c
 use warnings "syntax";

@@ -17,6 +17,117 @@ Consult your favorite dictionary for details.
 
 =head1 EPIGRAPHS
 
+=head2 v5.27.2 - Lev Grossman, Codex
+
+L<Announced on 2017-07-20 by Aaron Crane|http://www.nntp.perl.org/group/perl.perl5.porters/2017/07/msg245585.html>
+
+  He went back for another stack of books: a three-volume English legal
+  treatise; a travel guide to Tuscany from the '20s crammed with faded
+  Italian wildflowers that fluttered out from between the pages like
+  moths; a French edition of Turgeniev so decayed that it came apart in
+  his hands; a register of London society from 1863. In a way it was
+  idiotic. He was treating these books like they were holy relics. It
+  wasn't like he would ever actually read them. But there was something
+  magnetic about them, something that compelled respect, even the silly
+  ones, like the Enlightenment treatise about how lightning was caused
+  by bees. They were information, data, but not in the form he was used
+  to dealing with it. They were non-digital, nonelectrical chunks of
+  memory, not stamped out of silicon but laboriously crafted out of wood
+  pulp and ink, leather and glue. Somebody had cared enough to write
+  these things; somebody else had cared enough to buy them, possibly
+  even read them, at the very least keep them safe for 150 years,
+  sometimes longer, when they could have vanished at the touch of a
+  spark. That made them worth something, didn't it, just by itself?
+  Though most of them would have bored him rigid the second he cracked
+  them open, which there wasn't much chance of. Maybe that was what he
+  found so appealing: the sight of so many books that he'd never have to
+  read, so much work he'd never have to do.
+
+=head2 v5.27.1 - Rona Munro, Doctor Who: Survival
+
+L<Announced on 2017-06-20 by Eric Herman|http://www.nntp.perl.org/group/perl.perl5.porters/2017/06/msg245055.html>
+
+  There are worlds out there where the sky is burning,
+  where the sea's asleep and the rivers dream,
+  people made of smoke and cities made of song.
+  Somewhere there's danger,
+  somewhere there's injustice
+  and somewhere else the tea is getting cold.
+  Come on, Ace, we've got work to do.
+
+=head2 v5.27.0 - Bertrand Russell, The Road to Happiness
+
+L<Announced on 2017-05-31 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/05/msg244580.html>
+
+  People who have theories as to how one should live tend to forget the
+  limitations of nature. If your way of life involves constant
+  restraint of impulse for the sake of some one supreme aim that you
+  have set yourself, it is likely that the aim will become increasingly
+  distasteful because of the efforts that it demands; impulse, denied
+  its normal outlets, will find others, probably in spite; pleasure, if
+  you allow yourself any at all, will be dissociated from the main
+  current of your life, and will become Bacchic and frivolous. Such
+  pleasure brings no happiness, but only a deeper despair.
+
+    -- Bertrand Russell, The Road to Happiness
+
+=head2 v5.26.0 - Nine Simone, Ain't Got No / I Got Life
+
+L<Announced on 2017-05-30 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/05/msg244573.html>
+
+  I've got the life
+  And I'm gonna keep it
+  I've got the life
+  And nobody's gonna take it away
+  I've got the life
+
+=head2 v5.26.0-RC2 - Richard Condon, The Manchurian Candidate
+
+L<Announced on 2017-05-23 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/05/msg244511.html>
+
+  Amateur psychiatric prognosis can be fascinating when there is
+  absolutely nothing else to do.
+
+=head2 v5.26.0-RC1 - Thomas Paine, Common Sense
+
+L<Announced on 2017-05-11 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/05/msg244337.html>
+
+  A long habit of not thinking a thing WRONG, gives it a superficial
+  appearance of being RIGHT, and raises at first a formidable outcry in
+  defense of custom. But the tumult soon subsides. Time makes more
+  converts than reason.
+
+=head2 v5.25.12 - Kurt Vonnegut, Slaughterhouse-Five
+
+L<Announced on 2017-04-20 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/04/msg244146.html>
+
+  I have told my sons that they are not under any circumstances to take
+  part in massacres, and that the news of massacres of enemies is not
+  to fill them with satisfaction or glee.
+
+  I have also told them not to work for companies which make massacre
+  machinery, and to express contempt for people who think we need
+  machinery like that.
+
+=head2 v5.25.11 - Daniel Kahneman, Thinking, Fast and Slow
+
+L<Announced on 2017-03-20 by Sawyer X|http://www.nntp.perl.org/group/perl.perl5.porters/2017/03/msg243624.html>
+
+  Subjective confidence in a judgment is not a reasoned evaluation of
+  the probability that this judgment is correct. Confidence is a
+  feeling, which reflects the coherence of the information and the
+  cognitive ease of processing it. It is wise to take admissions of
+  uncertainty seriously, but declarations of high confidence mainly
+  tell you that an individual has constructed a coherent story in his
+  mind, not necessarily that the story is true.
+
+=head2 v5.25.10 - Erich Fried, 1968
+
+L<Announced on 2017-02-20 by Renee Bäcker|https://www.nntp.perl.org/group/perl.perl5.porters/2017/02/msg243173.html>
+
+  He who wants the world to remain as it is
+  doesn't want it to remain.
+
 =head2 v5.25.9 - A. A. Milne, "Winnie-the-Pooh", 1926
 
 L<Announced on 2017-01-20 by Abigail|http://www.nntp.perl.org/group/perl.perl5.porters/2017/01/msg242405.html>
@@ -203,6 +314,47 @@ L<Announced on 2016-05-09 by Ricardo Signes|http://www.nntp.perl.org/group/perl.
     Wide fields of asphodel fore’er,
   To find that the utmost reward
     Of daring should be still to dare.
+
+=head2 v5.24.2 - Roald Dahl, "The Three Little Pigs"
+
+L<Announced on 2017-07-15 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/07/msg245527.html>
+
+  A short while later, through the wood,
+  Came striding brave Miss Riding Hood.
+  The Wolf stood there, his eyes ablaze
+  And yellowish, like mayonnaise.
+  His teeth were sharp, his gums were raw,
+  And spit was dripping from his jaw.
+  Once more the maiden's eyelid flickers.
+  She draws the pistol from her knickers.
+  Once more, she hits the vital spot,
+  And kills him with a single shot.
+  Pig, peeping through the window, stood
+  And yelled, 'Well done, Miss Riding Hood!'
+
+  Ah, Piglet, you must never trust
+  Young ladies from the upper crust.
+  For now, Miss Riding Hood, one notes,
+  Not only has two wolfskin coats,
+  But when she goes from place to place,
+  She has a PIGSKIN TRAVELLING CASE.
+
+=head2 v5.24.2-RC1 - Roald Dahl, "The Three Little Pigs"
+
+L<Announced on 2017-07-01 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/07/msg245292.html>
+
+  The animal I really dig
+  Above all others is the pig.
+  Pigs are noble. Pigs are clever,
+  Pig are courteous. However,
+  Now and then, to break this rule,
+  One meets a pig who is a fool.
+  What, for example, would you say
+  If strolling through the woods one day,
+  Right there in front of you you saw
+  A pig who'd built his house of STRAW?
+  The Wolf who saw it licked his lips,
+  And said, 'That pig has had his chips.'
 
 =head2 v5.24.1 - Charles Dodgson [as "Lewis Carroll"], "The Hunting of the Snark", Fit 4: The Hunting
 
@@ -730,6 +882,43 @@ L<Announced on 2015-06-20 by Ricardo Signes|http://www.nntp.perl.org/group/perl.
   To be just like them
   They sing while you slave and I just get bored
   I ain't gonna work on Maggie's farm no more
+
+=head2 v5.22.4 - Roald Dahl, "Little Red Riding Hood and the Wolf"
+
+L<Announced on 2017-07-15 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/07/msg245526.html>
+
+  Then Little Red Riding Hood said, 'But Grandma,
+  what a lovely great big furry coat you have on.'
+  'That's wrong!' cried Wolf. 'Have you forgot
+  'To tell me what BIG TEETH I've got?
+  'Ah well, no matter what you say,
+  'I'm going to eat you anyway.'
+  The small girl smiles. One eyelid flickers.
+  She whips a pistol from her knickers.
+  She aims it at the creature's head
+  And bang bang bang, she shoots him dead.
+
+  A few weeks later, in the wood,
+  I came across Miss Riding Hood.
+  But what a change! No cloak of red,
+  No silly hood upon her head.
+  She said, 'Hello, and do please note
+  'My lovely furry WOLFSKIN COAT.'
+
+=head2 v5.22.4-RC1 - Roald Dahl, "Little Red Riding Hood and the Wolf"
+
+L<Announced on 2017-07-01 by Steve Hay|http://www.nntp.perl.org/group/perl.perl5.porters/2017/07/msg245293.html>
+
+  As soon as Wolf began to feel
+  That he would like a decent meal,
+  He went and knocked on Grandma's door.
+  When Grandma opened it, she saw
+  The sharp white teeth, the horrid grin,
+  And Wolfie said, 'May I come in?'
+  Poor Grandmamma was terrified,
+  'He's going to eat me up!' she cried.
+  And she was absolutely right.
+  He ate her up in one big bite.
 
 =head2 v5.22.3 - Charles Dodgson [as "Lewis Carroll"], "Phantasmagoria", Canto 6: Discomfyture
 
