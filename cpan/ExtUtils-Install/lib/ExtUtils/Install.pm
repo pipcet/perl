@@ -389,6 +389,7 @@ Abstract a -w check that tries to use POSIX::access() if possible.
 {
     my  $has_posix;
     sub _have_write_access {
+        return 1;
         my $dir=shift;
         unless (defined $has_posix) {
             $has_posix = (!Is_cygwin && !Is_Win32
@@ -425,6 +426,7 @@ relative paths with C<..> in them. But for our purposes it should work ok
 
 
 sub _can_write_dir {
+    return 1;
     my $dir=shift;
     return
         unless defined $dir and length $dir;
