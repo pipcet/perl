@@ -7585,11 +7585,24 @@ S_assignment_type(pTHX_ const OP *o)
     if (!o)
 	return TRUE;
 
-    if ((o->op_type == OP_NULL) && (o->op_flags & OPf_KIDS))
-	o = cUNOPo->op_first;
+    if (o->op_type == OP_SREFGEN)
+    {
+	OP * const kid = cUNOPx(cUNOPo->op_first)->op_first;
+	type = kid->op_type;
+	flags = o->op_flags | kid->op_flags;
+	if (!(flags & OPf_PARENS)
+	  && (kid->op_type == OP_RV2AV || kid->op_type == OP_PADAV ||
+	      kid->op_type == OP_RV2HV || kid->op_type == OP_PADHV ))
+	    return ASSIGN_REF;
+	ret = ASSIGN_REF;
+    } else {
+	if ((o->op_type == OP_NULL) && (o->op_flags & OPf_KIDS))
+	    o = cUNOPo->op_first;
+	flags = o->op_flags;
+	type = o->op_type;
+	ret = 0;
+    }
 
-    flags = o->op_flags;
-    type = o->op_type;
     if (type == OP_COND_EXPR) {
         OP * const sib = OpSIBLING(cLOGOPo->op_first);
         const I32 t = assignment_type(sib);
@@ -7601,19 +7614,6 @@ S_assignment_type(pTHX_ const OP *o)
 	    yyerror("Assignment to both a list and a scalar");
 	return FALSE;
     }
-
-    if (type == OP_SREFGEN)
-    {
-	OP * const kid = cUNOPx(cUNOPo->op_first)->op_first;
-	type = kid->op_type;
-	flags |= kid->op_flags;
-	if (!(flags & OPf_PARENS)
-	  && (kid->op_type == OP_RV2AV || kid->op_type == OP_PADAV ||
-	      kid->op_type == OP_RV2HV || kid->op_type == OP_PADHV ))
-	    return ASSIGN_REF;
-	ret = ASSIGN_REF;
-    }
-    else ret = 0;
 
     if (type == OP_LIST &&
 	(flags & OPf_WANT) == OPf_WANT_SCALAR &&
@@ -9610,6 +9610,85 @@ Perl_newMYSUB(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs, OP *block)
     return cv;
 }
 
+/*
+=for apidoc m|CV *|newATTRSUB_x|I32 floor|OP *o|OP *proto|OP *attrs|OP *block|bool o_is_gv
+
+Construct a Perl subroutine, also performing some surrounding jobs.
+
+This function is expected to be called in a Perl compilation context,
+and some aspects of the subroutine are taken from global variables
+associated with compilation.  In particular, C<PL_compcv> represents
+the subroutine that is currently being compiled.  It must be non-null
+when this function is called, and some aspects of the subroutine being
+constructed are taken from it.  The constructed subroutine may actually
+be a reuse of the C<PL_compcv> object, but will not necessarily be so.
+
+If C<block> is null then the subroutine will have no body, and for the
+time being it will be an error to call it.  This represents a forward
+subroutine declaration such as S<C<sub foo ($$);>>.  If C<block> is
+non-null then it provides the Perl code of the subroutine body, which
+will be executed when the subroutine is called.  This body includes
+any argument unwrapping code resulting from a subroutine signature or
+similar.  The pad use of the code must correspond to the pad attached
+to C<PL_compcv>.  The code is not expected to include a C<leavesub> or
+C<leavesublv> op; this function will add such an op.  C<block> is consumed
+by this function and will become part of the constructed subroutine.
+
+C<proto> specifies the subroutine's prototype, unless one is supplied
+as an attribute (see below).  If C<proto> is null, then the subroutine
+will not have a prototype.  If C<proto> is non-null, it must point to a
+C<const> op whose value is a string, and the subroutine will have that
+string as its prototype.  If a prototype is supplied as an attribute, the
+attribute takes precedence over C<proto>, but in that case C<proto> should
+preferably be null.  In any case, C<proto> is consumed by this function.
+
+C<attrs> supplies attributes to be applied the subroutine.  A handful of
+attributes take effect by built-in means, being applied to C<PL_compcv>
+immediately when seen.  Other attributes are collected up and attached
+to the subroutine by this route.  C<attrs> may be null to supply no
+attributes, or point to a C<const> op for a single attribute, or point
+to a C<list> op whose children apart from the C<pushmark> are C<const>
+ops for one or more attributes.  Each C<const> op must be a string,
+giving the attribute name optionally followed by parenthesised arguments,
+in the manner in which attributes appear in Perl source.  The attributes
+will be applied to the sub by this function.  C<attrs> is consumed by
+this function.
+
+If C<o_is_gv> is false and C<o> is null, then the subroutine will
+be anonymous.  If C<o_is_gv> is false and C<o> is non-null, then C<o>
+must point to a C<const> op, which will be consumed by this function,
+and its string value supplies a name for the subroutine.  The name may
+be qualified or unqualified, and if it is unqualified then a default
+stash will be selected in some manner.  If C<o_is_gv> is true, then C<o>
+doesn't point to an C<OP> at all, but is instead a cast pointer to a C<GV>
+by which the subroutine will be named.
+
+If there is already a subroutine of the specified name, then the new
+sub will either replace the existing one in the glob or be merged with
+the existing one.  A warning may be generated about redefinition.
+
+If the subroutine has one of a few special names, such as C<BEGIN> or
+C<END>, then it will be claimed by the appropriate queue for automatic
+running of phase-related subroutines.  In this case the relevant glob will
+be left not containing any subroutine, even if it did contain one before.
+In the case of C<BEGIN>, the subroutine will be executed and the reference
+to it disposed of before this function returns.
+
+The function returns a pointer to the constructed subroutine.  If the sub
+is anonymous then ownership of one counted reference to the subroutine
+is transferred to the caller.  If the sub is named then the caller does
+not get ownership of a reference.  In most such cases, where the sub
+has a non-phase name, the sub will be alive at the point it is returned
+by virtue of being contained in the glob that names it.  A phase-named
+subroutine will usually be alive by virtue of the reference owned by the
+phase's automatic run queue.  But a C<BEGIN> subroutine, having already
+been executed, will quite likely have been destroyed already by the
+time this function returns, making it erroneous for the caller to make
+any use of the returned pointer.  It is the caller's responsibility to
+ensure that it knows which of these situations applies.
+
+=cut
+*/
 
 /* _x = extended */
 CV *
@@ -9876,6 +9955,8 @@ Perl_newATTRSUB_x(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs,
 		    NULL, name, namlen, name_is_utf8 ? SVf_UTF8 : 0,
 		    const_sv
 		);
+		assert(cv);
+		assert(SvREFCNT((SV*)cv) != 0);
 		CvFLAGS(cv) |= CvMETHOD(PL_compcv);
 	    }
 	    else {
@@ -9978,6 +10059,8 @@ Perl_newATTRSUB_x(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs,
 		mro_method_changed_in(PL_curstash);
 	}
     }
+    assert(cv);
+    assert(SvREFCNT((SV*)cv) != 0);
 
     if (!CvHASGV(cv)) {
 	if (isGV(gv))
@@ -10066,12 +10149,15 @@ Perl_newATTRSUB_x(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs,
                     process_special_blocks(floor, name, gv, cv);
         }
     }
+    assert(cv);
 
   done:
+    assert(!cv || evanescent || SvREFCNT((SV*)cv) != 0);
     if (PL_parser)
 	PL_parser->copline = NOLINE;
     LEAVE_SCOPE(floor);
 
+    assert(!cv || evanescent || SvREFCNT((SV*)cv) != 0);
     if (!evanescent) {
 #ifdef PERL_DEBUG_READONLY_OPS
     if (slab)
@@ -10186,9 +10272,11 @@ S_process_special_blocks(pTHX_ I32 floor, const char *const fullname,
 }
 
 /*
-=for apidoc newCONSTSUB
+=for apidoc Am|CV *|newCONSTSUB|HV *stash|const char *name|SV *sv
 
-See L</newCONSTSUB_flags>.
+Behaves like L</newCONSTSUB_flags>, except that C<name> is nul-terminated
+rather than of counted length, and no flags are set.  (This means that
+C<name> is always interpreted as Latin-1.)
 
 =cut
 */
@@ -10200,20 +10288,71 @@ Perl_newCONSTSUB(pTHX_ HV *stash, const char *name, SV *sv)
 }
 
 /*
-=for apidoc newCONSTSUB_flags
+=for apidoc Am|CV *|newCONSTSUB_flags|HV *stash|const char *name|STRLEN len|U32 flags|SV *sv
 
-Creates a constant sub equivalent to Perl S<C<sub FOO () { 123 }>> which is
-eligible for inlining at compile-time.
+Construct a constant subroutine, also performing some surrounding
+jobs.  A scalar constant-valued subroutine is eligible for inlining
+at compile-time, and in Perl code can be created by S<C<sub FOO () {
+123 }>>.  Other kinds of constant subroutine have other treatment.
 
-Currently, the only useful value for C<flags> is C<SVf_UTF8>.
+The subroutine will have an empty prototype and will ignore any arguments
+when called.  Its constant behaviour is determined by C<sv>.  If C<sv>
+is null, the subroutine will yield an empty list.  If C<sv> points to a
+scalar, the subroutine will always yield that scalar.  If C<sv> points
+to an array, the subroutine will always yield a list of the elements of
+that array in list context, or the number of elements in the array in
+scalar context.  This function takes ownership of one counted reference
+to the scalar or array, and will arrange for the object to live as long
+as the subroutine does.  If C<sv> points to a scalar then the inlining
+assumes that the value of the scalar will never change, so the caller
+must ensure that the scalar is not subsequently written to.  If C<sv>
+points to an array then no such assumption is made, so it is ostensibly
+safe to mutate the array or its elements, but whether this is really
+supported has not been determined.
 
-The newly created subroutine takes ownership of a reference to the passed in
-SV.
+The subroutine will have C<CvFILE> set according to C<PL_curcop>.
+Other aspects of the subroutine will be left in their default state.
+The caller is free to mutate the subroutine beyond its initial state
+after this function has returned.
 
-Passing C<NULL> for SV creates a constant sub equivalent to S<C<sub BAR () {}>>,
-which won't be called if used as a destructor, but will suppress the overhead
-of a call to C<AUTOLOAD>.  (This form, however, isn't eligible for inlining at
-compile time.)
+If C<name> is null then the subroutine will be anonymous, with its
+C<CvGV> referring to an C<__ANON__> glob.  If C<name> is non-null then the
+subroutine will be named accordingly, referenced by the appropriate glob.
+C<name> is a string of length C<len> bytes giving a sigilless symbol
+name, in UTF-8 if C<flags> has the C<SVf_UTF8> bit set and in Latin-1
+otherwise.  The name may be either qualified or unqualified.  If the
+name is unqualified then it defaults to being in the stash specified by
+C<stash> if that is non-null, or to C<PL_curstash> if C<stash> is null.
+The symbol is always added to the stash if necessary, with C<GV_ADDMULTI>
+semantics.
+
+C<flags> should not have bits set other than C<SVf_UTF8>.
+
+If there is already a subroutine of the specified name, then the new sub
+will replace the existing one in the glob.  A warning may be generated
+about the redefinition.
+
+If the subroutine has one of a few special names, such as C<BEGIN> or
+C<END>, then it will be claimed by the appropriate queue for automatic
+running of phase-related subroutines.  In this case the relevant glob will
+be left not containing any subroutine, even if it did contain one before.
+Execution of the subroutine will likely be a no-op, unless C<sv> was
+a tied array or the caller modified the subroutine in some interesting
+way before it was executed.  In the case of C<BEGIN>, the treatment is
+buggy: the sub will be executed when only half built, and may be deleted
+prematurely, possibly causing a crash.
+
+The function returns a pointer to the constructed subroutine.  If the sub
+is anonymous then ownership of one counted reference to the subroutine
+is transferred to the caller.  If the sub is named then the caller does
+not get ownership of a reference.  In most such cases, where the sub
+has a non-phase name, the sub will be alive at the point it is returned
+by virtue of being contained in the glob that names it.  A phase-named
+subroutine will usually be alive by virtue of the reference owned by
+the phase's automatic run queue.  A C<BEGIN> subroutine may have been
+destroyed already by the time this function returns, but currently bugs
+occur in that case before the caller gets control.  It is the caller's
+responsibility to ensure that it knows which of these situations applies.
 
 =cut
 */
@@ -10260,6 +10399,8 @@ Perl_newCONSTSUB_flags(pTHX_ HV *stash, const char *name, STRLEN len,
 			     : const_sv_xsub,
 			 file ? file : "", "",
 			 &sv, XS_DYNAMIC_FILENAME | flags);
+    assert(cv);
+    assert(SvREFCNT((SV*)cv) != 0);
     CvXSUBANY(cv).any_ptr = SvREFCNT_inc_simple(sv);
     CvCONST_on(cv);
 
@@ -10306,6 +10447,78 @@ Perl_newXS_deffile(pTHX_ const char *name, XSUBADDR_t subaddr)
     );
 }
 
+/*
+=for apidoc m|CV *|newXS_len_flags|const char *name|STRLEN len|XSUBADDR_t subaddr|const char *const filename|const char *const proto|SV **const_svp|U32 flags
+
+Construct an XS subroutine, also performing some surrounding jobs.
+
+The subroutine will have the entry point C<subaddr>.  It will have
+the prototype specified by the nul-terminated string C<proto>, or
+no prototype if C<proto> is null.  The prototype string is copied;
+the caller can mutate the supplied string afterwards.  If C<filename>
+is non-null, it must be a nul-terminated filename, and the subroutine
+will have its C<CvFILE> set accordingly.  By default C<CvFILE> is set to
+point directly to the supplied string, which must be static.  If C<flags>
+has the C<XS_DYNAMIC_FILENAME> bit set, then a copy of the string will
+be taken instead.
+
+Other aspects of the subroutine will be left in their default state.
+If anything else needs to be done to the subroutine for it to function
+correctly, it is the caller's responsibility to do that after this
+function has constructed it.  However, beware of the subroutine
+potentially being destroyed before this function returns, as described
+below.
+
+If C<name> is null then the subroutine will be anonymous, with its
+C<CvGV> referring to an C<__ANON__> glob.  If C<name> is non-null then the
+subroutine will be named accordingly, referenced by the appropriate glob.
+C<name> is a string of length C<len> bytes giving a sigilless symbol name,
+in UTF-8 if C<flags> has the C<SVf_UTF8> bit set and in Latin-1 otherwise.
+The name may be either qualified or unqualified, with the stash defaulting
+in the same manner as for C<gv_fetchpvn_flags>.  C<flags> may contain
+flag bits understood by C<gv_fetchpvn_flags> with the same meaning as
+they have there, such as C<GV_ADDWARN>.  The symbol is always added to
+the stash if necessary, with C<GV_ADDMULTI> semantics.
+
+If there is already a subroutine of the specified name, then the new sub
+will replace the existing one in the glob.  A warning may be generated
+about the redefinition.  If the old subroutine was C<CvCONST> then the
+decision about whether to warn is influenced by an expectation about
+whether the new subroutine will become a constant of similar value.
+That expectation is determined by C<const_svp>.  (Note that the call to
+this function doesn't make the new subroutine C<CvCONST> in any case;
+that is left to the caller.)  If C<const_svp> is null then it indicates
+that the new subroutine will not become a constant.  If C<const_svp>
+is non-null then it indicates that the new subroutine will become a
+constant, and it points to an C<SV*> that provides the constant value
+that the subroutine will have.
+
+If the subroutine has one of a few special names, such as C<BEGIN> or
+C<END>, then it will be claimed by the appropriate queue for automatic
+running of phase-related subroutines.  In this case the relevant glob will
+be left not containing any subroutine, even if it did contain one before.
+In the case of C<BEGIN>, the subroutine will be executed and the reference
+to it disposed of before this function returns, and also before its
+prototype is set.  If a C<BEGIN> subroutine would not be sufficiently
+constructed by this function to be ready for execution then the caller
+must prevent this happening by giving the subroutine a different name.
+
+The function returns a pointer to the constructed subroutine.  If the sub
+is anonymous then ownership of one counted reference to the subroutine
+is transferred to the caller.  If the sub is named then the caller does
+not get ownership of a reference.  In most such cases, where the sub
+has a non-phase name, the sub will be alive at the point it is returned
+by virtue of being contained in the glob that names it.  A phase-named
+subroutine will usually be alive by virtue of the reference owned by the
+phase's automatic run queue.  But a C<BEGIN> subroutine, having already
+been executed, will quite likely have been destroyed already by the
+time this function returns, making it erroneous for the caller to make
+any use of the returned pointer.  It is the caller's responsibility to
+ensure that it knows which of these situations applies.
+
+=cut
+*/
+
 CV *
 Perl_newXS_len_flags(pTHX_ const char *name, STRLEN len,
 			   XSUBADDR_t subaddr, const char *const filename,
@@ -10314,6 +10527,7 @@ Perl_newXS_len_flags(pTHX_ const char *name, STRLEN len,
 {
     CV *cv;
     bool interleave = FALSE;
+    bool evanescent = FALSE;
 
     PERL_ARGS_ASSERT_NEWXS_LEN_FLAGS;
 
@@ -10358,6 +10572,8 @@ Perl_newXS_len_flags(pTHX_ const char *name, STRLEN len,
                     gv_method_changed(gv); /* newXS */
             }
         }
+	assert(cv);
+	assert(SvREFCNT((SV*)cv) != 0);
 
         CvGV_set(cv, gv);
         if(filename) {
@@ -10385,14 +10601,17 @@ Perl_newXS_len_flags(pTHX_ const char *name, STRLEN len,
 #endif
 
         if (name)
-            process_special_blocks(0, name, gv, cv);
+            evanescent = process_special_blocks(0, name, gv, cv);
         else
             CvANON_on(cv);
     } /* <- not a conditional branch */
 
+    assert(cv);
+    assert(evanescent || SvREFCNT((SV*)cv) != 0);
 
-    sv_setpv(MUTABLE_SV(cv), proto);
+    if (!evanescent) sv_setpv(MUTABLE_SV(cv), proto);
     if (interleave) LEAVE;
+    assert(evanescent || SvREFCNT((SV*)cv) != 0);
     return cv;
 }
 
