@@ -11,6 +11,23 @@
 #ifndef H_PERL
 #define H_PERL 1
 
+#include </home/pip/git/emacs-c++/js/dist/include/jsapi.h>
+
+extern bool js_init(void);
+
+class JSG {
+ public:
+  JSContext* cx;
+  JSG() {
+    js_init();
+  }
+};
+
+extern JSG jsg;
+
+extern JSClass SV_class;
+extern JSClass OP_class;
+
 #ifdef PERL_FOR_X2P
 /*
  * This file is being used for x2p stuff.

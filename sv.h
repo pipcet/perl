@@ -190,8 +190,9 @@ typedef struct hek HEK;
 /* Using C's structural equivalence to help emulate C++ inheritance here... */
 
 /* start with 2 sv-head building blocks */
-#define _SV_HEAD(ptrtype) \
-    ptrtype	sv_any;		/* pointer to body */	\
+#define _SV_HEAD(ptrtype)                                       \
+    JS::Heap<JS::Value> sv_jsval;                               \
+    ptrtype	sv_any;		/* pointer to body */           \
     U32		sv_refcnt;	/* how many references to us */	\
     U32		sv_flags	/* what we are */
 
@@ -2343,3 +2344,27 @@ Evaluates C<sv> more than once.  Sets C<len> to 0 if C<SvOOK(sv)> is false.
 /*
  * ex: set ts=8 sts=4 sw=4 et:
  */
+class SV_Value {
+ public:
+    JS::Rooted<JS::Value> jsval;
+    SV *p;
+    SV *&operator->()
+    {
+        return p;
+    }
+
+    SV_Value (SV *p) : p(p), jsval(jsg.cx, p->sv_jsval) {}
+};
+
+class SV_Handle {
+ public:
+    JS::Handle<JS::Value> jsval;
+    SV *p;
+    SV *&operator->()
+    {
+        return p;
+    }
+
+    SV_Handle (const SV_Value &v) : p(v.p), jsval(v.jsval) {}
+};
+

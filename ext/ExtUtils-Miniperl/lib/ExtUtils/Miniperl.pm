@@ -80,7 +80,7 @@ sub writemain{
 #define PERL_IN_MINIPERLMAIN_C
 %s
 static void xs_init (pTHX);
-static PerlInterpreter *my_perl;
+PerlInterpreter *my_perl;
 
 #if defined(PERL_GLOBAL_STRUCT_PRIVATE)
 /* The static struct perl_vars* may seem counterproductive since the

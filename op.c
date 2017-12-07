@@ -359,6 +359,9 @@ Perl_Slab_Alloc(pTHX_ size_t sz)
     DEBUG_S_warn((aTHX_ "allocating op at %p, slab %p", (void*)o, (void*)slab));
 
   gotit:
+    JS::RootedObject obj(jsg.cx, JS_NewObject(jsg.cx, &OP_class));
+    JS_SetPrivate(obj, (void *)o);
+    o->op_jsval = JS::ObjectValue(*obj);
 #ifdef PERL_OP_PARENT
     /* moresib == 0, op_sibling == 0 implies a solitary unattached op */
     assert(!o->op_moresib);
@@ -431,6 +434,7 @@ S_pp_freed(pTHX)
 void
 Perl_Slab_Free(pTHX_ void *op)
 {
+    return;
     OP * const o = (OP *)op;
     OPSLAB *slab;
 
@@ -753,6 +757,7 @@ Perl_alloccopstash(pTHX_ HV *hv)
 static void
 S_op_destroy(pTHX_ OP *o)
 {
+    o->op_type = OP_FREED;
     FreeOp(o);
 }
 
@@ -868,6 +873,7 @@ Perl_op_free(pTHX_ OP *o)
 
         op_clear(o);
         FreeOp(o);
+        o->op_type = OP_FREED;
         if (PL_op == o)
             PL_op = NULL;
     } while ( (o = POP_DEFERRED_OP()) );
@@ -8719,7 +8725,9 @@ Perl_newFOROP(pTHX_ I32 flags, OP *sv, OP *expr, OP *block, OP *cont)
     {
 	LOOP *tmp;
 	NewOp(1234,tmp,1,LOOP);
+        JS::RootedValue jsval(jsg.cx, tmp->op_jsval);
 	Copy(loop,tmp,1,LISTOP);
+        tmp->op_jsval = jsval;
 #ifdef PERL_OP_PARENT
         assert(loop->op_last->op_sibparent == (OP*)loop);
         OpLASTSIB_set(loop->op_last, (OP*)tmp); /*point back to new parent */

@@ -860,6 +860,495 @@ static const U8 arg_counts[] = {
     3  /* SAVEt_DELETE             */
 };
 
+#undef fprintf
+#undef stderr
+
+void
+trace_savestack(JSTracer* tracer)
+{
+    I32 ix = PL_savestack_ix - 1;
+    while (ix >= 0) {
+	UV uv;
+	U8 type;
+        ANY *ap; /* arg pointer */
+        ANY a0, a1, a2; /* up to 3 args */
+
+	TAINT_NOT;
+
+        {
+            U8  argcount;
+            ap = &PL_savestack[ix];
+            uv = ap->any_uv;
+            type = (U8)uv & SAVE_MASK;
+            argcount = arg_counts[type];
+            ix = ix - argcount - 1;
+            ap -= argcount;
+        }
+
+	switch (type) {
+	case SAVEt_ITEM:			/* normal string */
+            TraceEdge(tracer, &ap[0].any_sv->sv_jsval, "SAVEt_ITEM");
+	    break;
+
+	    /* This would be a mathom, but Perl_save_svref() calls a static
+	       function, S_save_scalar_at(), so has to stay in this file.  */
+	case SAVEt_SVREF:			/* scalar reference */
+            a0 = ap[0]; a1 = ap[1];
+	    a2.any_svp = a0.any_svp;
+	    a0.any_sv = NULL; /* what to refcnt_dec */
+	    goto restore_sv;
+
+	case SAVEt_SV:				/* scalar reference */
+            a0 = ap[0]; a1 = ap[1];
+	    a2.any_svp = &GvSV(a0.any_gv);
+	restore_sv:
+        {
+	    SV * const sv = *a2.any_svp;
+            /* do *a2.any_svp = a1 and free a0 */
+            TraceEdge(tracer, &sv->sv_jsval, "sv");
+            if (UNLIKELY(SvSMAGICAL(a1.any_sv))) {
+                break;
+            }
+            TraceEdge(tracer, &a1.any_sv->sv_jsval, "SAVEt_SV");
+            TraceEdge(tracer, &a0.any_sv->sv_jsval, "SAVEt_SV");
+	    break;
+        }
+
+	case SAVEt_GENERIC_PVREF:		/* generic pv */
+	    break;
+
+	case SAVEt_SHARED_PVREF:		/* shared pv */
+	    break;
+
+	case SAVEt_GVSV:			/* scalar slot in GV */
+            a0 = ap[0]; a1 = ap[1];
+	    a0.any_svp = &GvSV(a0.any_gv);
+	    goto restore_svp;
+
+	case SAVEt_GENERIC_SVREF:		/* generic sv */
+            a0 = ap[0]; a1 = ap[1];
+	restore_svp:
+        {
+            /* do *a0.any_svp = a1 */
+	    SV * const sv = *a0.any_svp;
+            TraceEdge(tracer, &sv->sv_jsval, "SAVEt_GENERIC_SVREF");
+            TraceEdge(tracer, &a1.any_sv->sv_jsval, "SAVEt_GENERIC_SVREF");
+	    break;
+        }
+
+	case SAVEt_GVSLOT:			/* any slot in GV */
+        {
+            a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+            a0.any_svp = a1.any_svp;
+            a1.any_sv  = a2.any_sv;
+	    goto restore_svp;
+        }
+
+	case SAVEt_AV:				/* array reference */
+            a0 = ap[0]; a1 = ap[1];
+            TraceEdge(tracer, &GvAV(a0.any_gv)->sv_jsval, "SAVEt_AV");
+          avhv_common:
+            if (UNLIKELY(SvSMAGICAL(a1.any_sv))) {
+                break;
+            }
+            TraceEdge(tracer, &a1.any_av->sv_jsval, "SAVEt_AV");
+	    break;
+
+	case SAVEt_HV:				/* hash reference */
+            a0 = ap[0]; a1 = ap[1];
+            TraceEdge(tracer, &GvHV(a0.any_gv)->sv_jsval, "SAVEt_AV");
+            TraceEdge(tracer, &a1.any_hv->sv_jsval, "SAVEt_AV");
+            break;
+
+	case SAVEt_INT_SMALL:
+	    break;
+
+	case SAVEt_INT:				/* int reference */
+	    break;
+
+	case SAVEt_STRLEN:			/* STRLEN/size_t ref */
+	    break;
+
+	case SAVEt_TMPSFLOOR:			/* restore PL_tmps_floor */
+	    break;
+
+	case SAVEt_BOOL:			/* bool reference */
+	    break;
+
+	case SAVEt_I32_SMALL:
+	    break;
+
+	case SAVEt_I32:				/* I32 reference */
+	    break;
+
+	case SAVEt_SPTR:			/* SV* reference */
+	case SAVEt_VPTR:			/* random* reference */
+	case SAVEt_PPTR:			/* char* reference */
+	case SAVEt_HPTR:			/* HV* reference */
+	case SAVEt_APTR:			/* AV* reference */
+	    break;
+
+	case SAVEt_GP:				/* scalar reference */
+        {
+            a0 = ap[0]; a1 = ap[1];
+            TraceEdge(tracer, &a0.any_gv->sv_jsval, "SAVEt_GP");
+            GP *gp = (GP *)a1.any_ptr;
+            if (gp->gp_sv)
+                TraceEdge(tracer, &gp->gp_sv->sv_jsval, "SAVEt_GP");
+            if (gp->gp_io)
+                TraceEdge(tracer, &gp->gp_io->sv_jsval, "SAVEt_GP");
+            if (gp->gp_cv)
+                TraceEdge(tracer, &gp->gp_cv->sv_jsval, "SAVEt_GP");
+            if (gp->gp_hv)
+                TraceEdge(tracer, &gp->gp_hv->sv_jsval, "SAVEt_GP");
+            if (gp->gp_av)
+                TraceEdge(tracer, &gp->gp_av->sv_jsval, "SAVEt_GP");
+            if (gp->gp_form)
+                TraceEdge(tracer, &gp->gp_form->sv_jsval, "SAVEt_GP");
+            if (gp->gp_egv)
+                TraceEdge(tracer, &gp->gp_egv->sv_jsval, "SAVEt_GP");
+	    break;
+        }
+
+	case SAVEt_COMPPAD:
+            a0 = ap[0];
+	    TraceEdge(tracer, &a0.any_sv->sv_jsval, "SAVEt_COMPPAD");
+	    break;
+
+	case SAVEt_FREESV:
+            a0 = ap[0];
+	    TraceEdge(tracer, &a0.any_sv->sv_jsval, "SAVEt_FREESV");
+	    break;
+
+        default:
+            fprintf(stderr, "unhandled save type %d\n", type);
+            break;
+	case SAVEt_CLEARSV:
+        case SAVEt_CLEARPADRANGE:
+	case SAVEt_FREEPV:
+            break;
+
+	case SAVEt_HINTS:
+            a0 = ap[0]; a1 = ap[1];
+	    if (a0.any_i32 & HINT_LOCALIZE_HH) {
+                ix--;
+                TraceEdge(tracer, &ap[-1].any_sv->sv_jsval, "SAVEt_hints");
+	    }
+	    break;
+
+#if 0
+	case SAVEt_FREEPADNAME:
+            a0 = ap[0];
+	    PadnameREFCNT_dec((PADNAME *)a0.any_ptr);
+	    break;
+            
+	case SAVEt_FREECOPHH:
+            a0 = ap[0];
+	    cophh_free((COPHH *)a0.any_ptr);
+	    break;
+
+	case SAVEt_MORTALIZESV:
+            a0 = ap[0];
+	    sv_2mortal(a0.any_sv);
+	    break;
+
+	case SAVEt_FREEOP:
+            a0 = ap[0];
+	    ASSERT_CURPAD_LEGAL("SAVEt_FREEOP");
+	    op_free(a0.any_op);
+	    break;
+
+	case SAVEt_FREEPV:
+            a0 = ap[0];
+	    Safefree(a0.any_ptr);
+	    break;
+
+        {
+            I32 i;
+	    SV **svp;
+            i = (I32)((uv >> SAVE_TIGHT_SHIFT) & OPpPADRANGE_COUNTMASK);
+            svp = &PL_curpad[uv >>
+                    (OPpPADRANGE_COUNTSHIFT + SAVE_TIGHT_SHIFT)] + i - 1;
+            goto clearsv;
+	    svp = &PL_curpad[uv >> SAVE_TIGHT_SHIFT];
+            i = 1;
+          clearsv:
+            for (; i; i--, svp--) {
+                SV *sv = *svp;
+
+                DEBUG_Xv(PerlIO_printf(Perl_debug_log,
+             "Pad 0x%" UVxf "[0x%" UVxf "] clearsv: %ld sv=0x%" UVxf "<%" IVdf "> %s\n",
+                    PTR2UV(PL_comppad), PTR2UV(PL_curpad),
+                    (long)(svp-PL_curpad), PTR2UV(sv), (IV)SvREFCNT(sv),
+                    (SvREFCNT(sv) <= 1 && !SvOBJECT(sv)) ? "clear" : "abandon"
+                ));
+
+                /* Can clear pad variable in place? */
+                if (SvREFCNT(sv) == 1 && !SvOBJECT(sv)) {
+
+                    /* these flags are the union of all the relevant flags
+                     * in the individual conditions within */
+                    if (UNLIKELY(SvFLAGS(sv) & (
+                            SVf_READONLY|SVf_PROTECT /*for SvREADONLY_off*/
+                          | (SVs_GMG|SVs_SMG|SVs_RMG) /* SvMAGICAL() */
+                          | SVf_OOK
+                          | SVf_THINKFIRST)))
+                    {
+                        /* if a my variable that was made readonly is
+                         * going out of scope, we want to remove the
+                         * readonlyness so that it can go out of scope
+                         * quietly
+                         */
+                        if (SvREADONLY(sv))
+                            SvREADONLY_off(sv);
+
+                        if (SvOOK(sv)) { /* OOK or HvAUX */
+                            if (SvTYPE(sv) == SVt_PVHV)
+                                Perl_hv_kill_backrefs(aTHX_ MUTABLE_HV(sv));
+                            else
+                                sv_backoff(sv);
+                        }
+
+                        if (SvMAGICAL(sv)) {
+                            /* note that backrefs (either in HvAUX or magic)
+                             * must be removed before other magic */
+                            sv_unmagic(sv, PERL_MAGIC_backref);
+                            if (SvTYPE(sv) != SVt_PVCV)
+                                mg_free(sv);
+                        }
+                        if (SvTHINKFIRST(sv))
+                            sv_force_normal_flags(sv, SV_IMMEDIATE_UNREF
+                                                     |SV_COW_DROP_PV);
+
+                    }
+                    switch (SvTYPE(sv)) {
+                    case SVt_NULL:
+                        break;
+                    case SVt_PVAV:
+                        av_clear(MUTABLE_AV(sv));
+                        break;
+                    case SVt_PVHV:
+                        hv_clear(MUTABLE_HV(sv));
+                        break;
+                    case SVt_PVCV:
+                    {
+                        HEK *hek = CvGvNAME_HEK(sv);
+                        assert(hek);
+                        (void)share_hek_hek(hek);
+                        cv_undef((CV *)sv);
+                        CvNAME_HEK_set(sv, hek);
+                        CvLEXICAL_on(sv);
+                        break;
+                    }
+                    default:
+                        /* This looks odd, but these two macros are for use in
+                           expressions and finish with a trailing comma, so
+                           adding a ; after them would be wrong. */
+                        assert_not_ROK(sv)
+                        assert_not_glob(sv)
+                        SvFLAGS(sv) &=~ (SVf_OK|SVf_IVisUV|SVf_UTF8);
+                        break;
+                    }
+                    SvPADTMP_off(sv);
+                    SvPADSTALE_on(sv); /* mark as no longer live */
+                }
+                else {	/* Someone has a claim on this, so abandon it. */
+                    switch (SvTYPE(sv)) {	/* Console ourselves with a new value */
+                    case SVt_PVAV:	*svp = MUTABLE_SV(newAV());	break;
+                    case SVt_PVHV:	*svp = MUTABLE_SV(newHV());	break;
+                    case SVt_PVCV:
+                    {
+                        HEK * const hek = CvGvNAME_HEK(sv);
+
+                        /* Create a stub */
+                        *svp = newSV_type(SVt_PVCV);
+
+                        /* Share name */
+                        CvNAME_HEK_set(*svp,
+                                       share_hek_hek(hek));
+                        CvLEXICAL_on(*svp);
+                        break;
+                    }
+                    default:	*svp = newSV(0);		break;
+                    }
+                    SvREFCNT_dec_NN(sv); /* Cast current value to the winds. */
+                    /* preserve pad nature, but also mark as not live
+                     * for any closure capturing */
+                    SvFLAGS(*svp) |= SVs_PADSTALE;
+                }
+            }
+	    break;
+        }
+
+	case SAVEt_DELETE:
+            a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+	    (void)hv_delete(a2.any_hv, a0.any_pv, a1.any_i32, G_DISCARD);
+	    SvREFCNT_dec(a2.any_hv);
+	    Safefree(a0.any_ptr);
+	    break;
+
+	case SAVEt_ADELETE:
+            a0 = ap[0]; a1 = ap[1];
+	    (void)av_delete(a1.any_av, a0.any_iv, G_DISCARD);
+	    SvREFCNT_dec(a1.any_av);
+	    break;
+
+	case SAVEt_DESTRUCTOR_X:
+            a0 = ap[0]; a1 = ap[1];
+	    (*a0.any_dxptr)(aTHX_ a1.any_ptr);
+	    break;
+
+	case SAVEt_REGCONTEXT:
+	    /* regexp must have croaked */
+	case SAVEt_ALLOC:
+	    PL_savestack_ix -= uv >> SAVE_TIGHT_SHIFT;
+	    break;
+
+	case SAVEt_STACK_POS:		/* Position on Perl stack */
+            a0 = ap[0];
+	    PL_stack_sp = PL_stack_base + a0.any_i32;
+	    break;
+
+	case SAVEt_AELEM:		/* array element */
+        {
+            SV **svp;
+            a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+	    svp = av_fetch(a0.any_av, a1.any_iv, 1);
+	    if (UNLIKELY(!AvREAL(a0.any_av) && AvREIFY(a0.any_av))) /* undo reify guard */
+		SvREFCNT_dec(a2.any_sv);
+	    if (LIKELY(svp)) {
+		SV * const sv = *svp;
+		if (LIKELY(sv && sv != &PL_sv_undef)) {
+		    if (UNLIKELY(SvTIED_mg((const SV *)a0.any_av, PERL_MAGIC_tied)))
+			SvREFCNT_inc_void_NN(sv);
+                    a1.any_sv  = a2.any_sv;
+                    a2.any_svp = svp;
+		    goto restore_sv;
+		}
+	    }
+	    SvREFCNT_dec(a0.any_av);
+	    SvREFCNT_dec(a2.any_sv);
+	    break;
+        }
+
+	case SAVEt_HELEM:		/* hash element */
+        {
+	    HE *he;
+
+            a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+	    he = hv_fetch_ent(a0.any_hv, a1.any_sv, 1, 0);
+	    SvREFCNT_dec(a1.any_sv);
+	    if (LIKELY(he)) {
+		const SV * const oval = HeVAL(he);
+		if (LIKELY(oval && oval != &PL_sv_undef)) {
+                    SV **svp = &HeVAL(he);
+		    if (UNLIKELY(SvTIED_mg((const SV *)a0.any_hv, PERL_MAGIC_tied)))
+			SvREFCNT_inc_void(*svp);
+                    a1.any_sv  = a2.any_sv;
+                    a2.any_svp = svp;
+		    goto restore_sv;
+		}
+	    }
+	    SvREFCNT_dec(a0.any_hv);
+	    SvREFCNT_dec(a2.any_sv);
+	    break;
+        }
+
+	case SAVEt_OP:
+            a0 = ap[0];
+	    PL_op = (OP*)a0.any_ptr;
+	    break;
+
+	case SAVEt_PADSV_AND_MORTALIZE:
+	    {
+		SV **svp;
+
+                a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+		assert (a1.any_ptr);
+		svp = AvARRAY((PAD*)a1.any_ptr) + (PADOFFSET)a2.any_uv;
+                /* This mortalizing used to be done by CX_POOPLOOP() via
+                   itersave.  But as we have all the information here, we
+                   can do it here, save even having to have itersave in
+                   the struct.
+                   */
+		sv_2mortal(*svp);
+		*svp = a0.any_sv;
+	    }
+	    break;
+
+	case SAVEt_SAVESWITCHSTACK:
+	    {
+		dSP;
+
+                a0 = ap[0]; a1 = ap[1];
+		SWITCHSTACK(a1.any_av, a0.any_av);
+		PL_curstackinfo->si_stack = a0.any_av;
+	    }
+	    break;
+
+	case SAVEt_SET_SVFLAGS:
+            a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+            SvFLAGS(a0.any_sv) &= ~(a1.any_u32);
+            SvFLAGS(a0.any_sv) |= a2.any_u32;
+	    break;
+
+	    /* These are only saved in mathoms.c */
+	case SAVEt_NSTAB:
+            a0 = ap[0];
+	    (void)sv_clear(a0.any_sv);
+	    break;
+
+	case SAVEt_LONG:			/* long reference */
+            a0 = ap[0]; a1 = ap[1];
+	    *(long*)a1.any_ptr = a0.any_long;
+	    break;
+
+	case SAVEt_IV:				/* IV reference */
+            a0 = ap[0]; a1 = ap[1];
+	    *(IV*)a1.any_ptr = a0.any_iv;
+	    break;
+
+	case SAVEt_I16:				/* I16 reference */
+            a0 = ap[0];
+	    *(I16*)a0.any_ptr = (I16)(uv >> 8);
+	    break;
+
+	case SAVEt_I8:				/* I8 reference */
+            a0 = ap[0];
+	    *(I8*)a0.any_ptr = (I8)(uv >> 8);
+	    break;
+
+	case SAVEt_DESTRUCTOR:
+            a0 = ap[0]; a1 = ap[1];
+	    (*a0.any_dptr)(a1.any_ptr);
+	    break;
+
+	case SAVEt_COMPILE_WARNINGS:
+            a0 = ap[0];
+	    if (!specialWARN(PL_compiling.cop_warnings))
+		PerlMemShared_free(PL_compiling.cop_warnings);
+	    PL_compiling.cop_warnings = (STRLEN*)a0.any_ptr;
+	    break;
+
+	case SAVEt_PARSER:
+            a0 = ap[0];
+	    parser_free((yy_parser *)a0.any_ptr);
+	    break;
+
+	case SAVEt_READONLY_OFF:
+            a0 = ap[0];
+	    SvREADONLY_off(a0.any_sv);
+	    break;
+
+	default:
+	    Perl_croak(aTHX_ "panic: leave_scope inconsistency %u",
+                    (U8)uv & SAVE_MASK);
+	}
+    }
+#endif
+}
+}
+}
 
 void
 Perl_leave_scope(pTHX_ I32 base)

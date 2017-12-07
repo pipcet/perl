@@ -302,11 +302,10 @@ Public API:
 STATIC SV*
 S_more_sv(pTHX)
 {
-    SV* sv;
-    char *chunk;                /* must use New here to match call to */
-    Newx(chunk,PERL_ARENA_SIZE,char);  /* Safefree() in sv_free_arenas() */
-    sv_add_arena(chunk, PERL_ARENA_SIZE, 0);
-    uproot_SV(sv);
+    SV* sv = (SV *)malloc(sizeof *sv);
+    JS::RootedObject obj(jsg.cx, JS_NewObject(jsg.cx, &SV_class));
+    JS_SetPrivate(obj, (void *)sv);
+    sv->sv_jsval = JS::ObjectValue(*obj);
     return sv;
 }
 
@@ -378,31 +377,11 @@ STATIC void
 S_del_sv(pTHX_ SV *p)
 {
     PERL_ARGS_ASSERT_DEL_SV;
-
-    if (DEBUG_D_TEST) {
-	SV* sva;
-	bool ok = 0;
-	for (sva = PL_sv_arenaroot; sva; sva = MUTABLE_SV(SvANY(sva))) {
-	    const SV * const sv = sva + 1;
-	    const SV * const svend = &sva[SvREFCNT(sva)];
-	    if (p >= sv && p < svend) {
-		ok = 1;
-		break;
-	    }
-	}
-	if (!ok) {
-	    Perl_ck_warner_d(aTHX_ packWARN(WARN_INTERNAL),
-			     "Attempt to free non-arena SV: 0x%" UVxf
-			     pTHX__FORMAT, PTR2UV(p) pTHX__VALUE);
-	    return;
-	}
-    }
-    plant_SV(p);
 }
 
 #else /* ! DEBUGGING */
 
-#define del_SV(p)   plant_SV(p)
+#define del_SV(p)   do { } while(0)
 
 #endif /* DEBUGGING */
 
@@ -6516,12 +6495,13 @@ Perl_sv_replace(pTHX_ SV *const sv, SV *const nsv)
     sv->sv_refcnt = nsv->sv_refcnt;
     sv->sv_u      = nsv->sv_u;
 #else
+    JS::Rooted<JS::Value> jsval(jsg.cx, sv->sv_jsval);
     StructCopy(nsv,sv,SV);
+    sv->sv_jsval = jsval;
 #endif
     if(SvTYPE(sv) == SVt_IV) {
 	SET_SVANY_FOR_BODYLESS_IV(sv);
     }
-	
 
     SvREFCNT(sv) = refcnt;
     SvFLAGS(nsv) |= SVTYPEMASK;		/* Mark as freed */
