@@ -11,6 +11,7 @@
 #ifndef H_PERL
 #define H_PERL 1
 
+#define DEBUG
 #include </home/pip/git/emacs-c++/js/dist/include/jsapi.h>
 
 extern bool js_init(void);

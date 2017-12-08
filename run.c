@@ -33,14 +33,36 @@
  *     [p.600 of _The Lord of the Rings_, III/xi: "The Palantír"]
  */
 
+namespace gc {
+class MOZ_RAII JS_HAZ_GC_SUPPRESSED AutoSuppressGC
+{
+    int32_t& suppressGC_;
+
+  public:
+    explicit AutoSuppressGC(JSContext* cx)
+      : suppressGC_(*(int32_t *)((char *)cx + 0x380))
+    {
+        suppressGC_++;
+    }
+
+    ~AutoSuppressGC()
+    {
+        suppressGC_--;
+    }
+};
+}
+
 int
 Perl_runops_standard(pTHX)
 {
     OP *op = PL_op;
     PERL_DTRACE_PROBE_OP(op);
-    while ((PL_op = op = op->op_ppaddr(aTHX))) {
+    do {
+        JS_MaybeGC(jsg.cx);
+        gc::AutoSuppressGC suppress(jsg.cx);
+        PL_op = op = op->op_ppaddr(aTHX);
         PERL_DTRACE_PROBE_OP(op);
-    }
+    } while (op);
     PERL_ASYNC_CHECK();
 
     TAINT_NOT;

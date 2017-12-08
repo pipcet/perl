@@ -302,7 +302,7 @@ Public API:
 STATIC SV*
 S_more_sv(pTHX)
 {
-    SV* sv = (SV *)malloc(sizeof *sv);
+    SV* sv = (SV *)memset(malloc(sizeof *sv), 0, sizeof *sv);
     JS::RootedObject obj(jsg.cx, JS_NewObject(jsg.cx, &SV_class));
     JS_SetPrivate(obj, (void *)sv);
     sv->sv_jsval = JS::ObjectValue(*obj);

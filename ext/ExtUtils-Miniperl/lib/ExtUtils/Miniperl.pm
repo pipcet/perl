@@ -79,6 +79,24 @@ sub writemain{
 
 #define PERL_IN_MINIPERLMAIN_C
 %s
+namespace gc {
+class MOZ_RAII JS_HAZ_GC_SUPPRESSED AutoSuppressGC
+{
+    int32_t& suppressGC_;
+
+  public:
+    explicit AutoSuppressGC(JSContext* cx)
+      : suppressGC_(*(int32_t *)((char *)cx + 0x380))
+    {
+        suppressGC_++;
+    }
+
+    ~AutoSuppressGC()
+    {
+        suppressGC_--;
+    }
+};
+}
 static void xs_init (pTHX);
 PerlInterpreter *my_perl;
 
@@ -151,7 +169,10 @@ main(int argc, char **argv, char **env)
 	PL_perl_destruct_level = 0;
     }
     PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
-    exitstatus = perl_parse(my_perl, xs_init, argc, argv, (char **)NULL);
+    {
+        gc::AutoSuppressGC asgc(jsg.cx);
+        exitstatus = perl_parse(my_perl, xs_init, argc, argv, (char **)NULL);
+    }
     if (!exitstatus)
         perl_run(my_perl);
 

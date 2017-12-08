@@ -888,6 +888,7 @@ trace_savestack(JSTracer* tracer)
 	switch (type) {
 	case SAVEt_ITEM:			/* normal string */
             TraceEdge(tracer, &ap[0].any_sv->sv_jsval, "SAVEt_ITEM");
+            TraceEdge(tracer, &ap[1].any_sv->sv_jsval, "SAVEt_ITEM");
 	    break;
 
 	    /* This would be a mathom, but Perl_save_svref() calls a static
@@ -931,8 +932,10 @@ trace_savestack(JSTracer* tracer)
         {
             /* do *a0.any_svp = a1 */
 	    SV * const sv = *a0.any_svp;
-            TraceEdge(tracer, &sv->sv_jsval, "SAVEt_GENERIC_SVREF");
-            TraceEdge(tracer, &a1.any_sv->sv_jsval, "SAVEt_GENERIC_SVREF");
+            if (sv)
+                TraceEdge(tracer, &sv->sv_jsval, "SAVEt_GENERIC_SVREF");
+            if (a1.any_sv)
+                TraceEdge(tracer, &a1.any_sv->sv_jsval, "SAVEt_GENERIC_SVREF");
 	    break;
         }
 
@@ -948,9 +951,6 @@ trace_savestack(JSTracer* tracer)
             a0 = ap[0]; a1 = ap[1];
             TraceEdge(tracer, &GvAV(a0.any_gv)->sv_jsval, "SAVEt_AV");
           avhv_common:
-            if (UNLIKELY(SvSMAGICAL(a1.any_sv))) {
-                break;
-            }
             TraceEdge(tracer, &a1.any_av->sv_jsval, "SAVEt_AV");
 	    break;
 
@@ -981,11 +981,16 @@ trace_savestack(JSTracer* tracer)
 	case SAVEt_I32:				/* I32 reference */
 	    break;
 
-	case SAVEt_SPTR:			/* SV* reference */
 	case SAVEt_VPTR:			/* random* reference */
 	case SAVEt_PPTR:			/* char* reference */
+            break;
+
+	case SAVEt_SPTR:			/* SV* reference */
 	case SAVEt_HPTR:			/* HV* reference */
 	case SAVEt_APTR:			/* AV* reference */
+            a0 = ap[0];
+            if (a0.any_sv)
+            TraceEdge(tracer, &a0.any_sv->sv_jsval, "SAVEt_XPTR");
 	    break;
 
 	case SAVEt_GP:				/* scalar reference */
@@ -1036,6 +1041,23 @@ trace_savestack(JSTracer* tracer)
 	    }
 	    break;
 
+	case SAVEt_FREEOP:
+            a0 = ap[0];
+	    ASSERT_CURPAD_LEGAL("SAVEt_FREEOP");
+	    TraceEdge(tracer, &a0.any_op->op_jsval, "SAVEt_FREEOP");
+	    break;
+
+	case SAVEt_MORTALIZESV:
+	    break;
+
+	case SAVEt_PARSER:
+	    break;
+
+        case SAVEt_DELETE:
+            a2 = ap[2];
+            TraceEdge(tracer, &a2.any_sv->sv_jsval, "SAVEt_DELETE");
+            break;
+            
 #if 0
 	case SAVEt_FREEPADNAME:
             a0 = ap[0];
@@ -1045,17 +1067,6 @@ trace_savestack(JSTracer* tracer)
 	case SAVEt_FREECOPHH:
             a0 = ap[0];
 	    cophh_free((COPHH *)a0.any_ptr);
-	    break;
-
-	case SAVEt_MORTALIZESV:
-            a0 = ap[0];
-	    sv_2mortal(a0.any_sv);
-	    break;
-
-	case SAVEt_FREEOP:
-            a0 = ap[0];
-	    ASSERT_CURPAD_LEGAL("SAVEt_FREEOP");
-	    op_free(a0.any_op);
 	    break;
 
 	case SAVEt_FREEPV:
