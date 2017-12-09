@@ -38,9 +38,12 @@ Perl_runops_standard(pTHX)
 {
     OP *op = PL_op;
     PERL_DTRACE_PROBE_OP(op);
-    while ((PL_op = op = op->op_ppaddr(aTHX))) {
+    do {
+        JS_MaybeGC(jsg.cx);
+        AutoSuppressGC suppress(jsg.cx);
+        PL_op = op = op->op_ppaddr(aTHX);
         PERL_DTRACE_PROBE_OP(op);
-    }
+    } while (op);
     PERL_ASYNC_CHECK();
 
     TAINT_NOT;

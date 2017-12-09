@@ -29,7 +29,8 @@ These functions are related to the method resolution order of perl classes
 #define PERL_IN_MRO_C
 #include "perl.h"
 
-static const struct mro_alg dfs_alg =
+extern const struct mro_alg dfs_alg;
+const struct mro_alg dfs_alg =
     {S_mro_get_linear_isa_dfs, "dfs", 3, 0, 0};
 
 SV *

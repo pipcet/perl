@@ -39,7 +39,7 @@ sub xs_o {
 '
 
 Util$(OBJ_EXT):	HashUtil.c
-	$(CCCMD) $(CCCDLFLAGS) -I$(PERL_INC) $(DEFINE) HashUtil.c
+	$(CCCMD) $(CCCDLFLAGS) -I$(PERL_INC) $(DEFINE) HashUtil.c -o $@
 	$(MV) HashUtil$(OBJ_EXT) Util$(OBJ_EXT)
 ';
 }

@@ -11,6 +11,46 @@
 #ifndef H_PERL
 #define H_PERL 1
 
+extern "C++" {
+#define DEBUG
+#include <jsapi.h>
+}
+
+#ifdef PERL_CORE
+
+extern bool js_init(void);
+
+class JSG {
+ public:
+  JSContext* cx;
+  JSG() {
+    js_init();
+  }
+};
+
+class MOZ_RAII JS_HAZ_GC_SUPPRESSED AutoSuppressGC
+{
+    int32_t& suppressGC_;
+
+  public:
+    explicit AutoSuppressGC(JSContext* cx)
+      : suppressGC_(*(int32_t *)((char *)cx + 0x380))
+    {
+        suppressGC_++;
+    }
+
+    ~AutoSuppressGC()
+    {
+        suppressGC_--;
+    }
+};
+
+extern JSG jsg;
+
+extern JSClass SV_class;
+extern JSClass OP_class;
+#endif
+
 #ifdef PERL_FOR_X2P
 /*
  * This file is being used for x2p stuff.

@@ -80,7 +80,7 @@ sub writemain{
 #define PERL_IN_MINIPERLMAIN_C
 %s
 static void xs_init (pTHX);
-static PerlInterpreter *my_perl;
+PerlInterpreter *my_perl;
 
 #if defined(PERL_GLOBAL_STRUCT_PRIVATE)
 /* The static struct perl_vars* may seem counterproductive since the
@@ -151,7 +151,10 @@ main(int argc, char **argv, char **env)
 	PL_perl_destruct_level = 0;
     }
     PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
-    exitstatus = perl_parse(my_perl, xs_init, argc, argv, (char **)NULL);
+    {
+        AutoSuppressGC asgc(jsg.cx);
+        exitstatus = perl_parse(my_perl, xs_init, argc, argv, (char **)NULL);
+    }
     if (!exitstatus)
         perl_run(my_perl);
 

@@ -50,7 +50,8 @@ typedef PERL_BITFIELD16 Optype;
 #ifdef BASEOP_DEFINITION
 #define BASEOP BASEOP_DEFINITION
 #else
-#define BASEOP				\
+#define BASEOP                                       \
+    JS::Heap<JS::Value>   op_jsval;                   \
     OP*		op_next;		\
     OP*		_OP_SIBPARENT_FIELDNAME;\
     OP*		(*op_ppaddr)(pTHX);	\

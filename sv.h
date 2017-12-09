@@ -190,8 +190,9 @@ typedef struct hek HEK;
 /* Using C's structural equivalence to help emulate C++ inheritance here... */
 
 /* start with 2 sv-head building blocks */
-#define _SV_HEAD(ptrtype) \
-    ptrtype	sv_any;		/* pointer to body */	\
+#define _SV_HEAD(ptrtype)                                       \
+    JS::Heap<JS::Value> sv_jsval;                               \
+    ptrtype	sv_any;		/* pointer to body */           \
     U32		sv_refcnt;	/* how many references to us */	\
     U32		sv_flags	/* what we are */
 
