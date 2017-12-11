@@ -187,8 +187,8 @@ static void SV_trace(JSTracer *tracer, JSObject *obj)
       {
         if (CvSTASH(sv))
           TraceEdge(tracer, &CvSTASH(sv)->sv_jsval, "CV stash");
-        if (CvGV(sv))
-          TraceEdge(tracer, &CvGV(sv)->sv_jsval, "CV stash");
+        if (((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_gv_u.xcv_gv)
+          TraceEdge(tracer, &((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_gv_u.xcv_gv->sv_jsval, "CV stash");
         if (CvOUTSIDE(sv))
           TraceEdge(tracer, &CvOUTSIDE(sv)->sv_jsval, "CV stash");
         if (CvISXSUB(sv)) {
@@ -199,7 +199,8 @@ static void SV_trace(JSTracer *tracer, JSObject *obj)
         PADLIST *padlist = CvPADLIST(sv);
         if (padlist) {
           for (I32 ix = 0; ix <= PadlistMAX(padlist); ix++)
-            TraceEdge(tracer, &PadlistARRAY(padlist)[ix]->sv_jsval, "CV PADLIST");
+              if (PadlistARRAY(padlist)[ix])
+                  TraceEdge(tracer, &PadlistARRAY(padlist)[ix]->sv_jsval, "CV PADLIST");
         }
         if (!CvISXSUB(sv) && CvROOT(sv))
           TraceEdge(tracer, &CvROOT(sv)->op_jsval, "root");
@@ -528,6 +529,7 @@ static void js_gc_trace(JSTracer* tracer, void *)
   T(PL_bodytarget);
   T(PL_formtarget);
   T(PL_statname);
+  T(PL_initav);
   T(PL_beginav);
   T(PL_endav);
   T(PL_checkav);
@@ -536,6 +538,11 @@ static void js_gc_trace(JSTracer* tracer, void *)
   T(PL_Latin1);
   T(PL_UpperLatin1);
   T(PL_utf8_foldable);
+  T(PL_utf8_toupper);
+  T(PL_utf8_totitle);
+  T(PL_utf8_tolower);
+  T(PL_utf8_tofold);
+  T(PL_utf8_foldclosures);
   T(PL_HasMultiCharFold);
   T(PL_InBitmap);
 

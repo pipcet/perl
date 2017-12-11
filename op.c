@@ -9134,7 +9134,7 @@ Perl_cv_const_sv(const CV *const cv)
 	return NULL;
     if (!(SvTYPE(cv) == SVt_PVCV || SvTYPE(cv) == SVt_PVFM))
 	return NULL;
-    sv = CvCONST(cv) ? MUTABLE_SV(CvXSUBANY(cv).any_ptr) : NULL;
+    sv = CvCONST(cv) ? MUTABLE_SV(CvXSUBANY(cv).any_sv) : NULL;
     if (sv && SvTYPE(sv) == SVt_PVAV) return NULL;
     return sv;
 }
@@ -9146,7 +9146,7 @@ Perl_cv_const_sv_or_av(const CV * const cv)
 	return NULL;
     if (SvROK(cv)) return SvRV((SV *)cv);
     assert (SvTYPE(cv) == SVt_PVCV || SvTYPE(cv) == SVt_PVFM);
-    return CvCONST(cv) ? MUTABLE_SV(CvXSUBANY(cv).any_ptr) : NULL;
+    return CvCONST(cv) ? MUTABLE_SV(CvXSUBANY(cv).any_sv) : NULL;
 }
 
 /* op_const_sv:  examine an optree to determine whether it's in-lineable.
@@ -9421,7 +9421,7 @@ Perl_newMYSUB(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs, OP *block)
 	    *spot = cv;
 	}
         SvPVCLEAR(MUTABLE_SV(cv));  /* prototype is "" */
-	CvXSUBANY(cv).any_ptr = const_sv;
+	CvXSUBANY(cv).any_sv = const_sv;
 	CvXSUB(cv) = const_sv_xsub;
 	CvCONST_on(cv);
 	CvISXSUB_on(cv);
@@ -9943,7 +9943,7 @@ Perl_newATTRSUB_x(pTHX_ I32 floor, OP *o, OP *proto, OP *attrs,
 	    assert(!CvROOT(cv) && !CvCONST(cv));
 	    cv_forget_slab(cv);
             SvPVCLEAR(MUTABLE_SV(cv));  /* prototype is "" */
-	    CvXSUBANY(cv).any_ptr = const_sv;
+	    CvXSUBANY(cv).any_sv = const_sv;
 	    CvXSUB(cv) = const_sv_xsub;
 	    CvCONST_on(cv);
 	    CvISXSUB_on(cv);
@@ -10404,7 +10404,7 @@ Perl_newCONSTSUB_flags(pTHX_ HV *stash, const char *name, STRLEN len,
 			 &sv, XS_DYNAMIC_FILENAME | flags);
     assert(cv);
     assert(SvREFCNT((SV*)cv) != 0);
-    CvXSUBANY(cv).any_ptr = SvREFCNT_inc_simple(sv);
+    CvXSUBANY(cv).any_sv = SvREFCNT_inc_simple(sv);
     CvCONST_on(cv);
 
     LEAVE;

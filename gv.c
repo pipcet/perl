@@ -3685,7 +3685,7 @@ Perl_gv_try_downgrade(pTHX_ GV *gv)
 	    (namehek = GvNAME_HEK(gv)) &&
 	    (gvp = hv_fetchhek(stash, namehek, 0)) &&
 	    *gvp == (SV*)gv) {
-	SV *value = SvREFCNT_inc(CvXSUBANY(cv).any_ptr);
+	SV *value = SvREFCNT_inc(CvXSUBANY(cv).any_sv);
 	const bool imported = !!GvIMPORTED_CV(gv);
 	SvREFCNT(gv) = 0;
 	sv_clear((SV*)gv);

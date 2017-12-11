@@ -461,7 +461,7 @@ Perl_cv_undef_flags(pTHX_ CV *cv, U32 flags)
 	}
     }
     if (CvCONST(&cvbody)) {
-	SvREFCNT_dec(MUTABLE_SV(CvXSUBANY(&cvbody).any_ptr));
+	SvREFCNT_dec(MUTABLE_SV(CvXSUBANY(&cvbody).any_sv));
 	/* CvCONST_off(cv); *//* turned off below */
     }
     /* delete all flags except WEAKOUTSIDE and CVGV_RC, which indicate the

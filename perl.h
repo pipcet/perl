@@ -2408,6 +2408,7 @@ typedef struct xpvfm XPVFM;
 typedef struct xpvio XPVIO;
 typedef struct mgvtbl MGVTBL;
 typedef union any ANY;
+typedef struct anyp ANYP;
 typedef struct ptr_tbl_ent PTR_TBL_ENT_t;
 typedef struct ptr_tbl PTR_TBL_t;
 typedef struct clone_params CLONE_PARAMS;
@@ -3521,6 +3522,31 @@ union any {
     bool	any_bool;
     void	(*any_dptr) (void*);
     void	(*any_dxptr) (pTHX_ void*);
+};
+
+struct anyp {
+  union {
+    void*	any_vptr;
+    OP*         any_op;
+    char*       any_pv;
+    char**      any_pvp;
+    I32		any_i32;
+    U32		any_u32;
+    IV		any_iv;
+    UV		any_uv;
+    long	any_long;
+    bool	any_bool;
+    void	(*any_dptr) (void*);
+    void	(*any_dxptr) (pTHX_ void*);
+  };
+  union {
+    void*	any_ptr;
+    SV*         any_sv;
+    SV**        any_svp;
+    GV*         any_gv;
+    AV*         any_av;
+    HV*         any_hv;
+  };
 };
 #endif
 
