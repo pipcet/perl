@@ -65,30 +65,7 @@ EONT_EONT
 checkOptree ( name	=> 'PMOP children',
 	      code	=> sub { $foo =~ s/(a)/$1/ },
 	      strip_open_hints => 1,
-	      ( $] < 5.017002
-		?  (expect => <<'EOT_EOT16', expect_nt => <<'EONT_EONT16')
-# 6  <1> leavesub[1 ref] K/REFC,1 ->(end)
-# -     <@> lineseq KP ->6
-# 1        <;> nextstate(main 1 -e:1) v:>,<,%,{ ->2
-# 3        </> subst(/"(a)"/ replstart->4) KS ->6
-# -           <1> ex-rv2sv sKRM/1 ->3
-# 2              <#> gvsv[*foo] s ->3
-# 5           <|> substcont(other->3) sK/1 ->(end)
-# -              <1> ex-rv2sv sK/1 ->5
-# 4                 <#> gvsv[*1] s ->5
-EOT_EOT16
-# 6  <1> leavesub[1 ref] K/REFC,1 ->(end)
-# -     <@> lineseq KP ->6
-# 1        <;> nextstate(main 1 -e:1) v:>,<,%,{ ->2
-# 3        </> subst(/"(a)"/ replstart->4) KS ->6
-# -           <1> ex-rv2sv sKRM/1 ->3
-# 2              <$> gvsv(*foo) s ->3
-# 5           <|> substcont(other->3) sK/1 ->(end)
-# -              <1> ex-rv2sv sK/1 ->5
-# 4                 <$> gvsv(*1) s ->5
-EONT_EONT16
-
-		:  (expect => <<'EOT_EOT',   expect_nt => <<'EONT_EONT')));
+	      expect => <<'EOT_EOT',   expect_nt => <<'EONT_EONT');
 # 5  <1> leavesub[1 ref] K/REFC,1 ->(end)
 # -     <@> lineseq KP ->5
 # 1        <;> nextstate(main 1 -e:1) v:>,<,%,{ ->2
@@ -112,7 +89,7 @@ EONT_EONT
 
 my $t = <<'EOT_EOT';
 # 8  <@> leave[1 ref] vKP/REFC ->(end)
-# 1     <0> enter ->2
+# 1     <0> enter v ->2
 # 2     <;> nextstate(main 1 -e:1) v:>,<,%,{ ->3
 # 7     <2> sassign vKS/2 ->8
 # 5        <@> index[t2] sK/2 ->6
@@ -124,7 +101,7 @@ my $t = <<'EOT_EOT';
 EOT_EOT
 my $nt = <<'EONT_EONT';
 # 8  <@> leave[1 ref] vKP/REFC ->(end)
-# 1     <0> enter ->2
+# 1     <0> enter v ->2
 # 2     <;> nextstate(main 1 -e:1) v:>,<,%,{ ->3
 # 7     <2> sassign vKS/2 ->8
 # 5        <@> index[t1] sK/2 ->6
@@ -149,7 +126,6 @@ checkOptree ( name      => 'formats',
 	      bcopts    => 'STDOUT',
 	      progfile	=> $tmpfile,
 	      strip_open_hints => 1,
-	      skip	=> ($] < 5.017003),
 	      expect	=> <<'EOT_EOT', expect_nt => <<'EONT_EONT');
 # main::STDOUT (FORMAT):
 # c  <1> leavewrite[1 ref] K/REFC,1 ->(end)
@@ -195,7 +171,6 @@ EONT_EONT
 checkOptree ( name      => 'padrange',
 	      code	=> sub { my ($x,$y); @a = ($x,$y); ($x,$y) = @a },
 	      strip_open_hints => 1,
-	      skip	=> ($] < 5.017006),
 	      expect	=> <<'EOT_EOT', expect_nt => <<'EONT_EONT');
 # f  <1> leavesub[1 ref] K/REFC,1 ->(end)
 # -     <@> lineseq KP ->f
@@ -261,7 +236,6 @@ checkOptree ( name      => 'padrange and @_',
 				 my ($e,$f) = @_;
 			     },
 	      strip_open_hints => 1,
-	      skip	=> ($] < 5.017006),
 	      expect	=> <<'EOT_EOT', expect_nt => <<'EONT_EONT');
 # d  <1> leavesub[1 ref] K/REFC,1 ->(end)
 # -     <@> lineseq KP ->d
@@ -333,7 +307,6 @@ EONT_EONT
 checkOptree ( name      => 'consolidate padranges',
 	      code	=> sub { my ($a,$b); my ($c,$d); 1 },
 	      strip_open_hints => 1,
-	      skip	=> ($] < 5.017006),
 	      expect	=> <<'EOT_EOT', expect_nt => <<'EONT_EONT');
 # 5  <1> leavesub[1 ref] K/REFC,1 ->(end)
 # -     <@> lineseq KP ->5
@@ -371,7 +344,6 @@ checkOptree ( name      => 'consolidate padranges and singletons',
 	      code	=> sub { my ($a,$b); my $c; my ($d,$e);
 				 my @f; my $g; my ($h,$i); my %j; 1 },
 	      strip_open_hints => 1,
-	      skip	=> ($] < 5.017006),
 	      expect	=> <<'EOT_EOT', expect_nt => <<'EONT_EONT');
 # 5  <1> leavesub[1 ref] K/REFC,1 ->(end)
 # -     <@> lineseq KP ->5

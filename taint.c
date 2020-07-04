@@ -26,6 +26,9 @@
 void
 Perl_taint_proper(pTHX_ const char *f, const char *const s)
 {
+    /* Output a tainting violation, croaking unless we're just to warn.
+     * '_proper' is just to throw you off the scent */
+
 #if defined(HAS_SETEUID) && defined(DEBUGGING)
     PERL_ARGS_ASSERT_TAINT_PROPER;
 
@@ -60,16 +63,16 @@ Perl_taint_proper(pTHX_ const char *f, const char *const s)
 	    ug = " while running with -T switch";
 
         /* XXX because taint_proper adds extra format args, we can't
-         * get the caller to check properly; o we just silence the warning
+         * get the caller to check properly; so we just silence the warning
          * and hope the callers aren't naughty */
-        GCC_DIAG_IGNORE(-Wformat-nonliteral);
+        GCC_DIAG_IGNORE_STMT(-Wformat-nonliteral);
 	if (PL_unsafe || TAINT_WARN_get) {
 	    Perl_ck_warner_d(aTHX_ packWARN(WARN_TAINT), f, s, ug);
         }
         else {
             Perl_croak(aTHX_ f, s, ug);
         }
-        GCC_DIAG_RESTORE;
+        GCC_DIAG_RESTORE_STMT;
 
     }
 }
@@ -122,7 +125,7 @@ Perl_taint_env(pTHX)
     while (1) {
         MAGIC* mg;
 	if (i)
-	    len = my_sprintf(name,"DCL$PATH;%d", i);
+	    len = my_snprintf(name, sizeof name, "DCL$PATH;%d", i);
 	svp = hv_fetch(GvHVn(PL_envgv), name, len, FALSE);
 	if (!svp || *svp == &PL_sv_undef)
 	    break;
@@ -167,7 +170,7 @@ Perl_taint_env(pTHX)
 #endif
 	if (t < e && isWORDCHAR(*t))
 	    t++;
-	while (t < e && (isWORDCHAR(*t) || strchr("-_.+", *t)))
+	while (t < e && (isWORDCHAR(*t) || memCHRs("-_.+", *t)))
 	    t++;
 	if (t < e) {
 	    TAINT;

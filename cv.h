@@ -18,7 +18,7 @@ struct xpvcv {
 /*
 =head1 Handy Values
 
-=for apidoc AmU||Nullcv
+=for apidoc ADmnU||Nullcv
 Null CV pointer.
 
 (deprecated - use C<(CV *)NULL> instead)
@@ -49,7 +49,7 @@ See L<perlguts/Autoloading with XSUBs>.
 #define CvROOT(sv)	((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_root_u.xcv_root
 #define CvXSUB(sv)	((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_root_u.xcv_xsub
 #define CvXSUBANY(sv)	((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_start_u.xcv_xsubany
-#define CvGV(sv)	S_CvGV(aTHX_ (CV *)(sv))
+#define CvGV(sv)	Perl_CvGV(aTHX_ (CV *)(sv))
 #define CvGV_set(cv,gv)	Perl_cvgv_set(aTHX_ cv, gv)
 #define CvHASGV(cv)	cBOOL(SvANY(cv)->xcv_gv_u.xcv_gv)
 #define CvFILE(sv)	((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_file
@@ -61,9 +61,9 @@ See L<perlguts/Autoloading with XSUBs>.
     (CvFILE(sv) = CopFILE(cop), CvDYNFILE_off(sv))
 #endif
 #define CvFILEGV(sv)	(gv_fetchfile(CvFILE(sv)))
-#define CvDEPTH(sv)	(*S_CvDEPTHp((const CV *)sv))
+#define CvDEPTH(sv)	(*Perl_CvDEPTH((const CV *)sv))
 /* For use when you only have a XPVCV*, not a real CV*.
-   Must be assert protected as in S_CvDEPTHp before use. */
+   Must be assert protected as in Perl_CvDEPTH before use. */
 #define CvDEPTHunsafe(sv) ((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_depth
 
 /* these CvPADLIST/CvRESERVED asserts can be reverted one day, once stabilized */
@@ -129,7 +129,7 @@ See L<perlguts/Autoloading with XSUBs>.
 #ifdef PERL_CORE
 # define CVf_SLABBED	0x0800	/* Holds refcount on op slab  */
 #endif
-#define CVf_DYNFILE	0x1000	/* The filename isn't static  */
+#define CVf_DYNFILE	0x1000	/* The filename is malloced  */
 #define CVf_AUTOLOAD	0x2000	/* SvPVX contains AUTOLOADed sub name  */
 #define CVf_HASEVAL	0x4000	/* contains string eval  */
 #define CVf_NAMED	0x8000  /* Has a name HEK */
@@ -234,7 +234,17 @@ CvNAME_HEK(CV *sv)
 	? ((XPVCV*)MUTABLE_PTR(SvANY(sv)))->xcv_gv_u.xcv_hek
 	: 0;
 }
-/* This lowers the refernce count of the previous value, but does *not*
+
+/* helper for the common pattern:
+   CvNAMED(sv) ? CvNAME_HEK((CV *)sv) : GvNAME_HEK(CvGV(sv))
+*/
+#define CvGvNAME_HEK(sv) ( \
+        CvNAMED((CV*)sv) ? \
+            ((XPVCV*)MUTABLE_PTR(SvANY((SV*)sv)))->xcv_gv_u.xcv_hek\
+            : GvNAME_HEK(CvGV( (SV*) sv)) \
+        )
+
+/* This lowers the reference count of the previous value, but does *not*
    increment the reference count of the new value. */
 #define CvNAME_HEK_set(cv, hek) ( \
 	CvNAME_HEK((CV *)(cv))						 \

@@ -258,7 +258,7 @@ cstring(pTHX_ SV *sv, bool perlstyle)
 		sv_catpvs(sstr, "\\@");
 	    else if (*s == '\\')
 	    {
-		if (strchr("nrftax\\",*(s+1)))
+                if (memCHRs("nrftaebx\\",*(s+1)))
 		    sv_catpvn(sstr, s++, 2);
 		else
 		    sv_catpvs(sstr, "\\\\");
@@ -468,9 +468,7 @@ typedef IO	*B__IO;
 typedef MAGIC	*B__MAGIC;
 typedef HE      *B__HE;
 typedef struct refcounted_he	*B__RHE;
-#ifdef PadlistARRAY
 typedef PADLIST	*B__PADLIST;
-#endif
 typedef PADNAMELIST *B__PADNAMELIST;
 typedef PADNAME	*B__PADNAME;
 
@@ -628,10 +626,6 @@ BOOT:
     ASSIGN_COMMON_ALIAS(I, defstash);
     cv = newXS("B::curstash", intrpvar_sv_common, file);
     ASSIGN_COMMON_ALIAS(I, curstash);
-#ifdef PL_formfeed
-    cv = newXS("B::formfeed", intrpvar_sv_common, file);
-    ASSIGN_COMMON_ALIAS(I, formfeed);
-#endif
 #ifdef USE_ITHREADS
     cv = newXS("B::regex_padav", intrpvar_sv_common, file);
     ASSIGN_COMMON_ALIAS(I, regex_padav);
@@ -641,21 +635,13 @@ BOOT:
     cv = newXS("B::diehook", intrpvar_sv_common, file);
     ASSIGN_COMMON_ALIAS(I, diehook);
     sv = get_sv("B::OP::does_parent", GV_ADDMULTI);
-#ifdef PERL_OP_PARENT
     sv_setsv(sv, &PL_sv_yes);
-#else
-    sv_setsv(sv, &PL_sv_no);
-#endif
 }
-
-#ifndef PL_formfeed
 
 void
 formfeed()
     PPCODE:
 	PUSHs(make_sv_object(aTHX_ GvSV(gv_fetchpvs("\f", GV_ADD, SVt_PV))));
-
-#endif
 
 long 
 amagic_generation()
@@ -669,16 +655,12 @@ comppadlist()
     PREINIT:
 	PADLIST *padlist = CvPADLIST(PL_main_cv ? PL_main_cv : PL_compcv);
     PPCODE:
-#ifdef PadlistARRAY
 	{
 	    SV * const rv = sv_newmortal();
 	    sv_setiv(newSVrv(rv, padlist ? "B::PADLIST" : "B::NULL"),
 		     PTR2IV(padlist));
 	    PUSHs(rv);
 	}
-#else
-	PUSHs(make_sv_object(aTHX_ (SV *)padlist));
-#endif
 
 void
 sv_undef()
@@ -745,7 +727,7 @@ CODE:
  int i; 
  IV  result = -1;
  ST(0) = sv_newmortal();
- if (strEQs(name,"pp_"))
+ if (strBEGINs(name,"pp_"))
    name += 3;
  for (i = 0; i < PL_maxo; i++)
   {
@@ -1036,20 +1018,18 @@ next(o)
 		ret = make_sv_object(aTHX_ NULL);
 		break;
 	    case 41: /* B::PVOP::pv */
-		/* OP_TRANS uses op_pv to point to a table of 256 or >=258
-		 * shorts whereas other PVOPs point to a null terminated
-		 * string.  */
-		if (    (cPVOPo->op_type == OP_TRANS
-			|| cPVOPo->op_type == OP_TRANSR) &&
-			(cPVOPo->op_private & OPpTRANS_COMPLEMENT) &&
-			!(cPVOPo->op_private & OPpTRANS_DELETE))
-		{
-		    const short* const tbl = (short*)cPVOPo->op_pv;
-		    const short entries = 257 + tbl[256];
-		    ret = newSVpvn_flags(cPVOPo->op_pv, entries * sizeof(short), SVs_TEMP);
-		}
-		else if (cPVOPo->op_type == OP_TRANS || cPVOPo->op_type == OP_TRANSR) {
-		    ret = newSVpvn_flags(cPVOPo->op_pv, 256 * sizeof(short), SVs_TEMP);
+                /* OP_TRANS uses op_pv to point to a OPtrans_map struct,
+                 * whereas other PVOPs point to a null terminated string.
+                 * For trans, for now just return the whole struct as a
+                 * string and let the caller unpack() it */
+		if (   cPVOPo->op_type == OP_TRANS
+                    || cPVOPo->op_type == OP_TRANSR)
+                {
+                    const OPtrans_map *const tbl = (OPtrans_map*)cPVOPo->op_pv;
+		    ret = newSVpvn_flags(cPVOPo->op_pv,
+                                              (char*)(&tbl->map[tbl->size + 1])
+                                            - (char*)tbl,
+                                            SVs_TEMP);
 		}
 		else
 		    ret = newSVpvn_flags(cPVOPo->op_pv, strlen(cPVOPo->op_pv), SVs_TEMP);
@@ -1183,6 +1163,10 @@ string(o, cv)
     PPCODE:
         aux = cUNOP_AUXo->op_aux;
         switch (o->op_type) {
+        case OP_MULTICONCAT:
+            ret = multiconcat_stringify(o);
+            break;
+
         case OP_MULTIDEREF:
             ret = multideref_stringify(o, cv);
             break;
@@ -1193,11 +1177,15 @@ string(o, cv)
             break;
 
         case OP_ARGCHECK:
-            ret = Perl_newSVpvf(aTHX_ "%" IVdf ",%" IVdf, aux[0].iv, aux[1].iv);
-            if (aux[2].iv)
-                Perl_sv_catpvf(aTHX_ ret, ",%c", (char)aux[2].iv);
-            ret = sv_2mortal(ret);
-            break;
+            {
+                struct op_argcheck_aux *p = (struct op_argcheck_aux*)aux;
+                ret = Perl_newSVpvf(aTHX_ "%" IVdf ",%" IVdf,
+                                    p->params, p->opt_params);
+                if (p->slurpy)
+                    Perl_sv_catpvf(aTHX_ ret, ",%c", p->slurpy);
+                ret = sv_2mortal(ret);
+                break;
+            }
 
         default:
             ret = sv_2mortal(newSVpvn("", 0));
@@ -1231,12 +1219,71 @@ aux_list(o, cv)
             break;
 
         case OP_ARGCHECK:
-            EXTEND(SP, 3);
-            PUSHs(sv_2mortal(newSViv(aux[0].iv)));
-            PUSHs(sv_2mortal(newSViv(aux[1].iv)));
-            PUSHs(sv_2mortal(aux[2].iv ? Perl_newSVpvf(aTHX_ "%c",
-                                (char)aux[2].iv) : &PL_sv_no));
-            break;
+            {
+                struct op_argcheck_aux *p = (struct op_argcheck_aux*)aux;
+                EXTEND(SP, 3);
+                PUSHs(sv_2mortal(newSViv(p->params)));
+                PUSHs(sv_2mortal(newSViv(p->opt_params)));
+                PUSHs(sv_2mortal(p->slurpy
+                                ? Perl_newSVpvf(aTHX_ "%c", p->slurpy)
+                                : &PL_sv_no));
+                break;
+            }
+
+        case OP_MULTICONCAT:
+            {
+                SSize_t nargs;
+                char *p;
+                STRLEN len;
+                U32 utf8 = 0;
+                SV *sv;
+                UNOP_AUX_item *lens;
+
+                /* return (nargs, const string, segment len 0, 1, 2, ...) */
+
+                /* if this changes, this block of code probably needs fixing */
+                assert(PERL_MULTICONCAT_HEADER_SIZE == 5);
+                nargs = aux[PERL_MULTICONCAT_IX_NARGS].ssize;
+                EXTEND(SP, ((SSize_t)(2 + (nargs+1))));
+                PUSHs(sv_2mortal(newSViv((IV)nargs)));
+
+                p   = aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv;
+                len = aux[PERL_MULTICONCAT_IX_PLAIN_LEN].ssize;
+                if (!p) {
+                    p   = aux[PERL_MULTICONCAT_IX_UTF8_PV].pv;
+                    len = aux[PERL_MULTICONCAT_IX_UTF8_LEN].ssize;
+                    utf8 = SVf_UTF8;
+                }
+                sv = newSVpvn(p, len);
+                SvFLAGS(sv) |= utf8;
+                PUSHs(sv_2mortal(sv));
+
+                lens = aux + PERL_MULTICONCAT_IX_LENGTHS;
+                nargs++; /* loop (nargs+1) times */
+                if (utf8) {
+                    U8 *p = (U8*)SvPVX(sv);
+                    while (nargs--) {
+                        SSize_t bytes = lens->ssize;
+                        SSize_t chars;
+                        if (bytes <= 0)
+                            chars = bytes;
+                        else {
+                            /* return char lengths rather than byte lengths */
+                            chars = utf8_length(p, p + bytes);
+                            p += bytes;
+                        }
+                        lens++;
+                        PUSHs(sv_2mortal(newSViv(chars)));
+                    }
+                }
+                else {
+                    while (nargs--) {
+                        PUSHs(sv_2mortal(newSViv(lens->ssize)));
+                        lens++;
+                    }
+                }
+                break;
+            }
 
         case OP_MULTIDEREF:
 #ifdef USE_ITHREADS
@@ -1608,19 +1655,12 @@ PV(sv)
 	U32 utf8 = 0;
     CODE:
 	if (ix == 3) {
-#ifndef PERL_FBM_TABLE_OFFSET
 	    const MAGIC *const mg = mg_find(sv, PERL_MAGIC_bm);
 
 	    if (!mg)
                 croak("argument to B::BM::TABLE is not a PVBM");
 	    p = mg->mg_ptr;
 	    len = mg->mg_len;
-#else
-	    p = SvPV(sv, len);
-	    /* Boyer-Moore table is just after string and its safety-margin \0 */
-	    p += len + PERL_FBM_TABLE_OFFSET;
-	    len = 256;
-#endif
 	} else if (ix == 2) {
 	    /* This used to read 257. I think that that was buggy - should have
 	       been 258. (The "\0", the flags byte, and 256 for the table.)
@@ -1638,38 +1678,22 @@ PV(sv)
 	       5.15 and later store the BM table via MAGIC, so the compiler
 	       should handle this just fine without changes if PVBM now
 	       always returns the SvPVX() buffer.  */
-#ifdef isREGEXP
 	    p = isREGEXP(sv)
 		 ? RX_WRAPPED_const((REGEXP*)sv)
 		 : SvPVX_const(sv);
-#else
-	    p = SvPVX_const(sv);
-#endif
-#ifdef PERL_FBM_TABLE_OFFSET
-	    len = SvCUR(sv) + (SvVALID(sv) ? 256 + PERL_FBM_TABLE_OFFSET : 0);
-#else
 	    len = SvCUR(sv);
-#endif
 	} else if (ix) {
-#ifdef isREGEXP
 	    p = isREGEXP(sv) ? RX_WRAPPED((REGEXP*)sv) : SvPVX(sv);
-#else
-	    p = SvPVX(sv);
-#endif
 	    len = strlen(p);
 	} else if (SvPOK(sv)) {
 	    len = SvCUR(sv);
 	    p = SvPVX_const(sv);
 	    utf8 = SvUTF8(sv);
-        }
-#ifdef isREGEXP
-	else if (isREGEXP(sv)) {
+        } else if (isREGEXP(sv)) {
 	    len = SvCUR(sv);
 	    p = RX_WRAPPED_const((REGEXP*)sv);
 	    utf8 = SvUTF8(sv);
-	}
-#endif
-        else {
+	} else {
             /* XXX for backward compatibility, but should fail */
             /* croak( "argument is not SvPOK" ); */
 	    p = NULL;
@@ -1949,8 +1973,6 @@ I32
 CvDEPTH(cv)
         B::CV   cv
 
-#ifdef PadlistARRAY
-
 B::PADLIST
 CvPADLIST(cv)
 	B::CV	cv
@@ -1958,17 +1980,6 @@ CvPADLIST(cv)
 	RETVAL = CvISXSUB(cv) ? NULL : CvPADLIST(cv);
     OUTPUT:
 	RETVAL
-
-#else
-
-B::AV
-CvPADLIST(cv)
-	B::CV	cv
-    PPCODE:
-	PUSHs(make_sv_object(aTHX_ (SV *)CvPADLIST(cv)));
-
-
-#endif
 
 SV *
 CvHSCXT(cv)
@@ -2070,8 +2081,6 @@ HASH(h)
 	RETVAL
 
 
-#ifdef PadlistARRAY
-
 MODULE = B	PACKAGE = B::PADLIST	PREFIX = Padlist
 
 SSize_t
@@ -2130,8 +2139,6 @@ PadlistREFCNT(padlist)
 	RETVAL = PadlistREFCNT(padlist);
     OUTPUT:
 	RETVAL
-
-#endif
 
 MODULE = B	PACKAGE = B::PADNAMELIST	PREFIX = Padnamelist
 

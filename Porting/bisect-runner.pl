@@ -67,7 +67,7 @@ unless(GetOptions(\%options,
                   'all-fixups', 'early-fixup=s@', 'late-fixup=s@', 'valgrind',
                   'check-args', 'check-shebang!', 'usage|help|?', 'gold=s',
                   'module=s', 'with-module=s', 'cpan-config-dir=s',
-                  'no-module-tests',
+                  'test-module=s', 'no-module-tests',
                   'A=s@',
                   'D=s@' => sub {
                       my (undef, $val) = @_;
@@ -128,11 +128,21 @@ if (defined $target && $target =~ /\.t\z/) {
 }
 
 pod2usage(exitval => 255, verbose => 1)
-    unless @ARGV || $match || $options{'test-build'} || defined $options{'one-liner'} || defined $options{module};
+    unless @ARGV || $match || $options{'test-build'}
+        || defined $options{'one-liner'} || defined $options{module}
+        || defined $options{'test-module'};
 pod2usage(exitval => 255, verbose => 1)
     if !$options{'one-liner'} && ($options{l} || $options{w});
 if ($options{'no-module-tests'} && $options{module}) {
     print STDERR "--module and --no-module-tests are exclusive.\n\n";
+    pod2usage(exitval => 255, verbose => 1)
+}
+if ($options{'no-module-tests'} && $options{'test-module'}) {
+    print STDERR "--test-module and --no-module-tests are exclusive.\n\n";
+    pod2usage(exitval => 255, verbose => 1)
+}
+if ($options{module} && $options{'test-module'}) {
+    print STDERR "--module and --test-module are exclusive.\n\n";
     pod2usage(exitval => 255, verbose => 1)
 }
 
@@ -430,7 +440,9 @@ as exiting with a signal or a core dump.)
 
 -A I<config_arg=value>
 
-Arguments (C<-A>, C<-D>, C<-U>) to pass to F<Configure>. For example,
+Arguments (C<-A>, C<-D>, C<-U>) to pass to F<Configure>.  The C<-D>, C<-A> and
+C<-U> switches should be spelled as if you were normally giving them to
+F<./Configure>.  For example,
 
     -Dnoextensions=Encode
     -Uusedevel
@@ -525,6 +537,12 @@ always exits with zero. If you require more flexibility than this, either
 specify your C<valgrind> invocation explicitly as part of the test case, or
 use a wrapper script to control the command line or massage the exit codes.
 
+In order for the test program to be seen as a perl script to valgrind
+(rather than a shell script), the first line must be one of the following
+
+  #!./perl
+  #!./miniperl
+
 =item *
 
 --test-build
@@ -612,6 +630,21 @@ For example:
 
   .../Porting/bisect.pl --with-module=Moose --no-module-tests \
        -e 'use Moose; ...'
+
+=item *
+
+--test-module
+
+This is like I<--module>, but just runs the module's tests, instead of
+installing it.
+
+WARNING: This is a somewhat experimental option, known to work on recent
+CPAN shell versions.  If you use this option and strange things happen,
+please report them.
+
+Usually, you can just use I<--module>, but if you are getting inconsistent
+installation failures and you just want to see when the tests started
+failing, you might find this option useful.
 
 =item *
 
@@ -808,6 +841,164 @@ but F<bisect.pl> will default it to the most recent stable release.
 -?
 
 Display the usage information and exit.
+
+=back
+
+=head1 EXAMPLES
+
+=head2 Code has started to crash under C<miniperl>
+
+=over 4
+
+=item * Problem
+
+Under C<make minitest> (but not under C<make test_harness>), F<t/re/pat.t> was
+failing to compile.  What was the first commit at which that compilation
+failure could be observed?
+
+=item * Solution
+
+Extract code from the test file at the point where C<./miniperl -Ilib -c> was
+showing a compilation failure.  Use that in bisection with the C<miniperl>
+target.
+
+    .../Porting/bisect.pl --target=miniperl --start=2ec4590e \
+        -e 'q|ace| =~ /c(?=.$)/; $#{^CAPTURE} == -1); exit 0;'
+
+=item * Reference
+
+L<GH issue 17293|https://github.com/Perl/perl5/issues/17293>
+
+=back
+
+=head2 Blead breaks CPAN on threaded builds only
+
+=over 4
+
+=item * Problem
+
+Tests in CPAN module XML::Parser's test suite had begun to fail when tested
+against blead in threaded builds only.
+
+=item * Solution
+
+Provide F<Configure>-style switch to bisection program.  Straightforward use
+of the C<--module> switch.
+
+    .../Porting/bisect.pl -Duseithreads \
+        --start=6256cf2c \
+        --end=f6f85064 \
+        --module=XML::Parser
+
+=item * Reference
+
+L<GH issue 16918|https://github.com/Perl/perl5/issues/16918>
+
+=back
+
+=head2 Point in time where code started to segfault is unknown
+
+=over 4
+
+=item * Problem
+
+User submitted code sample which when run caused F<perl> to segfault, but did
+not claim that this was a recent change.
+
+=item * Solution
+
+Used locally installed production releases of perl (previously created by
+F<perlbrew>) to identify the first production release at which the code would
+not compile.  Used that information to shorten bisection time.
+
+    .../perl Porting/bisect.pl \
+        --start=v5.14.4 \
+        --end=v5.16.3 \
+        --crash -- ./perl -Ilib /tmp/gh-17333-map.pl
+
+    $ cat gh-17333-map.pl
+
+    @N = 1..5;
+    map { pop @N } @N;
+
+=item * Reference
+
+L<GH issue 17333|https://github.com/Perl/perl5/issues/17333>
+
+=back
+
+=head2 When did perl start failing to build on a certain platform using C<g++> as the C-compiler?
+
+=over 4
+
+=item * Problem
+
+On NetBSD-8.0, C<perl> had never been smoke-tested using C<g++> as the
+C-compiler.  Once this was done, it became evident that changes in that
+version of the operating system's code were incompatible with some C<perl>
+source written long before that OS version was ever released!
+
+=item * Solution
+
+Bisection range was first narrowed using existing builds at release tags.
+Then, bisection specified the C-compiler via C<Configure>-style switch and
+used C<--test-build> to identify the commit which "broke" the build.
+
+    .../perl Porting/bisect.pl \
+        -Dcc=g++ \
+        --test-build \
+        --start=v5.21.6 \
+        --end=v5.21.7
+
+Then, problem was discussed with knowledgeable NetBSD user.
+
+=item * Reference
+
+L<GH issue 17381|https://github.com/Perl/perl5/issues/17381>
+
+=back
+
+=head2 When did a test file start to emit warnings?
+
+=over 4
+
+=item * Problem
+
+When F<dist/Tie-File/t/43_synopsis> was run as part of C<make test>, we
+observed warnings not previously seen.  At what commit were those warnings
+first emitted?
+
+=item * Solution
+
+We know that when this test file was first committed to blead, no warnings
+were observed and there was no output to C<STDERR>.  So that commit becomes
+the value for C<--start>.
+
+Since the test file in question is for a CPAN distribution maintained by core,
+we must prepare to run that test by including C<--target=test_prep> in the
+bisection invocation.  We then run the test file in a way that captures
+C<STDERR> in a file.  If that file has non-zero size, then we have presumably
+captured the newly seen warnings.
+
+    export ERR="/tmp/err"
+
+    .../perl Porting/bisect.pl \
+      --start=507614678018ae1abd55a22e9941778c65741ba3 \
+      --end=d34b46d077dcfc479c36f65b196086abd7941c76 \
+      --target=test_prep \
+      -e 'chdir("t");
+        system(
+          "./perl harness ../dist/Tie-File/t/43_synopsis.t
+            2>$ENV{ERR}"
+        );
+        -s $ENV{ERR} and die "See $ENV{ERR} for warnings thrown";'
+
+Bisection pointed to a commit where strictures and warnings were first turned
+on throughout the F<dist/Tie-File/> directory.
+
+=item * Reference
+
+L<Commit 125e1a3|https://github.com/Perl/perl5/commit/125e1a36a939>
 
 =back
 
@@ -1398,7 +1589,8 @@ push @ARGS, map {"-A$_"} @{$options{A}};
 my $prefix;
 
 # Testing a module? We need to install perl/cpan modules to a temp dir
-if ($options{module} || $options{'with-module'}) {
+if ($options{module} || $options{'with-module'} || $options{'test-module'})
+{
   $prefix = tempdir(CLEANUP => 1);
 
   push @ARGS, "-Dprefix=$prefix";
@@ -1488,12 +1680,40 @@ if ($target ne 'miniperl') {
     system "$options{make} $j $real_target </dev/null";
 }
 
-# Testing a cpan module? See if it will install
-if ($options{module} || $options{'with-module'}) {
+my $expected_file_found = $expected_file =~ /perl$/
+    ? -x $expected_file : -r $expected_file;
+
+if ($expected_file_found && $expected_file eq 't/perl') {
+    # Check that it isn't actually pointing to ../miniperl, which will happen
+    # if the sanity check ./miniperl -Ilib -MExporter -e '<?>' fails, and
+    # Makefile tries to run minitest.
+
+    # Of course, helpfully sometimes it's called ../perl, other times .././perl
+    # and who knows if that list is exhaustive...
+    my ($dev0, $ino0) = stat 't/perl';
+    my ($dev1, $ino1) = stat 'perl';
+    unless (defined $dev0 && defined $dev1 && $dev0 == $dev1 && $ino0 == $ino1) {
+        undef $expected_file_found;
+        my $link = readlink $expected_file;
+        warn "'t/perl' => '$link', not 'perl'";
+        die_255("Could not realink t/perl: $!") unless defined $link;
+    }
+}
+
+my $just_testing = 0;
+
+if ($options{'test-build'}) {
+    report_and_exit($expected_file_found, 'could build', 'could not build',
+                    $real_target);
+} elsif (!$expected_file_found) {
+    skip("could not build $real_target");
+} elsif (my $mod_opt = $options{module} || $options{'with-module'}
+               || ($just_testing++, $options{'test-module'})) {
+  # Testing a cpan module? See if it will install
   # First we need to install this perl somewhere
   system_or_die('./installperl');
 
-  my @m = split(',', $options{module} || $options{'with-module'});
+  my @m = split(',', $mod_opt);
 
   my $bdir = File::Temp::tempdir(
     CLEANUP => 1,
@@ -1526,15 +1746,18 @@ if ($options{module} || $options{'with-module'}) {
     s/-/::/g if /-/ and !m|/|;
   }
   my $install = join ",", map { "'$_'" } @m;
-  if ($options{'no-module-tests'}) {
+  if ($just_testing) {
+    $install = "test($install)";
+  } elsif ($options{'no-module-tests'}) {
     $install = "notest('install',$install)";
   } else {
     $install = "install($install)";
   }
   my $last = $m[-1];
-  my $shellcmd = "$install; die unless CPAN::Shell->expand(Module => '$last')->uptodate;";
+  my $status_method = $just_testing ? 'test' : 'uptodate';
+  my $shellcmd = "$install; die unless CPAN::Shell->expand(Module => '$last')->$status_method;";
 
-  if ($options{module}) {
+  if ($options{module} || $options{'test-module'}) {
     run_report_and_exit(@cpanshell, $shellcmd);
   } else {
     my $ret = run_with_options({setprgp => $options{setpgrp},
@@ -1547,33 +1770,6 @@ if ($options{module} || $options{'with-module'}) {
       report_and_exit(!$ret, 'zero exit from', 'non-zero exit from', "@_");
     }
   }
-}
-
-my $expected_file_found = $expected_file =~ /perl$/
-    ? -x $expected_file : -r $expected_file;
-
-if ($expected_file_found && $expected_file eq 't/perl') {
-    # Check that it isn't actually pointing to ../miniperl, which will happen
-    # if the sanity check ./miniperl -Ilib -MExporter -e '<?>' fails, and
-    # Makefile tries to run minitest.
-
-    # Of course, helpfully sometimes it's called ../perl, other times .././perl
-    # and who knows if that list is exhaustive...
-    my ($dev0, $ino0) = stat 't/perl';
-    my ($dev1, $ino1) = stat 'perl';
-    unless (defined $dev0 && defined $dev1 && $dev0 == $dev1 && $ino0 == $ino1) {
-        undef $expected_file_found;
-        my $link = readlink $expected_file;
-        warn "'t/perl' => '$link', not 'perl'";
-        die_255("Could not realink t/perl: $!") unless defined $link;
-    }
-}
-
-if ($options{'test-build'}) {
-    report_and_exit($expected_file_found, 'could build', 'could not build',
-                    $real_target);
-} elsif (!$expected_file_found) {
-    skip("could not build $real_target");
 }
 
 match_and_exit($real_target, @ARGV) if $match;
@@ -2629,7 +2825,7 @@ lib/Config_git.pl:}m;
 
 lib/Config_git.pl: $1}m;
 
-                              # This emulates commits 0f13ebd5d71f8177 and
+                              # This emulates commits 0f13ebd5d71f8177
                               # and a04d4598adc57886. It ensures that
                               # lib/Config_git.pl is built before configpm,
                               # and that configpm is run exactly once.

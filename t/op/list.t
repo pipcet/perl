@@ -6,7 +6,7 @@ BEGIN {
     set_up_inc(qw(. ../lib));
 }
 
-plan( tests => 71 );
+plan( tests => 73 );
 
 @foo = (1, 2, 3, 4);
 cmp_ok($foo[0], '==', 1, 'first elem');
@@ -227,4 +227,51 @@ ok(($0[()[()]],1), "[perl #126193] list slice with zero indexes");
     my @x;
     @x;
     pass('no panic'); # panics only under DEBUGGING
+}
+
+fresh_perl_is(<<'EOS', "", {}, "[perl #131954] heap use after free in pp_list");
+#!./perl
+BEGIN {
+my $bar = "bar";
+
+sub test_no_error {
+    eval $_[0];
+}
+
+test_no_error($_) for split /\n/,
+q[	x
+	definfoo, $bar;
+	x
+	x
+	x
+	grep((not $bar, $bar, $bar), $bar);
+        x
+        x
+    x
+        x
+        x
+        x
+        x
+        x
+        x
+        x
+        x
+        x
+        x
+       x
+        x
+        x
+        x
+        x
+        x
+        x
+ ];
+}
+EOS
+
+# this used to SEGV due to deep recursion in Perl_list()
+
+{
+    my $e = "1"; $e = "(1,$e)" for 1..100_000; $e = "() = $e"; eval $e;
+    is $@, "", "SEGV in Perl_list";
 }

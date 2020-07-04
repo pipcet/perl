@@ -18,7 +18,7 @@ BEGIN {
 # If you find tests are failing, please try adding names to tests to track
 # down where the failure is, and supply your new names as a patch.
 # (Just-in-time test naming)
-plan tests => 477;
+plan tests => 501;
 
 # numerics
 ok ((0xdead & 0xbeef) == 0x9ead);
@@ -262,6 +262,35 @@ is(~~$y, "c");
 is(fetches($y), 1);
 is(stores($y), 0);
 
+my $g;
+# Note: if the vec() reads are part of the is() calls it's treated as
+# in lvalue context, so we save it separately
+$g = vec($x, 0, 1);
+is($g, (ord("a") & 0x01), "check vec value");
+is(fetches($x), 1, "fetches for vec read");
+is(stores($x), 0, "stores for vec read");
+# similarly here, and code like:
+#   $g = (vec($x, 0, 1) = 0)
+# results in an extra fetch, since the inner assignment returns the LV
+vec($x, 0, 1) = 0;
+# one fetch in vec() another when the LV is assigned to
+is(fetches($x), 2, "fetches for vec write");
+is(stores($x), 1, "stores for vec write");
+
+{
+    my $a = "a";
+    utf8::upgrade($a);
+    tie $x, "main", $a;
+    $g = vec($x, 0, 1);
+    is($g, (ord("a") & 0x01), "check vec value (utf8)");
+    is(fetches($x), 1, "fetches for vec read (utf8)");
+    is(stores($x), 0, "stores for vec read (utf8)");
+    vec($x, 0, 1) = 0;
+    # one fetch in vec() another when the LV is assigned to
+    is(fetches($x), 2, "fetches for vec write (utf8)");
+    is(stores($x), 1, "stores for vec write (utf8)");
+}
+
 $a = "\0\x{100}"; chop($a);
 ok(utf8::is_utf8($a)); # make sure UTF8 flag is still there
 $a = ~$a;
@@ -354,6 +383,38 @@ SKIP: {
      do { use integer; 1 << ($bits - 1) } == -$cusp);
  ok (($cusp >> 1) == ($cusp / 2) &&
     do { use integer; abs($cusp >> 1) } == ($cusp / 2));
+}
+# Repeat some of those, with 'use v5.27'
+{
+  use v5.27;
+
+  is "22" & "66", 2,    'numeric & with strings';
+  is "22" | "66", 86,   'numeric | with strings';
+  is "22" ^ "66", 84,   'numeric ^ with strings';
+  is ~"22" & 0xff, 233, 'numeric ~ with string';
+  is 22 &. 66, 22,     '&. with numbers';
+  is 22 |. 66, 66,     '|. with numbers';
+  is 22 ^. 66, "\4\4", '^. with numbers';
+  if ($::IS_EBCDIC) {
+    # ord('2') is 0xF2 on EBCDIC
+    is ~.22, "\x0d\x0d", '~. with number';
+  }
+  else {
+    # ord('2') is 0x32 on ASCII
+    is ~.22, "\xcd\xcd", '~. with number';
+  }
+  $_ = "22";
+  is $_ &= "66", 2,  'numeric &= with strings';
+  $_ = "22";
+  is $_ |= "66", 86, 'numeric |= with strings';
+  $_ = "22";
+  is $_ ^= "66", 84, 'numeric ^= with strings';
+  $_ = 22;
+  is $_ &.= 66, 22,     '&.= with numbers';
+  $_ = 22;
+  is $_ |.= 66, 66,     '|.= with numbers';
+  $_ = 22;
+  is $_ ^.= 66, "\4\4", '^.= with numbers';
 }
 
 # ref tests
@@ -502,11 +563,11 @@ is $^A, "123", '~v0 clears vstring magic on retval';
         is(-1 << 1, 0xFFFF_FFFF_FFFF_FFFE,
            "neg UV (sic) left shift  = 0xFF..E");
         is(-1 >> 1, 0x7FFF_FFFF_FFFF_FFFF,
-           "neg UV (sic) right right = 0x7F..F");
+           "neg UV (sic) right shift = 0x7F..F");
     } elsif ($w == 32) {
         no warnings "portable";
         is(-1 << 1, 0xFFFF_FFFE, "neg left shift  == 0xFF..E");
-        is(-1 >> 1, 0x7FFF_FFFF, "neg right right == 0x7F..F");
+        is(-1 >> 1, 0x7FFF_FFFF, "neg right shift == 0x7F..F");
     }
 
     {
@@ -580,9 +641,31 @@ foreach my $op_info ([and => "&"], [or => "|"], [xor => "^"]) {
          "(~) is not allowed";
 }
 
-is("abc" & "abc\x{100}", "abc", '"abc" & "abc\x{100}" works');
-is("abc" | "abc\x{100}", "abc\x{100}", '"abc" | "abc\x{100}" works');
-is("abc" ^ "abc\x{100}", "\0\0\0\x{100}", '"abc" ^ "abc\x{100}" works');
-is("abc\x{100}" & "abc", "abc", '"abc\x{100}" & "abc" works');
-is("abc\x{100}" | "abc", "abc\x{100}", '"abc\x{100}" | "abc" works');
-is("abc\x{100}" ^ "abc", "\0\0\0\x{100}", '"abc\x{100}" | "abc" works');
+{
+    # RT 134140 fatalizations
+    my %op_pairs = (
+        and => { low => 'and', high => '&', regex => qr/&/  },
+        or  => { low => 'or',  high => '|', regex => qr/\|/ },
+        xor => { low => 'xor', high => '^', regex => qr/\^/ },
+    );
+    my @combos = (
+        { string  => '"abc" & "abc\x{100}"',  op_pair => $op_pairs{and} },
+        { string  => '"abc" | "abc\x{100}"',  op_pair => $op_pairs{or}  },
+        { string  => '"abc" ^ "abc\x{100}"',  op_pair => $op_pairs{xor} },
+        { string  => '"abc\x{100}" & "abc"',  op_pair => $op_pairs{and} },
+        { string  => '"abc\x{100}" | "abc"',  op_pair => $op_pairs{or}  },
+        { string  => '"abc\x{100}" ^ "abc"',  op_pair => $op_pairs{xor} },
+
+    );
+
+    # Use of strings with code points over 0xFF as arguments to %s operator is not allowed
+    for my $h (@combos) {
+        my $s1 = "Use of strings with code points over 0xFF as arguments to bitwise";
+        my $s2 = "operator is not allowed";
+        my $expected  = qr/$s1 $h->{op_pair}->{low} \($h->{op_pair}->{regex}\) $s2/;
+        my $description = "$s1 $h->{op_pair}->{low} ($h->{op_pair}->{high}) operator is not allowed";
+        local $@;
+        eval $h->{string};
+        like $@, $expected, $description;
+    }
+}

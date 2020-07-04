@@ -29,16 +29,16 @@
 
 #ifndef PERL_SEEN_HV_FUNC_H
 #if !defined(U32) 
-    #include <stdint.h>
-    #define U32 uint32_t
+#include <stdint.h>
+#define U32 uint32_t
 #endif
 
 #if !defined(U8)
-    #define U8 unsigned char
+#define U8 unsigned char
 #endif
 
 #if !defined(U16)
-    #define U16 uint16_t
+#define U16 uint16_t
 #endif
 
 #ifndef STRLEN
@@ -59,11 +59,17 @@
 #define STMT_END while(0)
 #endif
 
-#ifndef U8TO32_LE
-#define U8TO32_LE(ptr)  (*((const U32 *)(ptr)))
+/* Find best way to ROTL32/ROTL64 */
+#ifndef ROTL32
+#if defined(_MSC_VER)
+#include <stdlib.h>  /* Microsoft put _rotl declaration in here */
+#define ROTL32(x,r)  _rotl(x,r)
+#define ROTR32(x,r)  _rotr(x,r)
+#else
+/* gcc recognises this code and generates a rotate instruction for CPUs with one */
+#define ROTL32(x,r)  (((U32)(x) << (r)) | ((U32)(x) >> (32 - (r))))
+#define ROTR32(x,r)  (((U32)(x) << (32 - (r))) | ((U32)(x) >> (r)))
 #endif
-#ifndef U8TO16_LE
-#define U8TO16_LE(ptr)  (*((const U16 *)(ptr)))
 #endif
 
 #ifndef SBOX32_MAX_LEN
@@ -1414,6 +1420,7 @@
 #endif
 
 #define _SBOX32_CASE(len,hash,state,key) \
+    /* FALLTHROUGH */ \
     case len: hash ^= state[ 1 + ( 256 * ( len - 1 ) ) + key[ len - 1 ] ];
 
 
@@ -1421,7 +1428,7 @@ SBOX32_STATIC_INLINE void sbox32_seed_state96 (
     const U8 *seed_ch,
     U8 *state_ch
 ) {
-    U32 *seed= (U32 *)seed_ch;
+    const U32 *seed= (const U32 *)seed_ch;
     U32 *state= (U32 *)state_ch;
     U32 *state_cursor = state + 1;
     U32 *sbox32_end = state + 1 + (256 * SBOX32_MAX_LEN);
@@ -1772,6 +1779,5 @@ SBOX32_STATIC_INLINE U32 sbox32_hash128(
     sbox32_seed_state128(seed_ch,(U8*)state);
     return sbox32_hash_with_state((U8*)state,key,key_len);
 }
-
 
 #endif

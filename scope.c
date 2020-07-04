@@ -25,6 +25,7 @@
 #include "EXTERN.h"
 #define PERL_IN_SCOPE_C
 #include "perl.h"
+#include "feature.h"
 
 SV**
 Perl_stack_grow(pTHX_ SV **sp, SV **p, SSize_t n)
@@ -82,6 +83,7 @@ Perl_new_stackinfo(pTHX_ I32 stitems, I32 cxitems)
     si->si_next = 0;
     si->si_cxmax = cxitems - 1;
     si->si_cxix = -1;
+    si->si_cxsubix = -1;
     si->si_type = PERLSI_UNDEF;
     Newx(si->si_cxstack, cxitems, PERL_CONTEXT);
     /* Without any kind of initialising CX_PUSHSUBST()
@@ -313,6 +315,9 @@ Perl_save_set_svflags(pTHX_ SV* sv, U32 mask, U32 val)
 }
 
 /*
+
+=head1 GV Functions
+
 =for apidoc save_gp
 
 Saves the current GP of gv on the save stack to be restored on scope exit.
@@ -330,6 +335,17 @@ Perl_save_gp(pTHX_ GV *gv, I32 empty)
 {
     PERL_ARGS_ASSERT_SAVE_GP;
 
+    /* XXX For now, we just upgrade any coderef in the stash to a full GV
+           during localisation.  Maybe at some point we could make localis-
+           ation work without needing the upgrade.  (In which case our
+           callers should probably call a different function, not save_gp.)
+     */
+    if (!isGV(gv)) {
+        assert(isGV_or_RVCV(gv));
+        (void)CvGV(SvRV((SV *)gv)); /* CvGV does the upgrade */
+        assert(isGV(gv));
+    }
+
     save_pushptrptr(SvREFCNT_inc(gv), GvGP(gv), SAVEt_GP);
 
     if (empty) {
@@ -338,7 +354,7 @@ Perl_save_gp(pTHX_ GV *gv, I32 empty)
 	bool isa_changed = 0;
 
 	if (stash && HvENAME(stash)) {
-	    if (GvNAMELEN(gv) == 3 && strnEQ(GvNAME(gv), "ISA", 3))
+	    if (memEQs(GvNAME(gv), GvNAMELEN(gv), "ISA"))
 		isa_changed = TRUE;
 	    else if (GvCVu(gv))
 		/* taking a method out of circulation ("local")*/
@@ -673,6 +689,7 @@ Perl_save_hints(pTHX)
 	save_pushptri32ptr(oldhh, PL_hints, save_cophh, SAVEt_HINTS);
 	GvHV(PL_hintgv) = NULL; /* in case copying dies */
 	GvHV(PL_hintgv) = hv_copy_hints_hv(oldhh);
+        SAVEFEATUREBITS();
     } else {
 	save_pushi32ptr(PL_hints, save_cophh, SAVEt_HINTS);
     }
@@ -1036,7 +1053,7 @@ Perl_leave_scope(pTHX_ I32 base)
 #ifdef NO_TAINT_SUPPORT
             PERL_UNUSED_VAR(was);
 #else
-	    if (UNLIKELY(a0.any_ptr == &(TAINT_get))) {
+	    if (UNLIKELY(a0.any_ptr == &(PL_tainted))) {
 		/* If we don't update <was>, to reflect what was saved on the
 		 * stack for PL_tainted, then we will overwrite this attempt to
 		 * restore it when we exit this routine.  Note that this won't
@@ -1080,9 +1097,7 @@ Perl_leave_scope(pTHX_ I32 base)
 	    gp_free(a0.any_gv);
 	    GvGP_set(a0.any_gv, (GP*)a1.any_ptr);
 	    if ((hv=GvSTASH(a0.any_gv)) && HvENAME_get(hv)) {
-	        if (   GvNAMELEN(a0.any_gv) == 3
-                    && strnEQ(GvNAME(a0.any_gv), "ISA", 3)
-                )
+	        if (memEQs(GvNAME(a0.any_gv), GvNAMELEN(a0.any_gv), "ISA"))
 	            mro_isa_changed_in(hv);
                 else if (had_method || GvCVu(a0.any_gv))
                     /* putting a method back into circulation ("local")*/	
@@ -1194,10 +1209,7 @@ Perl_leave_scope(pTHX_ I32 base)
                         break;
                     case SVt_PVCV:
                     {
-                        HEK *hek =
-			      CvNAMED(sv)
-				? CvNAME_HEK((CV *)sv)
-				: GvNAME_HEK(CvGV(sv));
+                        HEK *hek = CvGvNAME_HEK(sv);
                         assert(hek);
                         (void)share_hek_hek(hek);
                         cv_undef((CV *)sv);
@@ -1223,9 +1235,7 @@ Perl_leave_scope(pTHX_ I32 base)
                     case SVt_PVHV:	*svp = MUTABLE_SV(newHV());	break;
                     case SVt_PVCV:
                     {
-                        HEK * const hek = CvNAMED(sv)
-                                             ? CvNAME_HEK((CV *)sv)
-                                             : GvNAME_HEK(CvGV(sv));
+                        HEK * const hek = CvGvNAME_HEK(sv);
 
                         /* Create a stub */
                         *svp = newSV_type(SVt_PVCV);
@@ -1249,15 +1259,26 @@ Perl_leave_scope(pTHX_ I32 base)
 
 	case SAVEt_DELETE:
             a0 = ap[0]; a1 = ap[1]; a2 = ap[2];
+            /* hv_delete could die, so free the key and SvREFCNT_dec the
+             * hv by pushing new save actions
+             */
+            /* ap[0] is the key */
+            ap[1].any_uv = SAVEt_FREEPV; /* was len */
+            /* ap[2] is the hv */
+            ap[3].any_uv = SAVEt_FREESV; /* was SAVEt_DELETE */
+            PL_savestack_ix += 4;
 	    (void)hv_delete(a2.any_hv, a0.any_pv, a1.any_i32, G_DISCARD);
-	    SvREFCNT_dec(a2.any_hv);
-	    Safefree(a0.any_ptr);
 	    break;
 
 	case SAVEt_ADELETE:
             a0 = ap[0]; a1 = ap[1];
+            /* av_delete could die, so SvREFCNT_dec the av by pushing a
+             * new save action
+             */
+            ap[0].any_av = a1.any_av;
+            ap[1].any_uv = SAVEt_FREESV;
+            PL_savestack_ix += 2;
 	    (void)av_delete(a1.any_av, a0.any_iv, G_DISCARD);
-	    SvREFCNT_dec(a1.any_av);
 	    break;
 
 	case SAVEt_DESTRUCTOR_X:
@@ -1427,9 +1448,7 @@ Perl_leave_scope(pTHX_ I32 base)
 
 	case SAVEt_COMPILE_WARNINGS:
             a0 = ap[0];
-	    if (!specialWARN(PL_compiling.cop_warnings))
-		PerlMemShared_free(PL_compiling.cop_warnings);
-	    PL_compiling.cop_warnings = (STRLEN*)a0.any_ptr;
+        free_and_set_cop_warnings(&PL_compiling, (STRLEN*) a0.any_ptr);
 	    break;
 
 	case SAVEt_PARSER:
@@ -1539,7 +1558,8 @@ Perl_cx_dump(pTHX_ PERL_CONTEXT *cx)
                     PTR2UV(CxITERVAR(cx)));
             PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERSAVE = 0x%" UVxf "\n",
                     PTR2UV(cx->blk_loop.itersave));
-            /* XXX: not accurate for LAZYSV/IV/LIST */
+	}
+	if (CxTYPE(cx) == CXt_LOOP_ARY) {
             PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERARY = 0x%" UVxf "\n",
                     PTR2UV(cx->blk_loop.state_u.ary.ary));
             PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERIX = %ld\n",

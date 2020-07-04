@@ -254,3 +254,49 @@ esac
 case "$usemymalloc" in
 '') usemymalloc=n ;;
 esac
+
+# NetBSD 6 defines the *at() functions in libc, but either doesn't
+# implement them, or implements them only for AT_FDCWD
+case "$osver" in
+[1-6].*)
+        d_unlinkat="$undef"
+        d_renameat="$undef"
+        d_linkat="$undef"
+        d_fchmodat="$undef"
+        ;;
+esac
+
+cat >UU/uselongdouble.cbu <<'EOCBU'
+# This script UU/uselongdouble.cbu will get 'called-back' by Configure
+# after it has prompted the user for whether to use long doubles.
+#
+# See https://github.com/Perl/perl5/issues/17853 and https://github.com/Perl/perl5/issues/17854
+case "$uselongdouble" in
+$define|true|[yY]*)
+    cat >try.c <<\TRY
+#include <stdio.h>
+#include <math.h>
+
+long double x = 1.0;
+
+int main(int argc, char **argv) {
+    double e1 = exp(1.0);
+    /* as of NetBSD 9.0 expl() just calls exp(),
+       Fail here if they're equal. */
+    return expl(x) == (long double)e1;
+}
+TRY
+    if $cc -o try $ccflags $ldflags try.c -lm && $run ./try; then
+        echo "NetBSD seem to have fixed expl (and hopefully more)" >&4
+    else
+        cat <<EOM >&4
+
+Warning! NetBSD's long double support is limited enough that it will cause
+test failures, and possibly build failures, and this doesn't appear to have
+been fixed in the release you're running.
+
+EOM
+    fi
+;;
+esac
+EOCBU

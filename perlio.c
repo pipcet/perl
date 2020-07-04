@@ -49,11 +49,6 @@
 
 #include "XSUB.h"
 
-#ifdef __Lynx__
-/* Missing proto on LynxOS */
-int mkstemp(char*);
-#endif
-
 #ifdef VMS
 #include <rms.h>
 #endif
@@ -243,22 +238,21 @@ PerlIO_fdupopen(pTHX_ PerlIO *f, CLONE_PARAMS *param, int flags)
 {
 #if defined(PERL_MICRO) || defined(__SYMBIAN32__)
     return NULL;
-#else
-#ifdef PERL_IMPLICIT_SYS
+#elif defined(PERL_IMPLICIT_SYS)
     return PerlSIO_fdupopen(f);
 #else
-#ifdef WIN32
+# ifdef WIN32
     return win32_fdupopen(f);
-#else
+# else
     if (f) {
-	const int fd = PerlLIO_dup(PerlIO_fileno(f));
+	const int fd = PerlLIO_dup_cloexec(PerlIO_fileno(f));
 	if (fd >= 0) {
 	    char mode[8];
-#ifdef DJGPP
+#  ifdef DJGPP
 	    const int omode = djgpp_get_stream_mode(f);
-#else
+#  else
 	    const int omode = fcntl(fd, F_GETFL);
-#endif
+#  endif
 	    PerlIO_intmode2str(omode,mode,NULL);
 	    /* the r+ is a hack */
 	    return PerlIO_fdopen(fd, mode);
@@ -268,9 +262,8 @@ PerlIO_fdupopen(pTHX_ PerlIO *f, CLONE_PARAMS *param, int flags)
     else {
 	SETERRNO(EBADF, SS_IVCHAN);
     }
-#endif
+# endif
     return NULL;
-#endif
 #endif
 }
 
@@ -296,7 +289,7 @@ PerlIO_openn(pTHX_ const char *layers, const char *mode, int fd,
                 return NULL;
 
 	    if (*mode == IoTYPE_NUMERIC) {
-		fd = PerlLIO_open3(name, imode, perm);
+		fd = PerlLIO_open3_cloexec(name, imode, perm);
 		if (fd >= 0)
 		    return PerlIO_fdopen(fd, mode + 1);
 	    }
@@ -362,14 +355,14 @@ PerlIO_debug(const char *fmt, ...)
 	    PerlProc_getgid() == PerlProc_getegid()) {
 	    const char * const s = PerlEnv_getenv("PERLIO_DEBUG");
 	    if (s && *s)
-		PL_perlio_debug_fd
-		    = PerlLIO_open3(s, O_WRONLY | O_CREAT | O_APPEND, 0666);
+		PL_perlio_debug_fd = PerlLIO_open3_cloexec(s,
+					O_WRONLY | O_CREAT | O_APPEND, 0666);
 	    else
-		PL_perlio_debug_fd = PerlLIO_dup(2); /* stderr */
+		PL_perlio_debug_fd = PerlLIO_dup_cloexec(2); /* stderr */
 	} else {
 	    /* tainting or set*id, so ignore the environment and send the
                debug output to stderr, like other -D switches.  */
-	    PL_perlio_debug_fd = PerlLIO_dup(2); /* stderr */
+	    PL_perlio_debug_fd = PerlLIO_dup_cloexec(2); /* stderr */
 	}
     }
     if (PL_perlio_debug_fd > 0) {
@@ -378,7 +371,19 @@ PerlIO_debug(const char *fmt, ...)
 	/* Use fixed buffer as sv_catpvf etc. needs SVs */
 	char buffer[1024];
 	const STRLEN len1 = my_snprintf(buffer, sizeof(buffer), "%.40s:%" IVdf " ", s ? s : "(none)", (IV) CopLINE(PL_curcop));
+#  ifdef USE_QUADMATH
+#    ifdef HAS_VSNPRINTF
+        /* my_vsnprintf() isn't available with quadmath, but the native vsnprintf()
+           should be, otherwise the system isn't likely to support quadmath.
+           Nothing should be calling PerlIO_debug() with floating point anyway.
+        */
+        const STRLEN len2 = vsnprintf(buffer + len1, sizeof(buffer) - len1, fmt, ap);
+#    else
+        STATIC_ASSERT_STMT(0);
+#    endif
+#  else
 	const STRLEN len2 = my_vsnprintf(buffer + len1, sizeof(buffer) - len1, fmt, ap);
+#  endif
 	PERL_UNUSED_RESULT(PerlLIO_write(PL_perlio_debug_fd, buffer, len1 + len2));
 #else
 	const char *s = CopFILE(PL_curcop);
@@ -934,9 +939,7 @@ PerlIO_parse_layers(pTHX_ PerlIO_list_t *av, const char *names)
 			    if (*e++) {
 				break;
 			    }
-			    /*
-			     * Drop through
-			     */
+                            /* Fall through */
 			case '\0':
 			    e--;
 			    Perl_ck_warner(aTHX_ packWARN(WARN_LAYER),
@@ -1487,7 +1490,9 @@ PerlIO_openn(pTHX_ const char *layers, const char *mode, int fd,
 	     int imode, int perm, PerlIO *f, int narg, SV **args)
 {
     if (!f && narg == 1 && *args == &PL_sv_undef) {
-	if ((f = PerlIO_tmpfile())) {
+        imode = PerlIOUnix_oflags(mode);
+
+	if (imode != -1 && (f = PerlIO_tmpfile_flags(imode))) {
 	    if (!layers || !*layers)
 		layers = Perl_PerlIO_context_layers(aTHX_ mode);
 	    if (layers && *layers)
@@ -2651,6 +2656,7 @@ PerlIOUnix_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
 		IV n, const char *mode, int fd, int imode,
 		int perm, PerlIO *f, int narg, SV **args)
 {
+    bool known_cloexec = 0;
     if (PerlIOValid(f)) {
 	if (PerlIOBase(f)->tab && PerlIOBase(f)->flags & PERLIO_F_OPEN)
 	    (*PerlIOBase(f)->tab->Close)(aTHX_ f);
@@ -2671,10 +2677,15 @@ PerlIOUnix_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
 	    const char *path = SvPV_const(*args, len);
 	    if (!IS_SAFE_PATHNAME(path, len, "open"))
                 return NULL;
-	    fd = PerlLIO_open3(path, imode, perm);
+	    fd = PerlLIO_open3_cloexec(path, imode, perm);
+	    known_cloexec = 1;
 	}
     }
     if (fd >= 0) {
+	if (known_cloexec)
+	    setfd_inhexec_for_sysfd(fd);
+	else
+	    setfd_cloexec_or_inhexec_by_sysfdness(fd);
 	if (*mode == IoTYPE_IMPLICIT)
 	    mode++;
 	if (!f) {
@@ -2709,7 +2720,9 @@ PerlIOUnix_dup(pTHX_ PerlIO *f, PerlIO *o, CLONE_PARAMS *param, int flags)
     const PerlIOUnix * const os = PerlIOSelf(o, PerlIOUnix);
     int fd = os->fd;
     if (flags & PERLIO_DUP_FD) {
-	fd = PerlLIO_dup(fd);
+	fd = PerlLIO_dup_cloexec(fd);
+	if (fd >= 0)
+	    setfd_inhexec_for_sysfd(fd);
     }
     if (fd >= 0) {
 	f = PerlIOBase_dup(aTHX_ f, o, param, flags);
@@ -2805,6 +2818,7 @@ PerlIOUnix_close(pTHX_ PerlIO *f)
     const int fd = PerlIOSelf(f, PerlIOUnix)->fd;
     int code = 0;
     if (PerlIOBase(f)->flags & PERLIO_F_OPEN) {
+        code = PerlIOBase_close(aTHX_ f);
 	if (PerlIOUnix_refcnt_dec(fd) > 0) {
 	    PerlIOBase(f)->flags &= ~PERLIO_F_OPEN;
 	    return 0;
@@ -2973,7 +2987,7 @@ PerlIO_importFILE(FILE *stdio, const char *mode)
 	       Note that the errno value set by a failing fdopen
 	       varies between stdio implementations.
 	     */
-            const int fd = PerlLIO_dup(fd0);
+            const int fd = PerlLIO_dup_cloexec(fd0);
 	    FILE *f2;
             if (fd < 0) {
                 return f;
@@ -2995,11 +3009,12 @@ PerlIO_importFILE(FILE *stdio, const char *mode)
 	if ((f = PerlIO_push(aTHX_(PerlIO_allocate(aTHX)), PERLIO_FUNCS_CAST(&PerlIO_stdio), mode, NULL))) {
 	    s = PerlIOSelf(f, PerlIOStdio);
 	    s->stdio = stdio;
+	    fd0 = fileno(stdio);
+	    if(fd0 != -1){
+		PerlIOUnix_refcnt_inc(fd0);
+		setfd_cloexec_or_inhexec_by_sysfdness(fd0);
+	    }
 #ifdef EBCDIC
-		fd0 = fileno(stdio);
-		if(fd0 != -1){
-			PerlIOUnix_refcnt_inc(fd0);
-		}
 		else{
 			rc = fldata(stdio,filename,&fileinfo);
 			if(rc != 0){
@@ -3010,8 +3025,6 @@ PerlIO_importFILE(FILE *stdio, const char *mode)
 			}
 			  /*This MVS dataset , OK!*/
 		}
-#else
-	    PerlIOUnix_refcnt_inc(fileno(stdio));
 #endif
 	}
     }
@@ -3037,7 +3050,9 @@ PerlIOStdio_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
 	if (!s->stdio)
 	    return NULL;
 	s->stdio = stdio;
-	PerlIOUnix_refcnt_inc(fileno(s->stdio));
+	fd = fileno(stdio);
+	PerlIOUnix_refcnt_inc(fd);
+	setfd_cloexec_or_inhexec_by_sysfdness(fd);
 	return f;
     }
     else {
@@ -3048,7 +3063,7 @@ PerlIOStdio_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
                 return NULL;
 	    if (*mode == IoTYPE_NUMERIC) {
 		mode++;
-		fd = PerlLIO_open3(path, imode, perm);
+		fd = PerlLIO_open3_cloexec(path, imode, perm);
 	    }
 	    else {
 	        FILE *stdio;
@@ -3068,7 +3083,9 @@ PerlIOStdio_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
 		    f = PerlIO_push(aTHX_ f, self, mode, PerlIOArg);
 		    if (f) {
 			PerlIOSelf(f, PerlIOStdio)->stdio = stdio;
-			PerlIOUnix_refcnt_inc(fileno(stdio));
+			fd = fileno(stdio);
+			PerlIOUnix_refcnt_inc(fd);
+			setfd_cloexec_or_inhexec_by_sysfdness(fd);
 		    } else {
 			PerlSIO_fclose(stdio);
 		    }
@@ -3109,7 +3126,9 @@ PerlIOStdio_open(pTHX_ PerlIO_funcs *self, PerlIO_list_t *layers,
 		}
 		if ((f = PerlIO_push(aTHX_ f, self, mode, PerlIOArg))) {
 		    PerlIOSelf(f, PerlIOStdio)->stdio = stdio;
-		    PerlIOUnix_refcnt_inc(fileno(stdio));
+		    fd = fileno(stdio);
+		    PerlIOUnix_refcnt_inc(fd);
+		    setfd_cloexec_or_inhexec_by_sysfdness(fd);
 		}
 		return f;
 	    }
@@ -3130,7 +3149,7 @@ PerlIOStdio_dup(pTHX_ PerlIO *f, PerlIO *o, CLONE_PARAMS *param, int flags)
 	const int fd = fileno(stdio);
 	char mode[8];
 	if (flags & PERLIO_DUP_FD) {
-	    const int dfd = PerlLIO_dup(fileno(stdio));
+	    const int dfd = PerlLIO_dup_cloexec(fileno(stdio));
 	    if (dfd >= 0) {
 		stdio = PerlSIO_fdopen(dfd, PerlIO_modestr(o,mode));
 		goto set_this;
@@ -3146,7 +3165,9 @@ PerlIOStdio_dup(pTHX_ PerlIO *f, PerlIO *o, CLONE_PARAMS *param, int flags)
     set_this:
 	PerlIOSelf(f, PerlIOStdio)->stdio = stdio;
         if(stdio) {
-	    PerlIOUnix_refcnt_inc(fileno(stdio));
+	    int fd = fileno(stdio);
+	    PerlIOUnix_refcnt_inc(fd);
+	    setfd_cloexec_or_inhexec_by_sysfdness(fd);
         }
     }
     return f;
@@ -3213,13 +3234,7 @@ PerlIOStdio_invalidate_fileno(pTHX_ FILE *f)
     f->_file = -1;
     return 1;
 #  elif defined(WIN32)
-#    if defined(UNDER_CE)
-    /* WIN_CE does not have access to FILE internals, it hardly has FILE
-       structure at all
-     */
-#    else
     PERLIO_FILE_file(f) = -1;
-#    endif
     return 1;
 #  else
 #if 0
@@ -3303,7 +3318,7 @@ PerlIOStdio_close(pTHX_ PerlIO *f)
 	    SAVE_ERRNO;
 	    invalidate = PerlIOStdio_invalidate_fileno(aTHX_ stdio);
 	    if (!invalidate) {
-		dupfd = PerlLIO_dup(fd);
+		dupfd = PerlLIO_dup_cloexec(fd);
 #ifdef USE_ITHREADS
 		if (dupfd < 0) {
 		    /* Oh cXap. This isn't going to go well. Not sure if we can
@@ -3328,7 +3343,8 @@ PerlIOStdio_close(pTHX_ PerlIO *f)
 	result = close(fd);
 #endif
 	if (dupfd >= 0) {
-	    PerlLIO_dup2(dupfd,fd);
+	    PerlLIO_dup2_cloexec(dupfd, fd);
+	    setfd_inhexec_for_sysfd(fd);
 	    PerlLIO_close(dupfd);
 	}
         MUTEX_UNLOCK(&PL_perlio_mutex);
@@ -3588,9 +3604,9 @@ PerlIOStdio_set_ptrcnt(pTHX_ PerlIO *f, STDCHAR * ptr, SSize_t cnt)
          * - casting the LHS to (void*) -- totally unportable
          *
          * So let's try silencing the warning at least for gcc. */
-        GCC_DIAG_IGNORE(-Wpointer-sign);
+        GCC_DIAG_IGNORE_STMT(-Wpointer-sign);
 	PerlSIO_set_ptr(stdio, ptr); /* LHS STDCHAR* cast non-portable */
-        GCC_DIAG_RESTORE;
+        GCC_DIAG_RESTORE_STMT;
 #ifdef STDIO_PTR_LVAL_SETS_CNT
 	assert(PerlSIO_get_cnt(stdio) == (cnt));
 #endif
@@ -3609,14 +3625,12 @@ PerlIOStdio_set_ptrcnt(pTHX_ PerlIO *f, STDCHAR * ptr, SSize_t cnt)
      */
 #ifdef STDIO_CNT_LVALUE
     PerlSIO_set_cnt(stdio, cnt);
-#else                           /* STDIO_CNT_LVALUE */
-#if (defined(STDIO_PTR_LVALUE) && defined(STDIO_PTR_LVAL_SETS_CNT))
+#elif (defined(STDIO_PTR_LVALUE) && defined(STDIO_PTR_LVAL_SETS_CNT))
     PerlSIO_set_ptr(stdio,
 		    PerlSIO_get_ptr(stdio) + (PerlSIO_get_cnt(stdio) -
 					      cnt));
 #else                           /* STDIO_PTR_LVAL_SETS_CNT */
     PerlProc_abort();
-#endif                          /* STDIO_PTR_LVAL_SETS_CNT */
 #endif                          /* STDIO_CNT_LVALUE */
 }
 
@@ -4287,7 +4301,7 @@ PerlIOBuf_get_base(pTHX_ PerlIO *f)
     if (!b->buf) {
 	if (!b->bufsiz)
 	    b->bufsiz = PERLIOBUF_DEFAULT_BUFSIZ;
-	Newxz(b->buf,b->bufsiz, STDCHAR);
+	Newx(b->buf,b->bufsiz, STDCHAR);
 	if (!b->buf) {
 	    b->buf = (STDCHAR *) & b->oneword;
 	    b->bufsiz = sizeof(b->oneword);
@@ -4808,7 +4822,7 @@ PerlIOCrlf_binmode(pTHX_ PerlIO *f)
 	PerlIO_pop(aTHX_ f);
 #endif
     }
-    return 0;
+    return PerlIOBase_binmode(aTHX_ f);
 }
 
 PERLIO_FUNCS_DECL(PerlIO_crlf) = {
@@ -5032,57 +5046,68 @@ PerlIO_stdoutf(const char *fmt, ...)
 PerlIO *
 PerlIO_tmpfile(void)
 {
+    return PerlIO_tmpfile_flags(0);
+}
+
+#define MKOSTEMP_MODES ( O_RDWR | O_CREAT | O_EXCL )
+#define MKOSTEMP_MODE_MASK ( O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC )
+
+PerlIO *
+PerlIO_tmpfile_flags(int imode)
+{
 #ifndef WIN32
      dTHX;
 #endif
      PerlIO *f = NULL;
 #ifdef WIN32
-     const int fd = win32_tmpfd();
+     const int fd = win32_tmpfd_mode(imode);
      if (fd >= 0)
 	  f = PerlIO_fdopen(fd, "w+b");
-#else /* WIN32 */
-#    if defined(HAS_MKSTEMP) && ! defined(VMS) && ! defined(OS2)
+#elif ! defined(OS2)
      int fd = -1;
      char tempname[] = "/tmp/PerlIO_XXXXXX";
      const char * const tmpdir = TAINTING_get ? NULL : PerlEnv_getenv("TMPDIR");
      SV * sv = NULL;
      int old_umask = umask(0177);
-     /*
-      * I have no idea how portable mkstemp() is ... NI-S
-      */
+     imode &= ~MKOSTEMP_MODE_MASK;
      if (tmpdir && *tmpdir) {
 	 /* if TMPDIR is set and not empty, we try that first */
 	 sv = newSVpv(tmpdir, 0);
 	 sv_catpv(sv, tempname + 4);
-	 fd = mkstemp(SvPVX(sv));
+	 fd = Perl_my_mkostemp_cloexec(SvPVX(sv), imode | O_VMS_DELETEONCLOSE);
      }
      if (fd < 0) {
 	 SvREFCNT_dec(sv);
 	 sv = NULL;
 	 /* else we try /tmp */
-	 fd = mkstemp(tempname);
+	 fd = Perl_my_mkostemp_cloexec(tempname, imode | O_VMS_DELETEONCLOSE);
      }
      if (fd < 0) {
          /* Try cwd */
          sv = newSVpvs(".");
          sv_catpv(sv, tempname + 4);
-         fd = mkstemp(SvPVX(sv));
+         fd = Perl_my_mkostemp_cloexec(SvPVX(sv), imode | O_VMS_DELETEONCLOSE);
      }
      umask(old_umask);
      if (fd >= 0) {
-	  f = PerlIO_fdopen(fd, "w+");
+         /* fdopen() with a numeric mode */
+         char mode[8];
+         int writing = 1;
+         (void)PerlIO_intmode2str(imode | MKOSTEMP_MODES, mode, &writing);
+         f = PerlIO_fdopen(fd, mode);
 	  if (f)
 	       PerlIOBase(f)->flags |= PERLIO_F_TEMP;
+#   ifndef VMS
 	  PerlLIO_unlink(sv ? SvPVX_const(sv) : tempname);
+#   endif
      }
      SvREFCNT_dec(sv);
-#    else	/* !HAS_MKSTEMP, fallback to stdio tmpfile(). */
+#else	/* !HAS_MKSTEMP, fallback to stdio tmpfile(). */
      FILE * const stdio = PerlSIO_tmpfile();
 
      if (stdio)
 	  f = PerlIO_fdopen(fileno(stdio), "w+");
 
-#    endif /* else HAS_MKSTEMP */
 #endif /* else WIN32 */
      return f;
 }
@@ -5223,26 +5248,6 @@ PerlIO_getpos(PerlIO *f, SV *pos)
 }
 #endif
 
-#if !defined(HAS_VPRINTF)
-
-int
-vprintf(char *pat, char *args)
-{
-    _doprnt(pat, args, stdout);
-    return 0;                   /* wrong, but perl doesn't use the return
-				 * value */
-}
-
-int
-vfprintf(FILE *fd, char *pat, char *args)
-{
-    _doprnt(pat, args, fd);
-    return 0;                   /* wrong, but perl doesn't use the return
-				 * value */
-}
-
-#endif
-
 /* print a failure format string message to stderr and fail exit the process
    using only libc without depending on any perl data structures being
    initialized.
@@ -5251,7 +5256,7 @@ vfprintf(FILE *fd, char *pat, char *args)
 void
 Perl_noperl_die(const char* pat, ...)
 {
-    va_list(arglist);
+    va_list arglist;
     PERL_ARGS_ASSERT_NOPERL_DIE;
     va_start(arglist, pat);
     vfprintf(stderr, pat, arglist);

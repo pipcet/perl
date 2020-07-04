@@ -10,7 +10,7 @@ BEGIN {
     require 'loc_tools.pl';
 }
 
-use Test::More tests => 93;
+use Test::More tests => 96;
 
 use POSIX qw(fcntl_h signal_h limits_h _exit getcwd open read strftime write
 	     errno localeconv dup dup2 lseek access);
@@ -25,7 +25,6 @@ $| = 1;
 
 $Is_W32     = $^O eq 'MSWin32';
 $Is_Dos     = $^O eq 'dos';
-$Is_MacOS   = $^O eq 'MacOS';
 $Is_VMS     = $^O eq 'VMS';
 $Is_OS2     = $^O eq 'os2';
 $Is_UWin    = $^O eq 'uwin';
@@ -91,55 +90,51 @@ SKIP: {
     ok(! $sigset->ismember(1),  'POSIX::SigSet->delset' );
     ok(  $sigset->ismember(3),  'POSIX::SigSet->ismember' );
 
-    SKIP: {
-        skip("no kill() support on Mac OS", 4) if $Is_MacOS;
+    my $sigint_called = 0;
 
-        my $sigint_called = 0;
+    my $mask   = new POSIX::SigSet &SIGINT;
+    my $action = new POSIX::SigAction 'main::SigHUP', $mask, 0;
+    sigaction(&SIGHUP, $action);
+    $SIG{'INT'} = 'SigINT';
 
-	my $mask   = new POSIX::SigSet &SIGINT;
-	my $action = new POSIX::SigAction 'main::SigHUP', $mask, 0;
-	sigaction(&SIGHUP, $action);
-	$SIG{'INT'} = 'SigINT';
-
-	# At least OpenBSD/i386 3.3 is okay, as is NetBSD 1.5.
-	# But not NetBSD 1.6 & 1.6.1: the test makes perl crash.
-	# So the kill() must not be done with this config in order to
-	# finish the test.
-	# For others (darwin & freebsd), let the test fail without crashing.
-	# the test passes at least from freebsd 8.1
-	my $todo = $^O eq 'netbsd' && $Config{osvers}=~/^1\.6/;
-	my $why_todo = "# TODO $^O $Config{osvers} seems to lose blocked signals";
-	if (!$todo) { 
-	  kill 'HUP', $$; 
-	} else {
-	  print "not ok 9 - sigaction SIGHUP ",$why_todo,"\n";
-	  print "not ok 10 - sig mask delayed SIGINT ",$why_todo,"\n";
-	}
-	sleep 1;
-
-	$todo = 1 if ($^O eq 'freebsd' && $Config{osvers} < 8)
-		  || ($^O eq 'darwin' && $Config{osvers} < '6.6');
-	printf "%s 11 - masked SIGINT received %s\n",
-	    $sigint_called ? "ok" : "not ok",
-	    $todo ? $why_todo : '';
-
-	print "ok 12 - signal masks successful\n";
-	
-	sub SigHUP {
-	    print "ok 9 - sigaction SIGHUP\n";
-	    kill 'INT', $$;
-	    sleep 2;
-	    print "ok 10 - sig mask delayed SIGINT\n";
-	}
-
-        sub SigINT {
-            $sigint_called++;
-	}
-
-        # The order of the above tests is very important, so
-        # we use literal prints and hard coded numbers.
-        next_test() for 1..4;
+    # At least OpenBSD/i386 3.3 is okay, as is NetBSD 1.5.
+    # But not NetBSD 1.6 & 1.6.1: the test makes perl crash.
+    # So the kill() must not be done with this config in order to
+    # finish the test.
+    # For others (darwin & freebsd), let the test fail without crashing.
+    # the test passes at least from freebsd 8.1
+    my $todo = $^O eq 'netbsd' && $Config{osvers}=~/^1\.6/;
+    my $why_todo = "# TODO $^O $Config{osvers} seems to lose blocked signals";
+    if (!$todo) {
+      kill 'HUP', $$;
+    } else {
+      print "not ok 9 - sigaction SIGHUP ",$why_todo,"\n";
+      print "not ok 10 - sig mask delayed SIGINT ",$why_todo,"\n";
     }
+    sleep 1;
+
+    $todo = 1 if ($^O eq 'freebsd' && $Config{osvers} < 8)
+              || ($^O eq 'darwin' && $Config{osvers} < '6.6');
+    printf "%s 11 - masked SIGINT received %s\n",
+        $sigint_called ? "ok" : "not ok",
+        $todo ? $why_todo : '';
+
+    print "ok 12 - signal masks successful\n";
+
+    sub SigHUP {
+        print "ok 9 - sigaction SIGHUP\n";
+        kill 'INT', $$;
+        sleep 2;
+        print "ok 10 - sig mask delayed SIGINT\n";
+    }
+
+    sub SigINT {
+        $sigint_called++;
+    }
+
+    # The order of the above tests is very important, so
+    # we use literal prints and hard coded numbers.
+    next_test() for 1..4;
 }
 
 SKIP: {
@@ -160,9 +155,10 @@ else {
 like( getcwd(), qr/$pat/, 'getcwd' );
 
 # Check string conversion functions.
+my $weasel_words = "(though differences may be beyond the displayed digits)";
 
 SKIP: { 
-    skip("strtod() not present", 2) unless $Config{d_strtod};
+    skip("strtod() not present", 3) unless $Config{d_strtod};
 
     if (locales_enabled('LC_NUMERIC')) {
         $lc = &POSIX::setlocale(&POSIX::LC_NUMERIC);
@@ -174,11 +170,25 @@ SKIP: {
     cmp_ok(abs("3.14159" - $n), '<', 1e-6, 'strtod works');
     is($x, 6, 'strtod works');
 
+    # If $Config{nvtype} is 'double' we check that strtod assigns the same value as
+    # perl for the input 8.87359152e-6.
+    # We check that value as it is known to have produced discrepancies in the past.
+    # If this check fails then perl's buggy atof has probably assigned the value,
+    # instead of the preferred Perl_strtod function.
+
+    $n = &POSIX::strtod('8.87359152e-6');
+    if($Config{nvtype} eq 'double' || ($Config{nvtype} eq 'long double' && $Config{longdblkind} == 0)) {
+      cmp_ok($n, '==', 8.87359152e-6, "strtod and perl agree $weasel_words");
+    }
+    else {
+      cmp_ok($n, '!=', 8.87359152e-6, "strtod and perl should differ $weasel_words");
+    }
+
     &POSIX::setlocale(&POSIX::LC_NUMERIC, $lc) if locales_enabled('LC_NUMERIC');
 }
 
 SKIP: {
-    skip("strtold() not present", 2) unless $Config{d_strtold};
+    skip("strtold() not present", 3) unless $Config{d_strtold};
 
     if (locales_enabled('LC_NUMERIC')) {
         $lc = &POSIX::setlocale(&POSIX::LC_NUMERIC);
@@ -186,11 +196,46 @@ SKIP: {
     }
 
     # we're just checking that strtold works, not how accurate it is
-    ($n, $x) = &POSIX::strtod('2.718_ISH');
+    ($n, $x) = &POSIX::strtold('2.718_ISH');
     cmp_ok(abs("2.718" - $n), '<', 1e-6, 'strtold works');
     is($x, 4, 'strtold works');
 
+    # If $Config{nvtype} is 'long double' we check that strtold assigns the same value as
+    # perl for the input 9.81256119e4.
+    # We check that value as it is known to have produced discrepancies in the past.
+    # If this check fails then perl's buggy atof has probably assigned the value,
+    # instead of the preferred Perl_strtod function.
+
+    if($Config{nvtype} eq 'long double') {
+      $n = &POSIX::strtold('9.81256119e4820');
+      cmp_ok($n, '==', 9.81256119e4820, "strtold and perl agree $weasel_words");
+    }
+    elsif($Config{nvtype} eq '__float128') {
+      $n = &POSIX::strtold('9.81256119e4820');
+      if($Config{longdblkind} == 1 || $Config{longdblkind} == 2) {
+        cmp_ok($n, '==', 9.81256119e4820, "strtold and perl agree $weasel_words");
+      }
+      else {
+        cmp_ok($n, '!=', 9.81256119e4820, "strtold and perl should differ $weasel_words");
+      }
+    }
+    else { # nvtype is double ... don't try and make this into a meaningful test
+      cmp_ok(1, '==', 1, 'skipping comparison between strtold amd perl');
+    }
+
     &POSIX::setlocale(&POSIX::LC_NUMERIC, $lc) if locales_enabled('LC_NUMERIC');
+}
+
+SKIP: {
+    # We don't yet have a POSIX::strtoflt128 - but let's at least check that
+    # Perl_strtod, not perl's atof, is assigning the values on quadmath builds.
+    # Do this by checking that 3329232e296 (which is known to be assigned
+    # incorrectly by perl's atof) is assigned to its correct value.
+
+    skip("not a -Dusequadmath build", 1) unless $Config{nvtype} eq '__float128';
+    cmp_ok(scalar(reverse(unpack("h*", pack("F<", 3329232e296)))),
+           'eq','43ebf120d02ce967d48e180409b3f958',
+           '3329232e296 is assigned correctly');
 }
 
 SKIP: {
@@ -283,11 +328,8 @@ try_strftime("Fri Mar 31 00:00:00 2000 091", 0,0,0, 31,2,100);
     }
 }
 
-SKIP: {
-  skip("no kill() support on Mac OS", 1) if $Is_MacOS;
-  is (eval "kill 0", 0, "check we have CORE::kill")
-    or print "\$\@ is " . _qq($@) . "\n";
-}
+is (eval "kill 0", 0, "check we have CORE::kill")
+  or print "\$\@ is " . _qq($@) . "\n";
 
 # Check that we can import the POSIX kill routine
 POSIX->import ('kill');
@@ -315,7 +357,7 @@ SKIP: {
     skip("locales not available", 26) unless locales_enabled(qw(NUMERIC MONETARY));
     skip("localeconv() not available", 26) unless $Config{d_locconv};
     my $conv = localeconv;
-    is(ref $conv, 'HASH', 'localconv returns a hash reference');
+    is(ref $conv, 'HASH', 'localeconv returns a hash reference');
 
     foreach (qw(decimal_point thousands_sep grouping int_curr_symbol
 		currency_symbol mon_decimal_point mon_thousands_sep
@@ -415,7 +457,7 @@ if ($^O eq 'vos') {
 } else {
  $| = 0;
  # The following line assumes buffered output, which may be not true:
- print '@#!*$@(!@#$' unless ($Is_MacOS || $Is_OS2 || $Is_UWin || $Is_OS390 ||
+ print '@#!*$@(!@#$' unless ($Is_OS2 || $Is_UWin || $Is_OS390 ||
                             $Is_VMS ||
 			    (defined $ENV{PERLIO} &&
 			     $ENV{PERLIO} eq 'unix' &&

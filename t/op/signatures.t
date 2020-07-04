@@ -20,6 +20,13 @@ our $z;
     is $a, 123;
 }
 
+eval "#line 8 foo\nsub t004 :method (\$a) { }";
+like $@, qr{syntax error at foo line 8}, "error when not enabled 1";
+
+eval "#line 8 foo\nsub t005 (\$) (\$a) { }";
+like $@, qr{syntax error at foo line 8}, "error when not enabled 2";
+
+
 no warnings "experimental::signatures";
 use feature "signatures";
 
@@ -1095,17 +1102,21 @@ syntax error at foo line 8, near ", 123"
 EOF
 
 eval "#line 8 foo\nno warnings; sub t096 (\$a 123) { }";
-is $@, qq{syntax error at foo line 8, near "\$a 123"\n};
+is $@, <<'EOF';
+Illegal operator following parameter in a subroutine signature at foo line 8, near "($a 123"
+syntax error at foo line 8, near "($a 123"
+EOF
 
 eval "#line 8 foo\nsub t097 (\$a { }) { }";
-is $@, <<EOF;
-syntax error at foo line 8, near "\$a { "
+is $@, <<'EOF';
+Illegal operator following parameter in a subroutine signature at foo line 8, near "($a { }"
+syntax error at foo line 8, near "($a { }"
 EOF
 
 eval "#line 8 foo\nsub t098 (\$a; \$b) { }";
-is $@, <<EOF;
-syntax error at foo line 8, at EOF
-syntax error at foo line 8, near "\$b) "
+is $@, <<'EOF';
+Illegal operator following parameter in a subroutine signature at foo line 8, near "($a; "
+syntax error at foo line 8, near "($a; "
 EOF
 
 eval "#line 8 foo\nsub t099 (\$\$) { }";
@@ -1115,10 +1126,10 @@ syntax error at foo line 8, near "\$\$) "
 EOF
 
 eval "#line 8 foo\nsub t101 (\@_) { }";
-like $@, qr/\ACan't use global \@_ in "my" at foo line 8/;
+like $@, qr/\ACan't use global \@_ in subroutine signature at foo line 8/;
 
 eval "#line 8 foo\nsub t102 (\%_) { }";
-like $@, qr/\ACan't use global \%_ in "my" at foo line 8/;
+like $@, qr/\ACan't use global \%_ in subroutine signature at foo line 8/;
 
 my $t103 = sub ($a) { $a || "z" };
 is prototype($t103), undef;
@@ -1132,7 +1143,7 @@ is eval("\$t103->(456, 789, 987)"), undef;
 like $@, qr/\AToo many arguments for subroutine 'main::__ANON__' at \(eval \d+\) line 1\.\n\z/;
 is $a, 123;
 
-my $t118 = sub ($a) :prototype($) { $a || "z" };
+my $t118 = sub :prototype($) ($a) { $a || "z" };
 is prototype($t118), "\$";
 is eval("\$t118->()"), undef;
 like $@, qr/\AToo few arguments for subroutine 'main::__ANON__' at \(eval \d+\) line 1\.\n\z/;
@@ -1198,7 +1209,7 @@ is eval("t132(sub { \"x\".(\$_[1] // sub{\$_[0]})->(\$_[0]).\"x\" }, 789)"),
 like $@, qr/\AToo many arguments for subroutine 'main::t132' at \(eval \d+\) line 1\.\n\z/;
 is $a, 123;
 
-sub t104($a) :method { $a || "z" }
+sub t104 :method ($a) { $a || "z" }
 is prototype(\&t104), undef;
 is eval("t104()"), undef;
 like $@, qr/\AToo few arguments for subroutine 'main::t104' at \(eval \d+\) line 1\.\n\z/;
@@ -1210,7 +1221,7 @@ is eval("t104(456, 789, 987)"), undef;
 like $@, qr/\AToo many arguments for subroutine 'main::t104' at \(eval \d+\) line 1\.\n\z/;
 is $a, 123;
 
-sub t105($a) :prototype($) { $a || "z" }
+sub t105 :prototype($) ($a) { $a || "z" }
 is prototype(\&t105), "\$";
 is eval("t105()"), undef;
 like $@, qr/\ANot enough arguments for main::t105 /;
@@ -1222,7 +1233,7 @@ is eval("t105(456, 789, 987)"), undef;
 like $@, qr/\AToo many arguments for main::t105 at \(eval \d+\) line 1, near/;
 is $a, 123;
 
-sub t106($a) :prototype(@) { $a || "z" }
+sub t106 :prototype(@) ($a) { $a || "z" }
 is prototype(\&t106), "\@";
 is eval("t106()"), undef;
 like $@, qr/\AToo few arguments for subroutine 'main::t106' at \(eval \d+\) line 1\.\n\z/;
@@ -1234,10 +1245,10 @@ is eval("t106(456, 789, 987)"), undef;
 like $@, qr/\AToo many arguments for subroutine 'main::t106' at \(eval \d+\) line 1\.\n\z/;
 is $a, 123;
 
-eval "#line 8 foo\nsub t107 :method (\$a) { }";
+eval "#line 8 foo\nsub t107(\$a) :method { }";
 isnt $@, "";
 
-eval "#line 8 foo\nsub t108 :prototype(\$) (\$a) { }";
+eval "#line 8 foo\nsub t108 (\$a) :prototype(\$) { }";
 isnt $@, "";
 
 sub t109 { }
@@ -1508,6 +1519,74 @@ while(<$kh>) {
         eval 'no warnings; sub ($x = ' . $word . ', $y) {}';
         isnt $@, "", "$word does not swallow trailing comma";
     }
+}
+
+# RT #132141
+# Attributes such as lvalue have to come *before* the signature to
+# ensure that they're applied to any code block within the signature
+
+{
+    my $x;
+    sub f :lvalue ($a = do { $x = "abc"; return substr($x,0,1)}) {
+        die; # notreached
+    }
+
+    f() = "X";
+    is $x, "Xbc", "RT #132141";
+}
+
+# RT #132760
+# attributes have been moved back before signatures for 5.28. Ensure that
+# code doing it the old wrong way get a meaningful error message.
+
+{
+    my @errs;
+    local $SIG{__WARN__} = sub { push @errs, @_};
+    eval q{
+        sub rt132760 ($a, $b) :prototype($$) { $a + $b }
+    };
+
+    @errs = split /\n/, $@;
+    is +@errs, 1, "RT 132760 expect 1 error";
+    like $errs[0],
+        qr/^Subroutine attributes must come before the signature at/,
+        "RT 132760 err 0";
+}
+
+# check that warnings come from the correct line
+
+{
+    my @warn;
+    local $SIG{__WARN__} = sub { push @warn, @_};
+    eval q{
+        sub multiline1 (
+            $a,
+            $b = $a + 1,
+            $c = $a + 1)
+        {
+            my $d = $a + 1;
+            my $e = $a + 1;
+        }
+    };
+    multiline1(undef);
+    like $warn[0], qr/line 4,/, 'multiline1: $b';
+    like $warn[1], qr/line 5,/, 'multiline1: $c';
+    like $warn[2], qr/line 7,/, 'multiline1: $d';
+    like $warn[3], qr/line 8,/, 'multiline1: $e';
+}
+
+# check errors for using global vars as params
+
+{
+    eval q{ sub ($_) {} };
+    like $@, qr/Can't use global \$_ in subroutine signature/, 'f($_)';
+    eval q{ sub (@_) {} };
+    like $@, qr/Can't use global \@_ in subroutine signature/, 'f(@_)';
+    eval q{ sub (%_) {} };
+    like $@, qr/Can't use global \%_ in subroutine signature/, 'f(%_)';
+    eval q{ sub ($1) {} };
+    like $@, qr/Illegal operator following parameter in a subroutine signature/,
+            'f($1)';
 }
 
 done_testing;

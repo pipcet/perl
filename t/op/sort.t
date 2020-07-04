@@ -7,7 +7,8 @@ BEGIN {
     set_up_inc('../lib');
 }
 use warnings;
-plan(tests => 197);
+plan(tests => 203);
+use Tie::Array; # we need to test sorting tied arrays
 
 # these shouldn't hang
 {
@@ -433,7 +434,6 @@ cmp_ok($x,'eq','123',q(optimized-away comparison block doesn't take any other ar
     @a = qw(b c a); $r1 = \$a[1]; @a = sort mysort @a; $r2 = \$a[0];
     is "$$r1-$$r2-@a", "c-c-c b a", "inplace sort with function of lexical";
 
-    use Tie::Array;
     my @t;
     tie @t, 'Tie::StdArray';
 
@@ -494,6 +494,25 @@ cmp_ok($x,'eq','123',q(optimized-away comparison block doesn't take any other ar
     is ("@a", "3 4 5", "RT #128340");
 
 }
+{
+    @Tied_Array_EXTEND_Test::ISA= 'Tie::StdArray';
+    my $extend_count;
+    sub Tied_Array_EXTEND_Test::EXTEND {
+        $extend_count= $_[1];
+        return;
+    }
+    my @t;
+    tie @t, "Tied_Array_EXTEND_Test";
+    is($extend_count, undef, "test that EXTEND has not been called prior to initialization");
+    $t[0]=3;
+    $t[1]=1;
+    $t[2]=2;
+    is($extend_count, undef, "test that EXTEND has not been called during initialization");
+    @t= sort @t;
+    is($extend_count, 3, "test that EXTEND was called with an argument of 3 by pp_sort()");
+    is("@t","1 2 3","test that sorting the tied array worked even though EXTEND is a no-op");
+}
+
 
 # Test optimisations of reversed sorts. As we now guarantee stability by
 # default, # optimisations which do not provide this are bogus.
@@ -1159,4 +1178,27 @@ SKIP:
     my @in = ( "0", "20000000000000001", "20000000000000000" );
     my @out = sort { $a <=> $b } @in;
     is($out[1], "20000000000000000", "check sort order");
+}
+
+# [perl #92264] refcounting of GvSV slot of *a and *b
+{
+    my $act;
+    package ReportDestruction {
+	sub new { bless({ p => $_[1] }, $_[0]) }
+	sub DESTROY { $act .= $_[0]->{p}; }
+    }
+    $act = "";
+    my $filla = \(ReportDestruction->new("[filla]"));
+    () = sort { my $r = $a cmp $b; $act .= "0"; *a = \$$filla; $act .= "1"; $r }
+	    ReportDestruction->new("[sorta]"), "foo";
+    $act .= "2";
+    $filla = undef;
+    is $act, "01[sorta]2[filla]";
+    $act = "";
+    my $fillb = \(ReportDestruction->new("[fillb]"));
+    () = sort { my $r = $a cmp $b; $act .= "0"; *b = \$$fillb; $act .= "1"; $r }
+	    "foo", ReportDestruction->new("[sortb]");
+    $act .= "2";
+    $fillb = undef;
+    is $act, "01[sortb]2[fillb]";
 }

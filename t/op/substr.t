@@ -22,7 +22,7 @@ $SIG{__WARN__} = sub {
      }
 };
 
-plan(392);
+plan(400);
 
 run_tests() unless caller;
 
@@ -883,4 +883,39 @@ fresh_perl_is('$0 = "/usr/bin/perl"; substr($0, 0, 0, $0)', '', {}, "(perl #1293
     is $x, "\x{100}zzzz", "RT#130624: heap-use-after-free in 4-arg substr (targ)";
 }
 
+{
+    our @ta;
+    $#ta = -1;
+    substr($#ta, 0, 2) = 23;
+    is $#ta, 23;
+    $#ta = -1;
+    substr($#ta, 0, 2) =~ s/\A..\z/23/s;
+    is $#ta, 23;
+    $#ta = -1;
+    substr($#ta, 0, 2, 23);
+    is $#ta, 23;
+    sub ta_tindex :lvalue { $#ta }
+    $#ta = -1;
+    ta_tindex() = 23;
+    is $#ta, 23;
+    $#ta = -1;
+    substr(ta_tindex(), 0, 2) = 23;
+    is $#ta, 23;
+    $#ta = -1;
+    substr(ta_tindex(), 0, 2) =~ s/\A..\z/23/s;
+    is $#ta, 23;
+    $#ta = -1;
+    substr(ta_tindex(), 0, 2, 23);
+    is $#ta, 23;
+}
 
+{ # [perl #132527]
+    use feature 'refaliasing';
+    no warnings 'experimental::refaliasing';
+    my %h;
+    \$h{foo} = \(my $bar = "baz");
+    substr delete $h{foo}, 1, 1, o=>;
+    is $bar, boz => 'first arg to 4-arg substr is loose lvalue context';
+}
+
+1;

@@ -20,7 +20,7 @@
  * to run regen_perly.pl, which re-creates the files perly.h, perly.tab
  * and perly.act which are derived from this.
  *
- * The main job of of this grammar is to call the various newFOO()
+ * The main job of this grammar is to call the various newFOO()
  * functions in op.c to build a syntax tree of OP structs.
  * It relies on the lexer in toke.c to do the tokenizing.
  *
@@ -43,23 +43,24 @@
     GV *gvval;
 }
 
-%token <ival> GRAMPROG GRAMEXPR GRAMBLOCK GRAMBARESTMT GRAMFULLSTMT GRAMSTMTSEQ
+%token <ival> GRAMPROG GRAMEXPR GRAMBLOCK GRAMBARESTMT GRAMFULLSTMT GRAMSTMTSEQ GRAMSUBSIGNATURE
 
 %token <ival> '{' '}' '[' ']' '-' '+' '@' '%' '&' '=' '.'
 
 %token <opval> BAREWORD METHOD FUNCMETH THING PMFUNC PRIVATEREF QWLIST
 %token <opval> FUNC0OP FUNC0SUB UNIOPSUB LSTOPSUB
 %token <opval> PLUGEXPR PLUGSTMT
-%token <pval> LABEL
-%token <ival> FORMAT SUB ANONSUB PACKAGE USE
+%token <opval> LABEL
+%token <ival> FORMAT SUB SIGSUB ANONSUB ANON_SIGSUB PACKAGE USE
 %token <ival> WHILE UNTIL IF UNLESS ELSE ELSIF CONTINUE FOR
 %token <ival> GIVEN WHEN DEFAULT
 %token <ival> LOOPEX DOTDOT YADAYADA
 %token <ival> FUNC0 FUNC1 FUNC UNIOP LSTOP
-%token <ival> RELOP EQOP MULOP ADDOP
+%token <ival> MULOP ADDOP
 %token <ival> DOLSHARP DO HASHBRACK NOAMP
 %token <ival> LOCAL MY REQUIRE
 %token <ival> COLONATTR FORMLBRACK FORMRBRACK
+%token <ival> SUBLEXSTART SUBLEXEND
 
 %type <ival> grammar remember mremember
 %type <ival>  startsub startanonsub startformsub
@@ -71,13 +72,15 @@
 %type <opval> sliceme kvslice gelem
 %type <opval> listexpr nexpr texpr iexpr mexpr mnexpr
 %type <opval> optlistexpr optexpr optrepl indirob listop method
-%type <opval> formname subname proto optsubbody cont my_scalar my_var
+%type <opval> formname subname proto cont my_scalar my_var
 %type <opval> refgen_topic formblock
 %type <opval> subattrlist myattrlist myattrterm myterm
 %type <opval> termbinop termunop anonymous termdo
+%type <opval> termrelop relopchain termeqop eqopchain
 %type <ival>  sigslurpsigil
 %type <opval> sigvarname sigdefault sigscalarelem sigslurpelem
-%type <opval> sigelem siglist siglistornull subsignature 
+%type <opval> sigelem siglist siglistornull subsigguts subsignature optsubsignature
+%type <opval> subbody optsubbody sigsubbody optsigsubbody
 %type <opval> formstmtseq formline formarg
 
 %nonassoc <ival> PREC_LOW
@@ -90,13 +93,13 @@
 %left <ival> ','
 %right <ival> ASSIGNOP
 %right <ival> '?' ':'
-%nonassoc DOTDOT YADAYADA
+%nonassoc DOTDOT
 %left <ival> OROR DORDOR
 %left <ival> ANDAND
 %left <ival> BITOROP
 %left <ival> BITANDOP
-%nonassoc EQOP
-%nonassoc RELOP
+%left <ival> CHEQOP NCEQOP
+%left <ival> CHRELOP NCRELOP
 %nonassoc UNIOP UNIOPSUB
 %nonassoc REQUIRE
 %left <ival> SHIFTOP
@@ -184,6 +187,16 @@ grammar	:	GRAMPROG
 			  PL_eval_root = $3;
 			  $$ = 0;
 			}
+	|	GRAMSUBSIGNATURE
+			{
+			  parser->expect = XSTATE;
+			  $<ival>$ = 0;
+			}
+		subsigguts
+			{
+			  PL_eval_root = $3;
+			  $$ = 0;
+			}
 	;
 
 /* An ordinary block */
@@ -252,11 +265,17 @@ fullstmt:	barestmt
 
 labfullstmt:	LABEL barestmt
 			{
-			  $$ = newSTATEOP(SVf_UTF8 * $1[strlen($1)+1], $1, $2);
+                          SV *label = cSVOPx_sv($1);
+			  $$ = newSTATEOP(SvFLAGS(label) & SVf_UTF8,
+                                            savepv(SvPVX_const(label)), $2);
+                          op_free($1);
 			}
 	|	LABEL labfullstmt
 			{
-			  $$ = newSTATEOP(SVf_UTF8 * $1[strlen($1)+1], $1, $2);
+                          SV *label = cSVOPx_sv($1);
+			  $$ = newSTATEOP(SvFLAGS(label) & SVf_UTF8,
+                                            savepv(SvPVX_const(label)), $2);
+                          op_free($1);
 			}
 	;
 
@@ -274,28 +293,14 @@ barestmt:	PLUGSTMT
 			  parser->parsed_sub = 1;
 			}
 	|	SUB subname startsub
+                    /* sub declaration or definition not within scope
+                       of 'use feature "signatures"'*/
 			{
-			  if ($2->op_type == OP_CONST) {
-			    const char *const name =
-				SvPV_nolen_const(((SVOP*)$2)->op_sv);
-			    if (strEQ(name, "BEGIN") || strEQ(name, "END")
-			      || strEQ(name, "INIT") || strEQ(name, "CHECK")
-			      || strEQ(name, "UNITCHECK"))
-			      CvSPECIAL_on(PL_compcv);
-			  }
-			  else
-			  /* State subs inside anonymous subs need to be
-			     clonable themselves. */
-			  if (CvANON(CvOUTSIDE(PL_compcv))
-			   || CvCLONE(CvOUTSIDE(PL_compcv))
-			   || !PadnameIsSTATE(PadlistNAMESARRAY(CvPADLIST(
-						CvOUTSIDE(PL_compcv)
-					     ))[$2->op_targ]))
-			      CvCLONE_on(PL_compcv);
+                          init_named_cv(PL_compcv, $2);
 			  parser->in_my = 0;
 			  parser->in_my_stash = NULL;
 			}
-		proto subattrlist optsubbody
+                    proto subattrlist optsubbody
 			{
 			  SvREFCNT_inc_simple_void(PL_compcv);
 			  $2->op_type == OP_CONST
@@ -306,40 +311,22 @@ barestmt:	PLUGSTMT
 			  intro_my();
 			  parser->parsed_sub = 1;
 			}
-	|	SUB subname startsub
+	|	SIGSUB subname startsub
+                    /* sub declaration or definition under 'use feature
+                     * "signatures"'. (Note that a signature isn't
+                     * allowed in a declaration)
+                     */
 			{
-			  if ($2->op_type == OP_CONST) {
-			    const char *const name =
-				SvPV_nolen_const(((SVOP*)$2)->op_sv);
-			    if (strEQ(name, "BEGIN") || strEQ(name, "END")
-			      || strEQ(name, "INIT") || strEQ(name, "CHECK")
-			      || strEQ(name, "UNITCHECK"))
-			      CvSPECIAL_on(PL_compcv);
-			  }
-			  else
-			  /* State subs inside anonymous subs need to be
-			     clonable themselves. */
-			  if (CvANON(CvOUTSIDE(PL_compcv))
-			   || CvCLONE(CvOUTSIDE(PL_compcv))
-			   || !PadnameIsSTATE(PadlistNAMESARRAY(CvPADLIST(
-						CvOUTSIDE(PL_compcv)
-					     ))[$2->op_targ]))
-			      CvCLONE_on(PL_compcv);
+                          init_named_cv(PL_compcv, $2);
 			  parser->in_my = 0;
 			  parser->in_my_stash = NULL;
 			}
-		remember subsignature subattrlist '{' stmtseq '}'
+                    subattrlist optsigsubbody
 			{
-			  OP *body;
-			  if (parser->copline > (line_t)$8)
-			      parser->copline = (line_t)$8;
-			  body = block_end($5,
-				op_append_list(OP_LINESEQ, $6, $9));
-
 			  SvREFCNT_inc_simple_void(PL_compcv);
 			  $2->op_type == OP_CONST
-			      ? newATTRSUB($3, $2, NULL, $7, body)
-			      : newMYSUB($3, $2, NULL, $7, body)
+			      ? newATTRSUB($3, $2, NULL, $5, $6)
+			      : newMYSUB(  $3, $2, NULL, $5, $6)
 			  ;
 			  $$ = NULL;
 			  intro_my();
@@ -480,6 +467,11 @@ barestmt:	PLUGSTMT
 	|	sideff ';'
 			{
 			  $$ = $1;
+			}
+	|	YADAYADA ';'
+			{
+			  $$ = newLISTOP(OP_DIE, 0, newOP(OP_PUSHMARK, 0),
+				newSVOP(OP_CONST, 0, newSVpvs("Unimplemented")));
 			}
 	|	';'
 			{
@@ -775,8 +767,17 @@ siglistornull:		/* NULL */
 	|	siglist
 			{ $$ = $1; }
 
+/* optional subroutine signature */
+optsubsignature:	/* NULL */
+			{ $$ = NULL; }
+	|	subsignature
+			{ $$ = $1; }
+
 /* Subroutine signature */
-subsignature:	'('
+subsignature:	'(' subsigguts ')'
+			{ $$ = $2; }
+
+subsigguts:
                         {
                             ENTER;
                             SAVEIV(parser->sig_elems);
@@ -788,49 +789,93 @@ subsignature:	'('
                             parser->in_my        = KEY_sigvar;
                         }
                 siglistornull
-                ')'
 			{
-                            OP            *sigops = $3;
-                            UNOP_AUX_item *aux;
+                            OP            *sigops = $2;
+                            struct op_argcheck_aux *aux;
                             OP            *check;
 
-                            if (!parser->error_count) {
-                                assert(FEATURE_SIGNATURES_IS_ENABLED);
-                            }
+			    if (!FEATURE_SIGNATURES_IS_ENABLED)
+			        Perl_croak(aTHX_ "Experimental "
+                                    "subroutine signatures not enabled");
 
                             /* We shouldn't get here otherwise */
                             Perl_ck_warner_d(aTHX_
                                 packWARN(WARN_EXPERIMENTAL__SIGNATURES),
                                 "The signatures feature is experimental");
 
-                            aux = (UNOP_AUX_item*)PerlMemShared_malloc(
-                                sizeof(UNOP_AUX_item) * 3);
-                            aux[0].iv = parser->sig_elems;
-                            aux[1].iv = parser->sig_optelems;
-                            aux[2].iv = parser->sig_slurpy;
-                            check = newUNOP_AUX(OP_ARGCHECK, 0, NULL, aux);
+                            aux = (struct op_argcheck_aux*)
+                                    PerlMemShared_malloc(
+                                        sizeof(struct op_argcheck_aux));
+                            aux->params     = parser->sig_elems;
+                            aux->opt_params = parser->sig_optelems;
+                            aux->slurpy     = parser->sig_slurpy;
+                            check = newUNOP_AUX(OP_ARGCHECK, 0, NULL,
+                                            (UNOP_AUX_item *)aux);
                             sigops = op_prepend_elem(OP_LINESEQ, check, sigops);
                             sigops = op_prepend_elem(OP_LINESEQ,
                                                 newSTATEOP(0, NULL, NULL),
                                                 sigops);
                             /* a nextstate at the end handles context
                              * correctly for an empty sub body */
-                            $$ = op_append_elem(OP_LINESEQ,
+                            sigops = op_append_elem(OP_LINESEQ,
                                                 sigops,
                                                 newSTATEOP(0, NULL, NULL));
+                            /* wrap the list of arg ops in a NULL aux op.
+                              This serves two purposes. First, it makes
+                              the arg list a separate subtree from the
+                              body of the sub, and secondly the null op
+                              may in future be upgraded to an OP_SIGNATURE
+                              when implemented. For now leave it as
+                              ex-argcheck */
+                            $$ = newUNOP_AUX(OP_ARGCHECK, 0, sigops, NULL);
+                            op_null($$);
 
                             parser->in_my = 0;
+                            /* tell the toker that attrributes can follow
+                             * this sig, but only so that the toker
+                             * can skip through any (illegal) trailing
+                             * attribute text then give a useful error
+                             * message about "attributes before sig",
+                             * rather than falling over ina mess at
+                             * unrecognised syntax.
+                             */
                             parser->expect = XATTRBLOCK;
+                            parser->sig_seen = TRUE;
                             LEAVE;
 			}
 	;
 
-
-
-/* Optional subroutine body, for named subroutine declaration */
-optsubbody:	block
+/* Optional subroutine body (for named subroutine declaration) */
+optsubbody:	subbody { $$ = $1; }
 	|	';'	{ $$ = NULL; }
 	;
+
+
+/* Subroutine body (without signature) */
+subbody:	remember  '{' stmtseq '}'
+			{
+			  if (parser->copline > (line_t)$2)
+			      parser->copline = (line_t)$2;
+			  $$ = block_end($1, $3);
+			}
+	;
+
+
+/* optional [ Subroutine body with optional signature ] (for named
+ * subroutine declaration) */
+optsigsubbody:	sigsubbody { $$ = $1; }
+	|	';'	   { $$ = NULL; }
+
+/* Subroutine body with optional signature */
+sigsubbody:	remember optsubsignature '{' stmtseq '}'
+			{
+			  if (parser->copline > (line_t)$3)
+			      parser->copline = (line_t)$3;
+			  $$ = block_end($1,
+				op_append_list(OP_LINESEQ, $2, $4));
+ 			}
+ 	;
+
 
 /* Ordinary expressions; logical combinations */
 expr	:	expr ANDOP expr
@@ -889,6 +934,8 @@ listop	:	LSTOP indirob listexpr /* map {...} @args or print $fh @args */
 			{ $$ = op_convert_list($1, 0, $2); }
 	|	FUNC '(' optexpr ')'                 /* print (@args) */
 			{ $$ = op_convert_list($1, 0, $3); }
+	|	FUNC SUBLEXSTART optexpr SUBLEXEND          /* uc($arg) from "\U..." */
+			{ $$ = op_convert_list($1, 0, $3); }
 	|	LSTOPSUB startanonsub block /* sub f(&@);   f { foo } ... */
 			{ SvREFCNT_inc_simple_void(PL_compcv);
 			  $<opval>$ = newANONATTRSUB($2, 0, NULL, $3); }
@@ -935,19 +982,31 @@ subscripted:    gelem '{' expr ';' '}'        /* *main::{something} */
 					jmaybe($3)); }
 	|	term ARROW '(' ')'          /* $subref->() */
 			{ $$ = newUNOP(OP_ENTERSUB, OPf_STACKED,
-				   newCVREF(0, scalar($1))); }
+				   newCVREF(0, scalar($1)));
+			  if (parser->expect == XBLOCK)
+			      parser->expect = XOPERATOR;
+			}
 	|	term ARROW '(' expr ')'     /* $subref->(@args) */
 			{ $$ = newUNOP(OP_ENTERSUB, OPf_STACKED,
 				   op_append_elem(OP_LIST, $4,
-				       newCVREF(0, scalar($1)))); }
+				       newCVREF(0, scalar($1))));
+			  if (parser->expect == XBLOCK)
+			      parser->expect = XOPERATOR;
+			}
 
 	|	subscripted '(' expr ')'   /* $foo->{bar}->(@args) */
 			{ $$ = newUNOP(OP_ENTERSUB, OPf_STACKED,
 				   op_append_elem(OP_LIST, $3,
-					       newCVREF(0, scalar($1)))); }
+					       newCVREF(0, scalar($1))));
+			  if (parser->expect == XBLOCK)
+			      parser->expect = XOPERATOR;
+			}
 	|	subscripted '(' ')'        /* $foo->{bar}->() */
 			{ $$ = newUNOP(OP_ENTERSUB, OPf_STACKED,
-				   newCVREF(0, scalar($1))); }
+				   newCVREF(0, scalar($1)));
+			  if (parser->expect == XBLOCK)
+			      parser->expect = XOPERATOR;
+			}
 	|	'(' expr ')' '[' expr ']'            /* list slice */
 			{ $$ = newSLICEOP(0, $5, $2); }
 	|	QWLIST '[' expr ']'            /* list literal slice */
@@ -957,7 +1016,7 @@ subscripted:    gelem '{' expr ';' '}'        /* *main::{something} */
     ;
 
 /* Binary operators between terms */
-termbinop:	term ASSIGNOP term                     /* $x = $y */
+termbinop:	term ASSIGNOP term                     /* $x = $y, $x += $y */
 			{ $$ = newASSIGNOP(OPf_STACKED, $1, $2, $3); }
 	|	term POWOP term                        /* $x ** $y */
 			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
@@ -970,10 +1029,10 @@ termbinop:	term ASSIGNOP term                     /* $x = $y */
 			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
 	|	term SHIFTOP term                      /* $x >> $y, $x << $y */
 			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
-	|	term RELOP term                        /* $x > $y, etc. */
-			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
-	|	term EQOP term                         /* $x == $y, $x eq $y */
-			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
+	|	termrelop %prec PREC_LOW               /* $x > $y, etc. */
+			{ $$ = $1; }
+	|	termeqop %prec PREC_LOW                /* $x == $y, $x cmp $y */
+			{ $$ = $1; }
 	|	term BITANDOP term                     /* $x & $y */
 			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
 	|	term BITOROP term                      /* $x | $y */
@@ -989,6 +1048,38 @@ termbinop:	term ASSIGNOP term                     /* $x = $y */
 	|	term MATCHOP term                      /* $x =~ /$y/ */
 			{ $$ = bind_match($2, $1, $3); }
     ;
+
+termrelop:	relopchain %prec PREC_LOW
+			{ $$ = cmpchain_finish($1); }
+	|	term NCRELOP term
+			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
+	|	termrelop NCRELOP
+			{ yyerror("syntax error"); YYERROR; }
+	|	termrelop CHRELOP
+			{ yyerror("syntax error"); YYERROR; }
+	;
+
+relopchain:	term CHRELOP term
+			{ $$ = cmpchain_start($2, $1, $3); }
+	|	relopchain CHRELOP term
+			{ $$ = cmpchain_extend($2, $1, $3); }
+	;
+
+termeqop:	eqopchain %prec PREC_LOW
+			{ $$ = cmpchain_finish($1); }
+	|	term NCEQOP term
+			{ $$ = newBINOP($2, 0, scalar($1), scalar($3)); }
+	|	termeqop NCEQOP
+			{ yyerror("syntax error"); YYERROR; }
+	|	termeqop CHEQOP
+			{ yyerror("syntax error"); YYERROR; }
+	;
+
+eqopchain:	term CHEQOP term
+			{ $$ = cmpchain_start($2, $1, $3); }
+	|	eqopchain CHEQOP term
+			{ $$ = cmpchain_extend($2, $1, $3); }
+	;
 
 /* Unary operators and terms */
 termunop : '-' term %prec UMINUS                       /* -$x */
@@ -1035,20 +1126,12 @@ anonymous:	'[' expr ']'
 			{ $$ = newANONHASH($2); }
 	|	HASHBRACK ';' '}'	%prec '(' /* { } (';' by tokener) */
 			{ $$ = newANONHASH(NULL); }
-	|	ANONSUB startanonsub proto subattrlist block		%prec '('
+	|	ANONSUB     startanonsub proto subattrlist subbody    %prec '('
 			{ SvREFCNT_inc_simple_void(PL_compcv);
 			  $$ = newANONATTRSUB($2, $3, $4, $5); }
-	|	ANONSUB startanonsub remember subsignature subattrlist '{' stmtseq '}'	%prec '('
-			{
-			  OP *body;
-			  if (parser->copline > (line_t)$6)
-			      parser->copline = (line_t)$6;
-			  body = block_end($3,
-				op_append_list(OP_LINESEQ, $4, $7));
-			  SvREFCNT_inc_simple_void(PL_compcv);
-			  $$ = newANONATTRSUB($2, NULL, $5, body);
-			}
-
+	|	ANON_SIGSUB startanonsub subattrlist sigsubbody %prec '('
+			{ SvREFCNT_inc_simple_void(PL_compcv);
+			  $$ = newANONATTRSUB($2, NULL, $3, $4); }
     ;
 
 /* Things called with "do" */
@@ -1206,15 +1289,10 @@ term	:	termbinop
 			    } else
 				$<ival>$ = 0;
 			}
-		    '(' listexpr optrepl ')'
+		    SUBLEXSTART listexpr optrepl SUBLEXEND
 			{ $$ = pmruntime($1, $4, $5, 1, $<ival>2); }
 	|	BAREWORD
 	|	listop
-	|	YADAYADA
-			{
-			  $$ = newLISTOP(OP_DIE, 0, newOP(OP_PUSHMARK, 0),
-				newSVOP(OP_CONST, 0, newSVpvs("Unimplemented")));
-			}
 	|	PLUGEXPR
 	;
 

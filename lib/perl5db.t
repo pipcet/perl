@@ -31,8 +31,6 @@ BEGIN {
     $ENV{PERL_RL} = 'Perl'; # Suppress system Term::ReadLine::Gnu
 }
 
-plan(123);
-
 my $rc_filename = '.perldb';
 
 sub rc {
@@ -2816,6 +2814,152 @@ SKIP:
         'Can quit from the debugger after a wrong RemotePort',
     );
 }
+
+{
+    # perl 5 RT #120174 - 'p' command
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'b 2',
+                'c',
+                'p@abc',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-120174',
+        }
+    );
+
+    $wrapper->contents_like(
+        qr/1234/,
+        q/RT 120174: p command can be invoked without space after 'p'/,
+    );
+}
+
+{
+    # perl 5 RT #120174 - 'x' command on array
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'b 2',
+                'c',
+                'x@abc',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-120174',
+        }
+    );
+
+    $wrapper->contents_like(
+        qr/0\s+1\n1\s+2\n2\s+3\n3\s+4/ms,
+        q/RT 120174: x command can be invoked without space after 'x' before array/,
+    );
+}
+
+{
+    # perl 5 RT #120174 - 'x' command on array ref
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'b 2',
+                'c',
+                'x\@abc',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-120174',
+        }
+    );
+
+    $wrapper->contents_like(
+        qr/\s+0\s+1\n\s+1\s+2\n\s+2\s+3\n\s+3\s+4/ms,
+        q/RT 120174: x command can be invoked without space after 'x' before array ref/,
+    );
+}
+
+{
+    # perl 5 RT #120174 - 'x' command on hash ref
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'b 4',
+                'c',
+                'x\%xyz',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-120174',
+        }
+    );
+
+    $wrapper->contents_like(
+        qr/\s+'alpha'\s+=>\s+'beta'\n\s+'gamma'\s+=>\s+'delta'/ms,
+        q/RT 120174: x command can be invoked without space after 'x' before hash ref/,
+    );
+}
+
+{
+    # gh #17660
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'b 13',
+                'c',
+                'i Foo',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/gh-17660',
+        }
+    );
+
+    $wrapper->output_unlike(
+        qr/Undefined subroutine &mro::get_linear_isa/ms,
+        q/mro needs to be loaded/,
+       );
+    $wrapper->output_like(
+        qr/Foo 1.000, Bar 2.000/,
+        q/check for reasonable result/,
+       );
+}
+
+SKIP:
+{
+    $Config{usethreads}
+      or skip "need threads to test debugging threads", 1;
+    my $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'c',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-124203',
+        }
+    );
+
+    $wrapper->output_like(qr/In the thread/, "[perl #124203] the thread ran");
+
+    $wrapper->output_like(qr/Finished/, "[perl #124203] debugger didn't deadlock");
+
+    $wrapper = DebugWrap->new(
+        {
+            cmds =>
+            [
+                'c',
+                'q',
+            ],
+            prog => '../lib/perl5db/t/rt-124203b',
+        }
+    );
+
+    $wrapper->output_like(qr/In the thread/, "[perl #124203] the thread ran (lvalue)");
+
+    $wrapper->output_like(qr/Finished One/, "[perl #124203] debugger didn't deadlock (lvalue)");
+}
+
+done_testing();
 
 END {
     1 while unlink ($rc_filename, $out_fn);

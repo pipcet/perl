@@ -104,7 +104,7 @@ END {
 eval '$ENV{"FOO"} = "hi there";';	# check that ENV is inited inside eval
 # cmd.exe will echo 'variable=value' but 4nt will echo just the value
 # -- Nikola Knezevic
-if ($Is_MSWin32)  { like `set FOO`, qr/^(?:FOO=)?hi there$/; }
+if ($Is_MSWin32)  { like `set FOO`, qr/^(?:FOO=)?hi there$/m; }
 elsif ($Is_VMS)   { is `write sys\$output f\$trnlnm("FOO")`, "hi there\n"; }
 else              { is `echo \$FOO`, "hi there\n"; }
 
@@ -483,8 +483,7 @@ SKIP:  {
 }
 
 # Check that we don't auto-load packages
-foreach (['powie::!', 'Errno'],
-	 ['powie::+', 'Tie::Hash::NamedCapture']) {
+foreach (['powie::!', 'Errno']) {
     my ($symbol, $package) = @$_;
     SKIP: {
 	(my $extension = $package) =~ s|::|/|g;
@@ -613,10 +612,9 @@ SKIP: {
 }
 
 SKIP: {
-    skip_if_miniperl("No XS in miniperl", 3);
+    skip_if_miniperl("No XS in miniperl", 1);
 
-    for ( [qw( %- Tie::Hash::NamedCapture )], [qw( $[ arybase )],
-          [qw( %! Errno )] ) {
+    for ( [qw( %! Errno )] ) {
 	my ($var, $mod) = @$_;
 	my $modfile = $mod =~ s|::|/|gr . ".pm";
 	fresh_perl_is
@@ -643,6 +641,14 @@ is ${^LAST_FH}, \*STDIN, '${^LAST_FH} after another tell';
 # This also tests that ${^LAST_FH} is a weak reference:
 is ${^LAST_FH}, undef, '${^LAST_FH} is undef when PL_last_in_gv is NULL';
 
+# all of these would set PL_last_in_gv to a non-GV which would
+# assert when referenced by the magic for ${^LAST_FH}.
+# The approach to fixing this has changed (#128263), but it's still useful
+# to check each op.
+for my $code ('tell $0', 'sysseek $0, 0, 0', 'seek $0, 0, 0', 'eof $0') {
+    fresh_perl_is("$code; print defined \${^LAST_FH} ? qq(not ok\n) : qq(ok\n)", "ok\n",
+                  undef, "check $code doesn't define \${^LAST_FH}");
+}
 
 # $|
 fresh_perl_is 'print $| = ~$|', "1\n", {switches => ['-l']},

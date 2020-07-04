@@ -29,6 +29,10 @@ BEGIN {
         print "1..0 # $^O cannot handle this test\n";
         exit(0);
     }
+    if ( $ENV{'PERL_BUILD_PACKAGING'} ) {
+        print "1..0 # This distro may have modified some files in cpan/. Skipping validation. \n";
+        exit 0;
+    }
     require '../regen/regen_lib.pl';
 }
 
@@ -74,7 +78,7 @@ points to just one target.  (The destination pod could have two targets with
 the same name.)
 
 The way that the C<LE<lt>E<gt>> pod command works (for links outside the pod)
-is to actually create a link to C<search.cpan.org> with an embedded query for
+is to actually create a link to C<metacpan.org> with an embedded query for
 the desired pod or man page.  That means that links outside the distribution
 are valid.  podcheck.t doesn't verify the validity of such links, but instead
 keeps a database of those known to be valid.  This means that if a link to a
@@ -93,8 +97,15 @@ missing from the C<LE<lt>E<gt>> pod command.
 A pod can't be linked to unless it has a unique name.
 And a NAME should have a dash and short description after it.
 
+=item Occurrences of the Unicode replacement character
+
+L<Pod::Simple> replaces bytes that aren't valid according to the document's
+encoding (declared or auto-detected) with C<\N{REPLACEMENT CHARACTER}>.
+
+=back
+
 If the C<PERL_POD_PEDANTIC> environment variable is set or the C<--pedantic>
-command line argument is provided then a few more checks are made.
+command line argument is provided, then a few more checks are made.
 The pedantic checks are:
 
 =over
@@ -129,7 +140,7 @@ After inspecting them and
 deciding that they aren't real problems, it is possible to shut up this program
 about them, unlike base Pod::Checker.  For a valid link to an outside module
 or man page, call podcheck.t with the C<--add_link> option to add it to the
-the database of known links; for other causes, call podcheck.t with the C<--regen>
+database of known links; for other causes, call podcheck.t with the C<--regen>
 option to regenerate the entire database.  This tells it that all existing
 issues are to not be mentioned again.
 
@@ -154,8 +165,6 @@ actually are.
 Another problem is that there is currently no check that modules listed as
 valid in the database
 actually are.  Thus any errors introduced there will remain there.
-
-=back
 
 =head2 Specially handled pods
 
@@ -276,7 +285,7 @@ L<Pod::Checker>
 my $vms_re = qr/ \. (?: com )? /x;
 
 # Some filenames in the MANIFEST match $vms_re, and so must not be handled the
-# same way that that the special vms ones are.  This hash lists those.
+# same way that the special vms ones are.  This hash lists those.
 my %special_vms_files;
 
 # This is to get this to work across multiple file systems, including those
@@ -361,6 +370,7 @@ my $multiple_targets = "There is more than one target";
 my $duplicate_name = "Pod NAME already used";
 my $no_name = "There is no NAME";
 my $missing_name_description = "The NAME should have a dash and short description after it";
+my $replacement_character = "Unicode replacement character found";
 # the pedantic warnings messages
 my $line_length = "Verbatim line length including indents exceeds $MAX_LINE_LENGTH by";
 my $C_not_linked = "? Should you be using L<...> instead of";
@@ -422,13 +432,14 @@ my $non_pods = qr/ (?: \.
                            | $dl_ext  # dynamic libraries
                            | gif      # GIF images (example files from CGI.pm)
                            | eg       # examples from libnet
-                           | core
+                           | core .*
                        )
                        $
                     ) | ~$ | \ \(Autosaved\)\.txt$ # Other editor droppings
                            | ^cxx\$demangler_db\.$ # VMS name mangler database
                            | ^typemap\.?$          # typemap files
                            | ^(?i:Makefile\.PL)$
+                           | ^core (?: $ | \. .* )
                 /x;
 
 # Matches something that looks like a file name, but is enclosed in C<...>
@@ -456,7 +467,7 @@ my $C_path_re = qr{ ^
 
 # '.PL' files should be excluded, as they aren't final pods, but often contain
 # material used in generating pods, and so can look like a pod.  We can't use
-# the regexp above because case sensisitivity is important for these, as some
+# the regexp above because case sensitivity is important for these, as some
 # '.pl' files should be examined for pods.  Instead look through the MANIFEST
 # for .PL files and get their full path names, so we can exclude each such
 # file explicitly.  This works because other porting tests prohibit having two
@@ -660,7 +671,7 @@ package My::Pod::Checker {      # Extend Pod::Checker
     my %linkable_item;      # Bool: if the latest =item is linkable.  It isn't
                             # for bullet and number lists
     my %linkable_nodes;     # Pod::Checker adds all =items to its node list,
-                            # but not all =items are linkable to
+                            # but not all =items are linkable-to
     my %running_CFL_text;   # The current text that is being accumulated until
                             # an end_FOO is found, and this includes any C<>,
                             # F<>, or L<> directives.
@@ -670,7 +681,7 @@ package My::Pod::Checker {      # Extend Pod::Checker
     my %command_count;      # Number of commands seen
     my %seen_pod_cmd;       # true if have =pod earlier
     my %skip;               # is SKIP set for this pod
-    my %start_line;         # the first input line number in the the thing
+    my %start_line;         # the first input line number in the thing
                             # currently being worked on
 
     sub DESTROY {
@@ -853,6 +864,16 @@ package My::Pod::Checker {      # Extend Pod::Checker
             $running_CFL_text{$addr} .= $text;
         }
 
+        # do this line-by-line so we can get the right line number
+        my @lines = split /^/, $running_simple_text{$addr};
+        for my $i (0..$#lines) {
+            if ($lines[$i] =~ m/\N{REPLACEMENT CHARACTER}/) {
+                $self->poderror({ -line => $start_line{$addr} + $i,
+                    -msg => $replacement_character,
+                    parameter => "possibly invalid ". $self->encoding . " input at character " . pos $lines[$i],
+                });
+            }
+        }
         return $return;
     }
 
@@ -1144,7 +1165,7 @@ package My::Pod::Checker {      # Extend Pod::Checker
 
         # Warn if looks like a file or link enclosed instead by this C<>
         if ($C_text{$addr} =~ qr/^ $C_path_re $/x) {
-            # Here it does look like it could be be a file path or a link.
+            # Here it does look like it could be a file path or a link.
             # But some varieties of regex patterns could also fit with what we
             # have so far.  Weed those out as best we can.  '/foo/' is almost
             # certainly meant to be a pattern, as is '/foo/g'.
@@ -1188,7 +1209,7 @@ package My::Pod::Checker {      # Extend Pod::Checker
         # link would be lost, as the L<> would be gone.
         $CFL_text{$addr} = "C<$CFL_text{$addr}>";
 
-        # Add this text to the the whole running total only if popping this
+        # Add this text to the whole running total only if popping this
         # directive off the stack leaves it empty.  As long as something is on
         # the stack, it gets added to $CFL_text (just above).  It is only
         # entirely constructed when the stack is empty.
@@ -1338,28 +1359,6 @@ package My::Pod::Checker {      # Extend Pod::Checker
     }
 }
 
-package Tie_Array_to_FH {  # So printing actually goes to an array
-
-    my %array;
-
-    sub TIEHANDLE {
-        my $class = shift;
-        my $array_ref = shift;
-
-        my $self = bless \do{ my $anonymous_scalar }, $class;
-        $array{Scalar::Util::refaddr $self} = $array_ref;
-
-        return $self;
-    }
-
-    sub PRINT {
-        my $self = shift;
-        push @{$array{Scalar::Util::refaddr $self}}, @_;
-        return 1;
-    }
-}
-
-
 my %filename_to_checker; # Map a filename to its pod checker object
 my %id_to_checker;       # Map a checksum to its pod checker object
 my %nodes;               # key is filename, values are nodes in that file.
@@ -1454,7 +1453,7 @@ if ($show_counts) {
     note("-----\n" . Text::Tabs::expand("$total\tknown potential issues"));
     if (%suppressed_files) {
         note("\nFiles that have all messages of at least one type suppressed:");
-        note(join ",", keys %suppressed_files);
+        note(join ",", sort keys %suppressed_files);
     }
     exit 0;
 }
@@ -1532,19 +1531,19 @@ sub my_safer_print {    # print, with error checking for outputting to db
 sub extract_pod {   # Extracts just the pod from a file; returns undef if file
                     # doesn't exist
     my $filename = shift;
-    use Pod::Parser;
 
-    my @pod;
-
-    # Arrange for the output of Pod::Parser to be collected in an array we can
-    # look at instead of being printed
-    tie *ALREADY_FH, 'Tie_Array_to_FH', \@pod;
     if (open my $in_fh, '<:bytes', $filename) {
-        my $parser = Pod::Parser->new();
-        $parser->parse_from_filehandle($in_fh, *ALREADY_FH);
+        use Pod::Simple::JustPod;
+        my $parser = Pod::Simple::JustPod->new();
+        $parser->no_errata_section(1);
+        $parser->no_whining(1);
+        $parser->source_filename($filename);
+        my $output;
+        $parser->output_string( \$output );
+        $parser->parse_lines( <$in_fh>, undef );
         close $in_fh;
 
-        return join "", @pod
+        return $output;
     }
 
     # The file should already have been opened once to get here, so if that
@@ -1634,7 +1633,8 @@ sub is_pod_file {
 
     if ($filename =~ / (?: ^(cpan|lib|ext|dist)\/ )
                         | $only_for_interior_links_re
-                    /x) {
+                    /x)
+    {
         $digest->add($contents);
         $digests{$filename} = $digest->digest;
 
@@ -1782,7 +1782,6 @@ foreach my $filename (@files) {
             next FILE;
         }
         $parsed = 1;
-
     }
 
     if ($checker->num_errors() < 0) {   # Returns negative if not a pod
@@ -2085,6 +2084,10 @@ foreach my $filename (@files) {
             my $problem_count = scalar @{$problems{$filename}{$message}};
             $total_known += $problem_count;
             next if $known_problems{$canonical}{$message} < 0;
+
+            # If we have new problems not previously known, we output all of
+            # such problems, as we can't know which are really new and which
+            # not
             if ($problem_count > $known_problems{$canonical}{$message}) {
 
                 # Here we are about to output all the messages for this type,
@@ -2151,7 +2154,7 @@ if (! $regen
     && ! ok (keys %known_problems == 0, "The known problems database ($data_dir/known_pod_issues.dat) includes no references to non-existent files"))
 {
     note("The following files were not found: "
-         . join ", ", keys %known_problems);
+         . join ", ", sort keys %known_problems);
     note("They will automatically be removed from the db the next time");
     note("  cd t; ./perl -I../lib porting/podcheck.t --regen");
     note("is run");

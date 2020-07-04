@@ -73,18 +73,10 @@ cat >_cflags.c <<__EOT__
 #include <setjmp.h>
 /* Just in case the inclusion of perl.h did not
  * pull in enough system headers, let's try again. */
-#ifdef I_STDLIB
 #include <stdlib.h>
-#endif
-#ifdef I_STDDEF
 #include <stddef.h>
-#endif
-#ifdef I_STDARG
 #include <stdarg.h>
-#endif
-#ifdef I_LIMITS
 #include <limits.h>
-#endif
 #ifdef I_DIRENT
 #include <dirent.h>
 #endif
@@ -164,7 +156,7 @@ esac
 
 case "$gccversion" in
 '') ;;
-[12]*) ;; # gcc versions 1 (gasp!) and 2 are not good for this.
+[12].*) ;; # gcc versions 1 (gasp!) and 2 are not good for this.
 Intel*) ;; # # Is that you, Intel C++?
 #
 # NOTE 1: the -std=c89 without -pedantic is a bit pointless.
@@ -186,10 +178,17 @@ Intel*) ;; # # Is that you, Intel C++?
 # -std=c89 before -ansi
 # -pedantic* before -Werror=d-a-s
 #
-*)  for opt in -std=c89 -ansi $pedantic \
-		-Werror=declaration-after-statement \
-		-Wextra -W \
-		-Wc++-compat -Wwrite-strings
+*) warns="-std=c89 -ansi $pedantic \
+	-Werror=pointer-arith \
+	-Wextra -W \
+	-Wc++-compat -Wwrite-strings"
+   # declaration after statement is normal in C++ rather than an
+   # extension and compilers complain if we try to warn about it
+   case "$d_cplusplus" in
+   define) ;;
+   *) warns="$warns -Werror=declaration-after-statement" ;;
+   esac
+   for opt in $warns
     do
        case " $ccflags " in
        *" $opt "*) ;; # Skip if already there.
@@ -241,6 +240,16 @@ Intel*) ;; # # Is that you, Intel C++?
                   # -pedantic* (with -std=c89) covers -Werror=d-a-s.
                   case "$stdflags$warn" in
                   *-std=c89*-pedantic*|*-pedantic*-std=c89*) ;;
+                  *)
+                     echo "cflags.SH: Adding $opt."
+                     warn="$warn $opt"
+                     ;;
+                  esac
+                  ;;
+               -Werror=pointer-arith)
+                  # -pedantic* covers -Werror=p-a
+                  case "$warn" in
+                  *-pedantic*) ;;
                   *)
                      echo "cflags.SH: Adding $opt."
                      warn="$warn $opt"
@@ -367,7 +376,8 @@ case "$cc" in
   ;;
 esac
 
-for f in -Wdeclaration-after-statement -Werror=declaration-after-statement
+for f in -Wdeclaration-after-statement -Werror=declaration-after-statement \
+         -Wpointer-arith -Werror=pointer-arith
 do
   case "$cppflags" in
   *"$f"*)
@@ -515,7 +525,6 @@ for file do
     toke) optimize=-O0 ;;
     esac
 
-    # Can we perhaps use $ansi2knr here
     echo "$cc -c -DPERL_CORE $ccflags $stdflags $optimize $warn $extra"
 
     . $TOP/config.sh

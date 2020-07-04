@@ -133,7 +133,7 @@ for (@tests) {
             if ($cond =~ /^\d/) {
                 # >comment skip: hpux:10.20<
                 my $vsn = $cond;
-                # Only compare on the the first pair of digits, as numeric
+                # Only compare on the first pair of digits, as numeric
                 # compares do not like 2.6.10-3mdksmp or 2.6.8-24.10-default
                 s/^(\d+(\.\d+)?).*/$1/ for $osv, $vsn;
                 $skip = $vsn ? ($osv <= $vsn ? 1 : 0) : 1;
@@ -427,8 +427,8 @@ __END__
 >%.0f<      >0<           >0<
 >%.0f<      >2**38<       >274877906944<   >Should have exact int'l rep'n<
 >%.0f<      >0.1<         >0<
->%.0f<      >0.6<         >1<              >Known to fail with (irix|nonstop-ux|powerux); -DHAS_LDBL_SPRINTF_BUG may fix<
->%.0f<      >-0.6<        >-1<             >Known to fail with (irix|nonstop-ux|powerux); -DHAS_LDBL_SPRINTF_BUG may fix<
+>%.0f<      >0.6<         >1<              >Known to fail with (irix|nonstop-ux); -DHAS_LDBL_SPRINTF_BUG may fix<
+>%.0f<      >-0.6<        >-1<             >Known to fail with (irix|nonstop-ux); -DHAS_LDBL_SPRINTF_BUG may fix<
 >%.0f<      >1.6<         >2<
 >%.0f<      >-1.6<        >-2<
 >%.0f<      >1<           >1<

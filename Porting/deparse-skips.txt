@@ -73,7 +73,6 @@ re/overload.t             # [perl #123385] %^H output
 re/pat_advanced.t         # [perl #123417]
 re/pat_rt_report.t        # malformed utf8 constant; also /\c@/ -> /\c\@/
 re/pat.t                  # [perl #90590]
-re/regexp_unicode_prop.t
 re/regex_sets.t
 re/reg_fold.t             # [perl #123385] %^H output
 re/rxcode.t               # checks regexp stringification
@@ -157,14 +156,12 @@ uni/variables.t
 ../cpan/bignum/t/scope_r.t
 ../cpan/Math-BigInt/t/constant.t
 ../cpan/Math-BigInt/t/const_mbf.t
-../cpan/Module-Metadata/t/metadata.t
-../cpan/Scalar-List-Utils/t/subname.t
 ../cpan/Scalar-List-Utils/t/uniq.t
-../cpan/Socket/t/sockaddr.t
 ../cpan/Term-Cap/test.pl
 ../cpan/Test-Simple/t/Legacy/Builder/carp.t
 ../cpan/Test-Simple/t/Legacy/fail-more.t
 ../cpan/Test-Simple/t/Legacy/is_deeply_fail.t
+../cpan/Test-Simple/t/Legacy/no_plan.t         # hard-coded line numbers
 ../cpan/Test-Simple/t/Legacy/plan_bad.t
 ../cpan/Test-Simple/t/Legacy/plan.t
 ../cpan/Test-Simple/t/Legacy/subtest/line_numbers.t
@@ -181,15 +178,11 @@ uni/variables.t
 ../dist/Data-Dumper/t/trailing_comma.t
 ../dist/Exporter/t/Exporter.t
 ../dist/Filter-Simple/t/data.t
-../dist/IO/t/io_sel.t
-../dist/PathTools/t/cwd.t
-../dist/Storable/t/blessed.t
 ../dist/Storable/t/croak.t
 ../dist/threads/t/blocks.t
 ../ext/B/t/b.t
 ../ext/B/t/optree_constants.t
 ../ext/B/t/optree_samples.t
-../ext/B/t/xref.t
 ../ext/Devel-Peek/t/Peek.t
 ../ext/IPC-Open3/t/IPC-Open2.t
 ../ext/IPC-Open3/t/IPC-Open3.t
@@ -200,7 +193,7 @@ uni/variables.t
 ../ext/XS-APItest/t/fetch_pad_names.t
 ../ext/XS-APItest/t/svpeek.t
 ../ext/XS-APItest/t/synthetic_scope.t
-../lib/Benchmark.t
+../lib/Config.t                         # Config_heavy.pl fns getting output
 ../lib/charnames.t
 ../lib/dumpvar.t
 ../lib/English.t

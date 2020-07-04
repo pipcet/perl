@@ -88,8 +88,8 @@ F<regen/opcodes> based on various criteria. These are:
 which respectively return a list of op names where:
 
     field 3 of regen/opcodes specifies 'ck_foo' as the check function;
-    field 4 of of regen/opcodes has flag or type 'X' set;
-    argument field N of of regen/opcodes matches 'XYZ';
+    field 4 of regen/opcodes has flag or type 'X' set;
+    argument field N of regen/opcodes matches 'XYZ';
 
 For example
 
@@ -300,7 +300,8 @@ for (qw(nextstate dbstate)) {
 addbits($_, 7 => qw(OPpLVAL_INTRO LVINTRO))
     for qw(gvsv rv2sv rv2hv rv2gv rv2av aelem helem aslice split
            hslice delete padsv padav padhv enteriter entersub padrange
-           pushmark cond_expr refassign lvref lvrefslice lvavref multideref),
+           pushmark cond_expr refassign lvref lvrefslice lvavref multideref
+           multiconcat),
            'list', # this gets set in my_attrs() for some reason
            ;
 
@@ -512,14 +513,19 @@ addbits('sassign',
 
 for (qw(trans transr)) {
     addbits($_,
-        0 => qw(OPpTRANS_FROM_UTF   <UTF),
-        1 => qw(OPpTRANS_TO_UTF     >UTF),
+        # There is a character in the lhs representable not using UTF-8 whose
+        # replacement requires UTF-8.
+        0 => qw(OPpTRANS_CAN_FORCE_UTF8 CAN_FORCE_UTF8),
+
+        1 => qw(OPpTRANS_USE_SVOP   USE_SVOP),# This is implemented as an svop
+                                              # vs pvop
         2 => qw(OPpTRANS_IDENTICAL  IDENT),   # right side is same as left
-        3 => qw(OPpTRANS_SQUASH     SQUASH),
+        3 => qw(OPpTRANS_SQUASH     SQUASH),  # /s
         # 4 is used for OPpTARGET_MY
-        5 => qw(OPpTRANS_COMPLEMENT COMPL),
-        6 => qw(OPpTRANS_GROWS      GROWS),
-        7 => qw(OPpTRANS_DELETE     DEL),
+        5 => qw(OPpTRANS_COMPLEMENT COMPL),   # /c
+        6 => qw(OPpTRANS_GROWS      GROWS),   # replacement chars longer than
+                                              #    src chars
+        7 => qw(OPpTRANS_DELETE     DEL),     # /d
     );
 }
 
@@ -670,8 +676,8 @@ addbits('sort',
     2 => qw(OPpSORT_REVERSE  REV    ), # Reversed sort
     3 => qw(OPpSORT_INPLACE  INPLACE), # sort in-place; eg @a = sort @a
     4 => qw(OPpSORT_DESCEND  DESC   ), # Descending sort
-    5 => qw(OPpSORT_QSORT    QSORT  ), # Use quicksort (not mergesort)
     6 => qw(OPpSORT_STABLE   STABLE ), # Use a stable algorithm
+    7 => qw(OPpSORT_UNSTABLE UNSTABLE),# Use an unstable algorithm
 );
 
 
@@ -805,6 +811,25 @@ addbits('rv2hv',
 for (qw(index rindex)) {
     addbits($_, 6 => qw(OPpINDEX_BOOLNEG NEG));
 }
+
+
+addbits('concat',
+    # OPf_STACKED normally indicates .=; but it also gets set to optimise
+    # $a . $b . $c into ($a . $b) .= $c
+    # so that the first concat's PADTMP (which holds the result of $a.$b)
+    # can be reused. Set a flag in this case to help deparse and warn
+    # distinguish the cases.
+    6 => qw(OPpCONCAT_NESTED NESTED),
+);
+
+
+addbits('multiconcat',
+  # 7       OPpLVAL_INTRO
+    6 => qw(OPpMULTICONCAT_APPEND APPEND), # $x .= ....
+    5 => qw(OPpMULTICONCAT_FAKE   FAKE),   # sprintf() optimised to MC.
+  # 4       OPpTARGET_MY
+    3 => qw(OPpMULTICONCAT_STRINGIFY STRINGIFY), # "$a$b..."
+);
 
 
 

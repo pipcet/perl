@@ -11,11 +11,11 @@ TAP::Parser::Iterator::Array - Iterator for array-based TAP sources
 
 =head1 VERSION
 
-Version 3.39
+Version 3.42
 
 =cut
 
-our $VERSION = '3.39';
+our $VERSION = '3.42';
 
 =head1 SYNOPSIS
 

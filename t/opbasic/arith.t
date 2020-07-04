@@ -13,28 +13,30 @@ BEGIN {
 print "1..186\n";
 
 sub try ($$$) {
-   print +($_[1] ? "ok" : "not ok"), " $_[0] - $_[2]\n";
+   print +($_[1] ? "ok" : "not ok") . " $_[0] - $_[2]\n";
 }
 sub tryeq ($$$$) {
+  my $status;
   if ($_[1] == $_[2]) {
-    print "ok $_[0]";
+    $status = "ok $_[0]";
   } else {
-    print "not ok $_[0] # $_[1] != $_[2]";
+    $status = "not ok $_[0] # $_[1] != $_[2]";
   }
-  print " - $_[3]\n";
+  print "$status - $_[3]\n";
 }
 sub tryeq_sloppy ($$$$) {
+  my $status;
   if ($_[1] == $_[2]) {
-    print "ok $_[0]";
+    $status = "ok $_[0]";
   } else {
     my $error = abs (($_[1] - $_[2]) / $_[1]);
     if ($error < 1e-9) {
-      print "ok $_[0] # $_[1] is close to $_[2], \$^O eq $^O";
+      $status = "ok $_[0] # $_[1] is close to $_[2], \$^O eq $^O";
     } else {
-      print "not ok $_[0] # $_[1] != $_[2]";
+      $status = "not ok $_[0] # $_[1] != $_[2]";
     }
   }
-  print " - $_[3]\n";
+  print "$status - $_[3]\n";
 }
 
 my $T = 1;
@@ -423,9 +425,8 @@ print "not "x($a ne $b), "ok ", $T++, qq ' - something % \$1 vs "\$1"\n';
 
 my $vms_no_ieee;
 if ($^O eq 'VMS') {
-  use vars '%Config';
-  eval {require Config; import Config};
-  $vms_no_ieee = 1 unless defined($Config{useieee});
+  eval { require Config };
+  $vms_no_ieee = 1 unless defined($Config::Config{useieee});
 }
 
 if ($^O eq 'vos') {

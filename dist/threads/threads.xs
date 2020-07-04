@@ -35,6 +35,17 @@
 #  endif
 #endif
 
+#ifndef CLANG_DIAG_IGNORE
+# define CLANG_DIAG_IGNORE(x)
+# define CLANG_DIAG_RESTORE
+#endif
+#ifndef CLANG_DIAG_IGNORE_STMT
+# define CLANG_DIAG_IGNORE_STMT(x) CLANG_DIAG_IGNORE(x) NOOP
+# define CLANG_DIAG_RESTORE_STMT CLANG_DIAG_RESTORE NOOP
+# define CLANG_DIAG_IGNORE_DECL(x) CLANG_DIAG_IGNORE(x) dNOOP
+# define CLANG_DIAG_RESTORE_DECL CLANG_DIAG_RESTORE dNOOP
+#endif
+
 #ifdef USE_ITHREADS
 
 #ifdef __amigaos4__
@@ -569,6 +580,8 @@ S_ithread_run(void * arg)
     S_set_sigmask(&thread->initial_sigmask);
 #endif
 
+    thread_locale_init();
+
     PL_perl_destruct_level = 2;
 
     {
@@ -654,6 +667,8 @@ S_ithread_run(void * arg)
     MUTEX_UNLOCK(&thread->mutex);
     MUTEX_UNLOCK(&MY_POOL.create_destruct_mutex);
 
+    thread_locale_term();
+
     /* Exit application if required */
     if (exit_app) {
         (void)S_jmpenv_run(aTHX_ 2, thread, NULL, &exit_app, &exit_code);
@@ -661,7 +676,7 @@ S_ithread_run(void * arg)
     }
 
     /* At this point, the interpreter may have been freed, so call
-     * free in the the context of of the 'main' interpreter which
+     * free in the context of the 'main' interpreter which
      * can't have been freed due to the veto_cleanup mechanism.
      */
     aTHX = MY_POOL.main_thread.interp;
@@ -870,15 +885,18 @@ S_ithread_create(
            reallocated (and hence move) as a side effect of calls to
            perl_clone() and sv_dup_inc(). Hence copy the parameters
            somewhere under our control first, before duplicating.  */
+        if (num_params) {
 #if (PERL_VERSION > 8)
-        Copy(parent_perl->Istack_base + params_start, array, num_params, SV *);
+            Copy(parent_perl->Istack_base + params_start, array, num_params, SV *);
 #else
-        Copy(parent_perl->Tstack_base + params_start, array, num_params, SV *);
+            Copy(parent_perl->Tstack_base + params_start, array, num_params, SV *);
 #endif
-        while (num_params--) {
-            *array = sv_dup_inc(*array, clone_param);
-            ++array;
+            while (num_params--) {
+                *array = sv_dup_inc(*array, clone_param);
+                ++array;
+            }
         }
+
 #if (PERL_VERSION > 13) || (PERL_VERSION == 13 && PERL_SUBVERSION > 1)
         Perl_clone_params_del(clone_param);
 #endif
@@ -1016,15 +1034,10 @@ S_ithread_create(
     MUTEX_UNLOCK(&my_pool->create_destruct_mutex);
     return (thread);
 
-#if defined(CLANG_DIAG_IGNORE)
-    CLANG_DIAG_IGNORE(-Wthread-safety);
+    CLANG_DIAG_IGNORE_STMT(-Wthread-safety);
     /* warning: mutex 'thread->mutex' is not held on every path through here [-Wthread-safety-analysis] */
-#endif
 }
-/* perl.h defines CLANG_DIAG_* but only in 5.24+ */
-#if defined(CLANG_DIAG_RESTORE)
-CLANG_DIAG_RESTORE
-#endif
+CLANG_DIAG_RESTORE_DECL;
 
 #endif /* USE_ITHREADS */
 
@@ -1162,10 +1175,10 @@ ithread_create(...)
 
         /* Let thread run. */
         /* See S_ithread_run() for more detail. */
-        CLANG_DIAG_IGNORE(-Wthread-safety);
+        CLANG_DIAG_IGNORE_STMT(-Wthread-safety);
         /* warning: releasing mutex 'thread->mutex' that was not held [-Wthread-safety-analysis] */
         MUTEX_UNLOCK(&thread->mutex);
-        CLANG_DIAG_RESTORE;
+        CLANG_DIAG_RESTORE_STMT;
 
         /* XSRETURN(1); - implied */
 

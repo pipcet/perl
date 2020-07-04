@@ -21,8 +21,9 @@ BEGIN {
     set_up_inc('../lib');
 }
 
+our @global;
 
-plan tests => 497;  # Update this when adding/deleting tests.
+plan tests => 506;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -1066,7 +1067,6 @@ sub run_tests {
     {
 	use Tie::Array;
 
-	use vars '@global';
 	local @global;
 	my @array;
 	my @refs = (0, \@array, 2);
@@ -1278,6 +1278,58 @@ sub run_tests {
         is $max, 2, "RT #126697";
     }
 
+    # RT #132772
+    #
+    # Ensure that optimisation of OP_CONST into OP_MULTICONCAT doesn't
+    # leave any freed ops in the execution path. This is associated
+    # with rpeep() being called before optimize_optree(), which causes
+    # gv/rv2sv to be prematurely optimised into gvsv, confusing
+    # S_maybe_multiconcat when it tries to reorganise a concat subtree
+    # into a multiconcat list
+
+    {
+        my $a = "a";
+        local $b = "b"; # not lexical, so optimised to OP_GVSV
+        local $_ = "abc";
+        ok /^a(??{ $b."c" })$/,  "RT #132772 - compile time";
+        ok /^$a(??{ $b."c" })$/, "RT #132772 - run time";
+        my $qr = qr/^a(??{ $b."c" })$/;
+        ok /$qr/,  "RT #132772 - compile time qr//";
+        $qr = qr/(??{ $b."c" })$/;
+        ok /^a$qr$/,  "RT #132772 -  compile time qr// compound";
+        $qr = qr/$a(??{ $b."c" })$/;
+        ok /^$qr$/,  "RT #132772 -  run time qr//";
+    }
+
+    # RT #133687
+    # mixing compile-time (?(?{code})) with run-time code blocks
+    # was failing, because the second pass through the parser
+    # (which compiles the runtime code blocks) was failing to adequately
+    # mask the compile-time code blocks to shield them from a second
+    # compile: /X(?{...})Y/ was being correctly masked as /X________Y/
+    # but /X(?(?{...}))Y/ was being incorrectly masked as
+    # /X(?________)Y/
+
+    {
+        use re 'eval';
+        my $runtime_re = '(??{ "A"; })';
+        ok "ABC" =~ /^ $runtime_re (?(?{ 1; })BC)    $/x, 'RT #133687 yes';
+        ok "ABC" =~ /^ $runtime_re (?(?{ 0; })xy|BC) $/x, 'RT #133687 yes|no';
+    }
+
+    # RT #134208
+    # when the string being matched was an SvTEMP and the re_eval died,
+    # the SV's magic was being restored after the SV was freed.
+    # Give ASan something to play with.
+
+    {
+        my $a;
+        no warnings 'uninitialized';
+        eval { "$a $1" =~ /(?{ die })/ };
+        pass("SvTEMP 1");
+        eval { sub { " " }->() =~ /(?{ die })/ };
+        pass("SvTEMP 2");
+    }
 
 } # End of sub run_tests
 

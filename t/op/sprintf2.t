@@ -684,6 +684,13 @@ for my $t (@hexfloat) {
             }
         }
     }
+    if (!$ok && $^O eq "netbsd" && $t->[1] eq "exp(1)") {
+      SKIP:
+        {
+            skip "NetBSD's expl() is just exp() in disguise", 1;
+        }
+        next;
+    }
     ok($ok, "'$format' '$arg' -> '$result' cf '$expected'");
 }
 
@@ -808,7 +815,25 @@ SKIP: {
     for my $t (@subnormals) {
 	# Note that "0x1p+2" is not considered numeric,
 	# since neither is "0x12", hence the eval.
-        my $s = sprintf($t->[1], eval $t->[0]);
+        my $f = eval $t->[0];
+        # XXX under g++ -ansi, pow(2.0, -1074) returns 0 rather
+        # than the smallest denorm number. Which means that very small
+        # string literals on a perl compiled under g++ may be seen as 0.
+        # This is either a bug in the g++ math library or scan_num() in
+        # toke.c; but in either case, its not a bug in sprintf(), so
+        # skip the test.
+        local $::TODO = "denorm literals treated as zero"
+            if $f == 0.0 && $t->[2] ne '0x0p+0';
+
+        # Versions of Visual C++ earlier than 2015 (VC14, cl.exe version 19.x)
+        # fail three tests here - see perl #133982.
+        local $::TODO = "Visual C++ has problems prior to VC14"
+            if $^O eq 'MSWin32' and $Config{cc} eq 'cl' and
+               $Config{ccversion} =~ /^(\d+)/ and $1 < 19 and
+               (($t->[0] eq '3e-322' and ($t->[1] eq '%a' or $t->[1] eq '%.4a')) or
+                 $t->[0] eq '7e-322');
+
+        my $s = sprintf($t->[1], $f);
         is($s, $t->[2], "subnormal @$t got $s");
     }
 
@@ -819,6 +844,10 @@ SKIP: {
 
     # [rt.perl.org #128889]
     is(sprintf("%.*a", -1, 1.03125), "0x1.08p+0", "[rt.perl.org #128889]");
+
+    # [rt.perl.org #134008]
+    is(sprintf("%.*a", -99999, 1.03125), "0x1.08p+0", "[rt.perl.org #134008]");
+    is(sprintf("%.*a", -100000,0), "0x0p+0", "negative precision ignored by format_hexfp");
 
     # [rt.perl.org #128890]
     is(sprintf("%a", 0x1.18p+0), "0x1.18p+0");
@@ -1039,5 +1068,114 @@ like sprintf("%p", 0+'NaN'), qr/^[0-9a-f]+$/, "%p and NaN";
     }
 }
 
+# multiconcat: only one scalar assign at most should be optimised away
+
+{
+    local our $x1 = '';
+    local our $x2 = '';
+    my ($a, $b) = qw(abcd wxyz);
+    $x1 = ($x2 = sprintf("%s%s", $a, $b));
+    is $x1, "abcdwxyz", "\$x1 = \$x2 = sprintf(): x1";
+    is $x2, "abcdwxyz", "\$x1 = \$x2 = sprintf(): x2";
+
+    my $y1 = '';
+    my $y2 = '';
+    $y1 = ($y2 = sprintf("%s%s", $a, $b));
+    is $y1, "abcdwxyz", "\$y1 = \$y2 = sprintf(): y1";
+    is $y2, "abcdwxyz", "\$y1 = \$y2 = sprintf(): y2";
+}
+
+# multiconcat: mutator optimisation
+
+{
+    my $lex = 'abc';
+    my $a1 = 'pqr';
+    my $a2 = 'xyz';
+    $lex .= sprintf "(%s,%s)", $a1, $a2;
+    is $lex, "abc(pqr,xyz)", "\$lex .= sprintf ...";
+
+    local our $pkg = "def";
+    $pkg .= sprintf "(%s,%s)", $a1, $a2;
+    is $pkg, "def(pqr,xyz)", "\$pkg .= sprintf ...";
+
+    my @ary;
+    $ary[3] = "ghi";
+    $ary[3] .= sprintf "(%s,%s)", $a1, $a2;
+    is $ary[3], "ghi(pqr,xyz)", "\$ary[3] .= sprintf ...";
+}
+
+# multiconcat: strings with 0x80..0xff chars and/or utf8 chars
+
+{
+    my $plain  = "abc";
+    my $s80    = "d\x{80}e";
+    my $s81    = "h\x{81}i";
+    my $utf8   = "f\x{100}g";
+    my $res;
+
+    $res = sprintf "-%s-%s-\x{90}-%s-\x{91}-%s-\x{92}",
+                        $plain, $s80, $utf8, $s81;
+    is $res, "-abc-d\x{80}e-\x{90}-f\x{100}g-\x{91}-h\x{81}i-\x{92}",
+                "multiconcat 80.ff handling";
+
+    $res = sprintf "%s \x{101} %s", $plain, $plain;
+    is $res, "abc \x{101} abc", "multiconcat p u p";
+
+    $res = sprintf "%s \x{101} %s", $plain, $utf8;
+    is $res, "abc \x{101} f\x{100}g", "multiconcat p u u";
+}
+
+# check /INTRO flag set correctly on multiconcat
+
+{
+    my $a = "a";
+    my $b = "b";
+    my $x;
+    {
+        $x = sprintf "-%s-%s-", $a, $b;
+    }
+    is $x, "-a-b-", "no INTRO flag on non-my";
+    for (1,2) {
+        my $y;
+        is $y, undef, "INTRO flag on my: $_";
+        $y = sprintf "-%s-%s-", $b, $a;
+        is $y, "-b-a-", "INTRO flag on my - result: $_";
+    }
+}
+
+# variant chars in constant format (not utf8, but change if upgraded)
+
+{
+    my $x = "\x{100}";
+    my $y = sprintf "%sa\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80", $x;
+    is $y, "\x{100}a\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80",
+        "\\x80 in format";
+}
+
+foreach(
+    0.0, -0.0,
+    4503599627370501, -4503599627370501,
+    4503599627370503, -4503599627370503,
+) {
+    is sprintf("%.0f", $_), sprintf("%-.0f", $_), "special-case %.0f on $_";
+}
+
+# large uvsize needed so the large width is parsed properly
+# large sizesize needed so the STRLEN check doesn't
+if ($Config{intsize} == 4 && $Config{uvsize} > 4 && $Config{sizesize} > 4) {
+    eval { my $x = sprintf("%7000000000E", 0) };
+    like($@, qr/^Numeric format result too large at /,
+         "croak for very large numeric format results");
+}
+
+{
+    # gh #17221
+    my ($off1, $off2);
+    my $x = eval { sprintf "%n0%n\x{100}", $off1, $off2 };
+    is($@, "", "no exception");
+    is($x, "0\x{100}", "reasonable result");
+    is($off1, 0, "offset at start");
+    is($off2, 1, "offset after 0");
+}
 
 done_testing();

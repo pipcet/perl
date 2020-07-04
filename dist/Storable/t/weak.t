@@ -29,10 +29,12 @@ sub BEGIN {
 }
 
 use Test::More 'no_plan';
-use Storable qw (store retrieve freeze thaw nstore nfreeze);
+use Storable qw (store retrieve freeze thaw nstore nfreeze dclone);
 require 'testlib.pl';
-use vars '$file';
+our $file;
 use strict;
+
+# $Storable::flags = Storable::FLAGS_COMPAT;
 
 sub tester {
   my ($contents, $sub, $testersub, $what) = @_;
@@ -140,4 +142,12 @@ foreach (@tests) {
 
   $stored = nfreeze $input;
   tester($stored, \&freeze_and_thaw, $testsub, 'network string');
+}
+
+{
+    # [perl #134179] sv_upgrade from type 7 down to type 1
+    my $foo = [qr//,[]];
+    weaken($foo->[1][0][0] = $foo->[1]);
+    my $out = dclone($foo); # croaked here
+    is_deeply($out, $foo, "check they match");
 }

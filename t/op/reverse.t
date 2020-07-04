@@ -6,7 +6,7 @@ BEGIN {
     set_up_inc('../lib');
 }
 
-plan tests => 23;
+plan tests => 25;
 
 is(reverse("abc"), "cba", 'simple reverse');
 
@@ -91,3 +91,17 @@ use Tie::Array;
     my $c = scalar reverse($b);
     is($a, $c, 'Unicode string double reversal matches original');
 }
+
+{
+    # https://github.com/Perl/perl5/issues/17737
+    # utf8 length magic handling
+    # threw an assertion failure with -DDEBUGGING
+    my @x;
+    push @x, length reverse for split "-", "\x{100}--0";
+    is($x[1], 0, "check set magic being called to clear length magic");
+}
+
+# [perl #132544] stack pointer used to go wild when nullary reverse
+# required extending the stack
+for(0..1000){()=(0..$_,scalar reverse )}
+pass "extending the stack without crashing";

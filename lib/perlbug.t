@@ -42,7 +42,7 @@ sub _dump {
         return 1;
 }
 
-plan(22);
+plan(25);
 
 
 # check -d
@@ -69,7 +69,7 @@ like($result, qr/Please use perlbug interactively./,
 # test -okay (mostly noninteractive)
 $result = runperl( progfile => $extracted_program,
                    args     => ['-okay', '-F', $testreport] );
-like($result, qr/Message saved/, 'build report saved');
+like($result, qr/Report saved/, 'build report saved');
 like(_slurp($testreport), qr/Perl reported to build OK on this system/,
      'build report looks sane');
 unlink $testreport;
@@ -82,7 +82,7 @@ $result = runperl( progfile => $extracted_program,
                                 '-nokay',
                                 '-e', 'file',
                                 '-F', $testreport] );
-like($result, qr/Message saved/, 'build failure report saved');
+like($result, qr/Report saved/, 'build failure report saved');
 like(_slurp($testreport), qr/This is a build failure report for perl/,
      'build failure report looks sane');
 unlink $testreport;
@@ -104,7 +104,7 @@ $result = runperl( progfile => $extracted_program,
                                 '-b', 'testreportbody',
                                 '-e', 'file',
                                 '-F', $testreport] );
-like($result, qr/Message saved/, 'fake bug report saved');
+like($result, qr/Report saved/, 'fake bug report saved');
 my $contents = _slurp($testreport);
 like($contents, qr/Subject: testingperlbug/,
      'Subject included in fake bug report');
@@ -136,7 +136,7 @@ $result = runperl( progfile => $extracted_program,
                                 '-p', $attachment,
                                 '-e', 'file',
                                 '-F', $testreport] );
-like($result, qr/Message saved/, 'fake bug report saved');
+like($result, qr/Report saved/, 'fake bug report saved');
 my $contents = _slurp($testreport);
 unlink $testreport, $body, $attachment;
 like($contents, qr/Subject: testing perlbug/,
@@ -153,3 +153,13 @@ for (split(/\n/, $contents)) {
 }
 ok($maxlen1 < 1000, "[perl #128020] long body lines are wrapped: maxlen $maxlen1");
 ok($maxlen2 > 1000, "long attachment lines are not wrapped: maxlen $maxlen2");
+
+$result = runperl( progfile => $extracted_program, stderr => 1, args => ['-o'] ); # Invalid option
+like($result, qr/^\s*This program is designed/, "No leading error messages with help from invalid arg.");
+
+$result = runperl( progfile => $extracted_program, stderr => 1, args => ['--help'] ); # Invalid option
+like($result, qr/^\s*perlbug version \d+\.\d+\n+This program is designed/, "No leading error messages with help from --help and version is displayed.");
+
+$result = runperl( progfile => $extracted_program, stderr => 1, args => ['--version'] ); # Invalid option
+like($result, qr/^perlbug version \d+\.\d+\n$/, "No leading error messages with --version");
+#print $result;

@@ -33,9 +33,15 @@
 #include "EXTERN.h"
 #define PERL_IN_PP_CTL_C
 #include "perl.h"
+#include "feature.h"
 
 #define RUN_PP_CATCHABLY(thispp) \
     STMT_START { if (CATCH_GET) return docatch(thispp); } STMT_END
+
+#define dopopto_cursub() \
+    (PL_curstackinfo->si_cxsubix >= 0        \
+        ? PL_curstackinfo->si_cxsubix        \
+        : dopoptosub_at(cxstack, cxstack_ix))
 
 #define dopoptosub(plop)	dopoptosub_at(cxstack, (plop))
 
@@ -50,7 +56,7 @@ PP(pp_wantarray)
 	if (!(cx = caller_cx(1,NULL))) RETPUSHUNDEF;
     }
     else {
-      cxix = dopoptosub(cxstack_ix);
+      cxix = dopopto_cursub();
       if (cxix < 0)
 	RETPUSHUNDEF;
       cx = &cxstack[cxix];
@@ -213,9 +219,9 @@ PP(pp_substcont)
 	SvGETMAGIC(TOPs); /* possibly clear taint on $1 etc: #67962 */
 
     	/* See "how taint works" above pp_subst() */
-	if (SvTAINTED(TOPs))
-	    cx->sb_rxtainted |= SUBST_TAINT_REPL;
 	sv_catsv_nomg(dstr, POPs);
+	if (UNLIKELY(TAINT_get))
+	    cx->sb_rxtainted |= SUBST_TAINT_REPL;
 	if (CxONCE(cx) || s < orig ||
                 !CALLREGEXEC(rx, s, cx->sb_strend, orig,
 			     (s == m), cx->sb_targ, NULL,
@@ -256,7 +262,7 @@ PP(pp_substcont)
 		(void)SvPOK_only_UTF8(targ);
 	    }
 
-	    /* update the taint state of various various variables in
+	    /* update the taint state of various variables in
 	     * preparation for final exit.
 	     * See "how taint works" above pp_subst() */
 	    if (TAINTING_get) {
@@ -275,6 +281,24 @@ PP(pp_substcont)
                     cBOOL(cx->sb_rxtainted &
 			  (SUBST_TAINT_STR|SUBST_TAINT_PAT|SUBST_TAINT_REPL))
                 );
+
+                /* sv_magic(), when adding magic (e.g.taint magic), also
+                 * recalculates any pos() magic, converting any byte offset
+                 * to utf8 offset. Make sure pos() is reset before this
+                 * happens rather than using the now invalid value (since
+                 * we've just replaced targ's pvx buffer with the
+                 * potentially shorter dstr buffer). Normally (i.e. in
+                 * non-taint cases), pos() gets removed a few lines later
+                 * with the SvSETMAGIC().
+                 */
+                {
+                    MAGIC *mg;
+                    mg = mg_find_mglob(targ);
+                    if (mg) {
+                        MgBYTEPOS_set(mg, targ, SvPVX(targ), -1);
+                    }
+                }
+
 		SvTAINT(TARG);
 	    }
 	    /* PL_tainted must be correctly set for this mg_set */
@@ -325,7 +349,7 @@ PP(pp_substcont)
     }
     if (old != rx)
 	(void)ReREFCNT_inc(rx);
-    /* update the taint state of various various variables in preparation
+    /* update the taint state of various variables in preparation
      * for calling the code block.
      * See "how taint works" above pp_subst() */
     if (TAINTING_get) {
@@ -715,6 +739,7 @@ PP(pp_formline)
 		SvSETMAGIC(sv);
 		break;
 	    }
+            /* FALLTHROUGH */
 
 	case FF_LINESNGL: /* process ^*  */
 	    chopspace = 0;
@@ -780,7 +805,8 @@ PP(pp_formline)
 			 * for safety */
 			grow = linemax;
 			while (linemark--)
-			    s += UTF8SKIP(s);
+			    s += UTF8_SAFE_SKIP(s,
+                                            (U8 *) SvEND(PL_formtarget));
 			linemark = s - (U8*)SvPVX(PL_formtarget);
 		    }
 		    /* Easy. They agree.  */
@@ -855,21 +881,18 @@ PP(pp_formline)
                 arg &= ~(FORM_NUM_POINT|FORM_NUM_BLANK);
 #ifdef USE_QUADMATH
                 {
-                    const char* qfmt = quadmath_format_single(fmt);
                     int len;
-                    if (!qfmt)
+                    if (!quadmath_format_valid(fmt))
                         Perl_croak_nocontext("panic: quadmath invalid format \"%s\"", fmt);
-                    len = quadmath_snprintf(t, max, qfmt, (int) fieldsize, (int) arg, value);
+                    len = quadmath_snprintf(t, max, fmt, (int) fieldsize, (int) arg, value);
                     if (len == -1)
-                        Perl_croak_nocontext("panic: quadmath_snprintf failed, format \"%s\"", qfmt);
-                    if (qfmt != fmt)
-                        Safefree(fmt);
+                        Perl_croak_nocontext("panic: quadmath_snprintf failed, format \"%s\"", fmt);
                 }
 #else
                 /* we generate fmt ourselves so it is safe */
-                GCC_DIAG_IGNORE(-Wformat-nonliteral);
+                GCC_DIAG_IGNORE_STMT(-Wformat-nonliteral);
                 len = my_snprintf(t, max, fmt, (int) fieldsize, (int) arg, value);
-                GCC_DIAG_RESTORE;
+                GCC_DIAG_RESTORE_STMT;
 #endif
                 PERL_MY_SNPRINTF_POST_GUARD(len, max);
                 RESTORE_LC_NUMERIC();
@@ -915,7 +938,7 @@ PP(pp_formline)
 			    *t++ = ' ';
 		    }
 		    s1 = t - 3;
-		    if (strnEQ(s1,"   ",3)) {
+		    if (strBEGINs(s1,"   ")) {
 			while (s1 > SvPVX_const(PL_formtarget) && isSPACE(s1[-1]))
 			    s1--;
 		    }
@@ -1176,14 +1199,18 @@ PP(pp_flip)
 }
 
 /* This code tries to decide if "$left .. $right" should use the
-   magical string increment, or if the range is numeric (we make
-   an exception for .."0" [#18165]). AMS 20021031. */
+   magical string increment, or if the range is numeric. Initially,
+   an exception was made for *any* string beginning with "0" (see
+   [#18165], AMS 20021031), but now that is only applied when the
+   string's length is also >1 - see the rules now documented in
+   perlop [#133695] */
 
 #define RANGE_IS_NUMERIC(left,right) ( \
 	SvNIOKp(left)  || (SvOK(left)  && !SvPOKp(left))  || \
 	SvNIOKp(right) || (SvOK(right) && !SvPOKp(right)) || \
 	(((!SvOK(left) && SvOK(right)) || ((!SvOK(left) || \
-          looks_like_number(left)) && SvPOKp(left) && *SvPVX_const(left) != '0')) \
+          looks_like_number(left)) && SvPOKp(left) \
+          && !(*SvPVX_const(left) == '0' && SvCUR(left)>1 ) )) \
          && (!SvOK(right) || looks_like_number(right))))
 
 PP(pp_flop)
@@ -1360,10 +1387,12 @@ Perl_dowantarray(pTHX)
     return (gimme == G_VOID) ? G_SCALAR : gimme;
 }
 
+/* note that this function has mostly been superseded by Perl_gimme_V */
+
 U8
 Perl_block_gimme(pTHX)
 {
-    const I32 cxix = dopoptosub(cxstack_ix);
+    const I32 cxix = dopopto_cursub();
     U8 gimme;
     if (cxix < 0)
 	return G_VOID;
@@ -1378,7 +1407,7 @@ Perl_block_gimme(pTHX)
 I32
 Perl_is_lvalue_sub(pTHX)
 {
-    const I32 cxix = dopoptosub(cxstack_ix);
+    const I32 cxix = dopopto_cursub();
     assert(cxix >= 0);  /* We should only be called from inside subs */
 
     if (CxLVAL(cxstack + cxix) && CvLVALUE(cxstack[cxix].blk_sub.cv))
@@ -1718,9 +1747,13 @@ Perl_die_unwind(pTHX_ SV *msv)
 	 * perls 5.13.{1..7} which had late setting of $@ without this
 	 * early-setting hack.
 	 */
-	if (!(in_eval & EVAL_KEEPERR))
+	if (!(in_eval & EVAL_KEEPERR)) {
+            /* remove any read-only/magic from the SV, so we don't
+               get infinite recursion when setting ERRSV */
+            SANE_ERRSV();
 	    sv_setsv_flags(ERRSV, exceptsv,
                         (SV_GMAGIC|SV_DO_COW_SVSETSV|SV_NOSTEAL));
+        }
 
 	if (in_eval & EVAL_KEEPERR) {
 	    Perl_ck_warner(aTHX_ packWARN(WARN_MISC), "\t(in cleanup) %" SVf,
@@ -1782,8 +1815,10 @@ Perl_die_unwind(pTHX_ SV *msv)
              */
             S_pop_eval_context_maybe_croak(aTHX_ cx, exceptsv, 2);
 
-	    if (!(in_eval & EVAL_KEEPERR))
+	    if (!(in_eval & EVAL_KEEPERR)) {
+                SANE_ERRSV();
 		sv_setsv(ERRSV, exceptsv);
+            }
 	    PL_restartjmpenv = restartjmpenv;
 	    PL_restartop = restartop;
 	    JMPENV_JUMP(3);
@@ -1830,7 +1865,7 @@ frame for the sub call itself.
 const PERL_CONTEXT *
 Perl_caller_cx(pTHX_ I32 count, const PERL_CONTEXT **dbcxp)
 {
-    I32 cxix = dopoptosub(cxstack_ix);
+    I32 cxix = dopopto_cursub();
     const PERL_CONTEXT *cx;
     const PERL_CONTEXT *ccstack = cxstack;
     const PERL_SI *top_si = PL_curstackinfo;
@@ -1991,7 +2026,8 @@ PP(pp_caller)
 
 	if (AvMAX(PL_dbargs) < AvFILLp(ary) + off)
 	    av_extend(PL_dbargs, AvFILLp(ary) + off);
-	Copy(AvALLOC(ary), AvARRAY(PL_dbargs), AvFILLp(ary) + 1 + off, SV*);
+        if (AvFILLp(ary) + 1 + off)
+            Copy(AvALLOC(ary), AvARRAY(PL_dbargs), AvFILLp(ary) + 1 + off, SV*);
 	AvFILLp(PL_dbargs) = AvFILLp(ary) + off;
     }
     mPUSHi(CopHINTS_get(cx->blk_oldcop));
@@ -2005,16 +2041,7 @@ PP(pp_caller)
             mask = &PL_sv_undef ;
         else if (old_warnings == pWARN_ALL ||
 		  (old_warnings == pWARN_STD && PL_dowarn & G_WARN_ON)) {
-	    /* Get the bit mask for $warnings::Bits{all}, because
-	     * it could have been extended by warnings::register */
-	    SV **bits_all;
-	    HV * const bits = get_hv("warnings::Bits", 0);
-	    if (bits && (bits_all=hv_fetchs(bits, "all", FALSE))) {
-		mask = newSVsv(*bits_all);
-	    }
-	    else {
-		mask = newSVpvn(WARN_ALLstring, WARNsize) ;
-	    }
+	    mask = newSVpvn(WARN_ALLstring, WARNsize) ;
 	}
         else
             mask = newSVpvn((char *) (old_warnings + 1), old_warnings[0]);
@@ -2440,7 +2467,7 @@ PP(pp_return)
 {
     dSP; dMARK;
     PERL_CONTEXT *cx;
-    const I32 cxix = dopoptosub(cxstack_ix);
+    const I32 cxix = dopopto_cursub();
 
     assert(cxstack_ix >= 0);
     if (cxix < cxstack_ix) {
@@ -2651,6 +2678,9 @@ PP(pp_redo)
     return redo_op;
 }
 
+#define UNENTERABLE (OP *)1
+#define GOTO_DEPTH 64
+
 STATIC OP *
 S_dofindlabel(pTHX_ OP *o, const char *label, STRLEN len, U32 flags, OP **opstack, OP **oplimit)
 {
@@ -2665,15 +2695,34 @@ S_dofindlabel(pTHX_ OP *o, const char *label, STRLEN len, U32 flags, OP **opstac
 	o->op_type == OP_SCOPE ||
 	o->op_type == OP_LEAVELOOP ||
 	o->op_type == OP_LEAVESUB ||
-	o->op_type == OP_LEAVETRY)
+	o->op_type == OP_LEAVETRY ||
+	o->op_type == OP_LEAVEGIVEN)
     {
 	*ops++ = cUNOPo->op_first;
-	if (ops >= oplimit)
-	    Perl_croak(aTHX_ "%s", too_deep);
     }
+    else if (oplimit - opstack < GOTO_DEPTH) {
+      if (o->op_flags & OPf_KIDS
+	  && cUNOPo->op_first->op_type == OP_PUSHMARK) {
+	*ops++ = UNENTERABLE;
+      }
+      else if (o->op_flags & OPf_KIDS && PL_opargs[o->op_type]
+	  && OP_CLASS(o) != OA_LOGOP
+	  && o->op_type != OP_LINESEQ
+	  && o->op_type != OP_SREFGEN
+	  && o->op_type != OP_ENTEREVAL
+	  && o->op_type != OP_GLOB
+	  && o->op_type != OP_RV2CV) {
+	OP * const kid = cUNOPo->op_first;
+	if (OP_GIMME(kid, 0) != G_SCALAR || OpHAS_SIBLING(kid))
+	    *ops++ = UNENTERABLE;
+      }
+    }
+    if (ops >= oplimit)
+	Perl_croak(aTHX_ "%s", too_deep);
     *ops = 0;
     if (o->op_flags & OPf_KIDS) {
 	OP *kid;
+	OP * const kid1 = cUNOPo->op_first;
 	/* First try all the kids at this level, since that's likeliest. */
 	for (kid = cUNOPo->op_first; kid; kid = OpSIBLING(kid)) {
 	    if (kid->op_type == OP_NEXTSTATE || kid->op_type == OP_DBSTATE) {
@@ -2696,25 +2745,50 @@ S_dofindlabel(pTHX_ OP *o, const char *label, STRLEN len, U32 flags, OP **opstac
 	    }
 	}
 	for (kid = cUNOPo->op_first; kid; kid = OpSIBLING(kid)) {
+	    bool first_kid_of_binary = FALSE;
 	    if (kid == PL_lastgotoprobe)
 		continue;
 	    if (kid->op_type == OP_NEXTSTATE || kid->op_type == OP_DBSTATE) {
 	        if (ops == opstack)
 		    *ops++ = kid;
-		else if (ops[-1]->op_type == OP_NEXTSTATE ||
-		         ops[-1]->op_type == OP_DBSTATE)
+		else if (ops[-1] != UNENTERABLE
+		      && (ops[-1]->op_type == OP_NEXTSTATE ||
+		          ops[-1]->op_type == OP_DBSTATE))
 		    ops[-1] = kid;
 		else
 		    *ops++ = kid;
 	    }
+	    if (kid == kid1 && ops != opstack && ops[-1] == UNENTERABLE) {
+		first_kid_of_binary = TRUE;
+		ops--;
+	    }
 	    if ((o = dofindlabel(kid, label, len, flags, ops, oplimit)))
 		return o;
+	    if (first_kid_of_binary)
+		*ops++ = UNENTERABLE;
 	}
     }
     *ops = 0;
     return 0;
 }
 
+
+static void
+S_check_op_type(pTHX_ OP * const o)
+{
+    /* Eventually we may want to stack the needed arguments
+     * for each op.  For now, we punt on the hard ones. */
+    /* XXX This comment seems to me like wishful thinking.  --sprout */
+    if (o == UNENTERABLE)
+	Perl_croak(aTHX_
+                  "Can't \"goto\" into a binary or list expression");
+    if (o->op_type == OP_ENTERITER)
+        Perl_croak(aTHX_
+                  "Can't \"goto\" into the middle of a foreach loop");
+    if (o->op_type == OP_ENTERGIVEN)
+        Perl_croak(aTHX_
+                  "Can't \"goto\" into a \"given\" block");
+}
 
 /* also used for: pp_dump() */
 
@@ -2724,7 +2798,6 @@ PP(pp_goto)
     OP *retop = NULL;
     I32 ix;
     PERL_CONTEXT *cx;
-#define GOTO_DEPTH 64
     OP *enterops[GOTO_DEPTH];
     const char *label = NULL;
     STRLEN label_len = 0;
@@ -2765,7 +2838,7 @@ PP(pp_goto)
 		DIE(aTHX_ "Goto undefined subroutine");
 	    }
 
-	    cxix = dopoptosub(cxstack_ix);
+	    cxix = dopopto_cursub();
             if (cxix < 0) {
                 DIE(aTHX_ "Can't goto subroutine outside a subroutine");
             }
@@ -2887,6 +2960,9 @@ PP(pp_goto)
                  * this is a cx_popblock(), less all the stuff we already did
                  * for cx_topblock() earlier */
                 PL_curcop = cx->blk_oldcop;
+                /* this is cx_popsub, less all the stuff we already did */
+                PL_curstackinfo->si_cxsubix = cx->blk_sub.old_cxsubix;
+
                 CX_POP(cx);
 
 		/* Push a mark for the start of arglist */
@@ -3057,12 +3133,14 @@ PP(pp_goto)
 	if (leaving_eval && *enterops && enterops[1]) {
 	    I32 i;
             for (i = 1; enterops[i]; i++)
-                if (enterops[i]->op_type == OP_ENTERITER)
-                    DIE(aTHX_ "Can't \"goto\" into the middle of a foreach loop");
+                S_check_op_type(aTHX_ enterops[i]);
 	}
 
 	if (*enterops && enterops[1]) {
-	    I32 i = enterops[1]->op_type == OP_ENTER && in_block ? 2 : 1;
+	    I32 i = enterops[1] != UNENTERABLE
+		 && enterops[1]->op_type == OP_ENTER && in_block
+		    ? 2
+		    : 1;
 	    if (enterops[i])
 		deprecate("\"goto\" to jump into a construct");
 	}
@@ -3081,13 +3159,15 @@ PP(pp_goto)
 
 	if (*enterops && enterops[1]) {
 	    OP * const oldop = PL_op;
-	    ix = enterops[1]->op_type == OP_ENTER && in_block ? 2 : 1;
+	    ix = enterops[1] != UNENTERABLE
+	      && enterops[1]->op_type == OP_ENTER && in_block
+		   ? 2
+		   : 1;
 	    for (; enterops[ix]; ix++) {
 		PL_op = enterops[ix];
-		/* Eventually we may want to stack the needed arguments
-		 * for each op.  For now, we punt on the hard ones. */
-		if (PL_op->op_type == OP_ENTERITER)
-		    DIE(aTHX_ "Can't \"goto\" into the middle of a foreach loop");
+		S_check_op_type(aTHX_ PL_op);
+		DEBUG_l( Perl_deb(aTHX_ "pp_goto: Entering %s\n",
+					 OP_NAME(PL_op)));
 		PL_op->op_ppaddr(aTHX);
 	    }
 	    PL_op = oldop;
@@ -3275,7 +3355,7 @@ Perl_find_runcv_where(pTHX_ U8 cond, IV arg, U32 *db_seqp)
 		    return cv;
 		case FIND_RUNCV_level_eq:
 		    if (level++ != arg) continue;
-		    /* GERONIMO! */
+                    /* FALLTHROUGH */
 		default:
 		    return cv;
 		}
@@ -3371,7 +3451,11 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
 	SAVEGENERICSV(PL_curstash);
 	PL_curstash = (HV *)CopSTASH(PL_curcop);
 	if (SvTYPE(PL_curstash) != SVt_PVHV) PL_curstash = NULL;
-	else SvREFCNT_inc_simple_void(PL_curstash);
+	else {
+	    SvREFCNT_inc_simple_void(PL_curstash);
+	    save_item(PL_curstname);
+	    sv_sethek(PL_curstname, HvNAME_HEK(PL_curstash));
+	}
     }
     /* XXX:ajgo do we really need to alloc an AV for begin/checkunit */
     SAVESPTR(PL_beginav);
@@ -3399,6 +3483,7 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
     if (clear_hints) {
 	PL_hints = 0;
 	hv_clear(GvHV(PL_hintgv));
+        CLEARFEATUREBITS();
     }
     else {
 	PL_hints = saveop->op_private & OPpEVAL_COPHH
@@ -3416,6 +3501,7 @@ S_doeval_compile(pTHX_ U8 gimme, CV* outside, U32 seq, HV *hh)
 	    /* SAVEHINTS created a new HV in PL_hintgv, which we need to GC */
 	    SvREFCNT_dec(GvHV(PL_hintgv));
 	    GvHV(PL_hintgv) = hh;
+            FETCHFEATUREBITSHH(hh);
 	}
     }
     SAVECOMPILEWARNINGS();
@@ -3556,15 +3642,22 @@ S_check_type_and_open(pTHX_ SV *name)
        errno EACCES, so only do a stat to separate a dir from a real EACCES
        caused by user perms */
 #ifndef WIN32
-    /* we use the value of errno later to see how stat() or open() failed.
-     * We don't want it set if the stat succeeded but we still failed,
-     * such as if the name exists, but is a directory */
-    errno = 0;
-
     st_rc = PerlLIO_stat(p, &st);
 
-    if (st_rc < 0 || S_ISDIR(st.st_mode) || S_ISBLK(st.st_mode)) {
+    if (st_rc < 0)
 	return NULL;
+    else {
+	int eno;
+	if(S_ISBLK(st.st_mode)) {
+	    eno = EINVAL;
+	    goto not_file;
+	}
+	else if(S_ISDIR(st.st_mode)) {
+	    eno = EISDIR;
+	    not_file:
+	    errno = eno;
+	    return NULL;
+	}
     }
 #endif
 
@@ -3576,8 +3669,10 @@ S_check_type_and_open(pTHX_ SV *name)
 	int eno;
 	st_rc = PerlLIO_stat(p, &st);
 	if (st_rc >= 0) {
-	    if(S_ISDIR(st.st_mode) || S_ISBLK(st.st_mode))
-		eno = 0;
+	    if(S_ISDIR(st.st_mode))
+		eno = EISDIR;
+	    else if(S_ISBLK(st.st_mode))
+		eno = EINVAL;
 	    else
 		eno = EACCES;
 	    errno = eno;
@@ -3608,7 +3703,7 @@ S_doopen_pm(pTHX_ SV *name)
     if (!IS_SAFE_PATHNAME(p, namelen, "require"))
         return NULL;
 
-    if (namelen > 3 && memEQs(p + namelen - 3, 3, ".pm")) {
+    if (memENDPs(p, namelen, ".pm")) {
 	SV *const pmcsv = sv_newmortal();
 	PerlIO * pmcio;
 
@@ -3751,6 +3846,7 @@ S_require_file(pTHX_ SV *sv)
     I32 old_savestack_ix;
     const bool op_is_require = PL_op->op_type == OP_REQUIRE;
     const char *const op_name = op_is_require ? "require" : "do";
+    SV ** svp_cached = NULL;
 
     assert(op_is_require || PL_op->op_type == OP_DOFILE);
 
@@ -3759,6 +3855,15 @@ S_require_file(pTHX_ SV *sv)
     name = SvPV_nomg_const(sv, len);
     if (!(name && len > 0 && *name))
         DIE(aTHX_ "Missing or undefined argument to %s", op_name);
+
+#ifndef VMS
+	/* try to return earlier (save the SAFE_PATHNAME check) if INC already got the name */
+	if (op_is_require) {
+		/* can optimize to only perform one single lookup */
+		svp_cached = hv_fetch(GvHVn(PL_incgv), (char*) name, len, 0);
+		if ( svp_cached && (SvGETMAGIC(*svp_cached), SvOK(*svp_cached)) ) RETPUSHYES;
+	}
+#endif
 
     if (!IS_SAFE_PATHNAME(name, len, op_name)) {
         if (!op_is_require) {
@@ -3798,10 +3903,13 @@ S_require_file(pTHX_ SV *sv)
 	unixlen = len;
     }
     if (op_is_require) {
-	SV * const * const svp = hv_fetch(GvHVn(PL_incgv),
-					  unixname, unixlen, 0);
+	/* reuse the previous hv_fetch result if possible */
+	SV * const * const svp = svp_cached ? svp_cached : hv_fetch(GvHVn(PL_incgv), unixname, unixlen, 0);
 	if ( svp ) {
-	    if (*svp != &PL_sv_undef)
+            /* we already did a get magic if this was cached */
+            if (!svp_cached)
+                SvGETMAGIC(*svp);
+	    if (SvOK(*svp))
 		RETPUSHYES;
 	    else
 		DIE(aTHX_ "Attempt to reload %s aborted.\n"
@@ -3833,7 +3941,7 @@ S_require_file(pTHX_ SV *sv)
                    directory, or (*nix) hidden filenames.  Also sanity check
                    that the generated filename ends .pm  */
                 if (!path_searchable || len < 3 || name[0] == '.'
-                    || !memEQ(name + package_len, ".pm", 3))
+                    || !memEQs(name + package_len, len - package_len, ".pm"))
                     DIE(aTHX_ "Bareword in require maps to disallowed filename \"%" SVf "\"", sv);
                 if (memchr(name, 0, package_len)) {
                     /* diag_listed_as: Bareword in require contains "%s" */
@@ -3868,7 +3976,7 @@ S_require_file(pTHX_ SV *sv)
     }
 
     /* ... but if we fail, still search @INC for code references;
-     * these are applied even on on-searchable paths (except
+     * these are applied even on non-searchable paths (except
      * if we got EACESS).
      *
      * For searchable paths, just search @INC normally
@@ -4037,8 +4145,7 @@ S_require_file(pTHX_ SV *sv)
 			continue;
 		    sv_setpv(namesv, unixdir);
 		    sv_catpv(namesv, unixname);
-#else
-#  ifdef __SYMBIAN32__
+#elif defined(__SYMBIAN32__)
 		    if (PL_origfilename[0] &&
 			PL_origfilename[1] == ':' &&
 			!(dir[0] && dir[1] == ':'))
@@ -4050,7 +4157,7 @@ S_require_file(pTHX_ SV *sv)
 		        Perl_sv_setpvf(aTHX_ namesv,
 				       "%s\\%s",
 				       dir, name);
-#  else
+#else
 		    /* The equivalent of		    
 		       Perl_sv_setpvf(aTHX_ namesv, "%s/%s", dir, name);
 		       but without the need to parse the format string, or
@@ -4077,7 +4184,6 @@ S_require_file(pTHX_ SV *sv)
 			SvCUR_set(namesv, dirlen + len + 1);
 			SvPOK_on(namesv);
 		    }
-#  endif
 #endif
 		    TAINT_PROPER(op_name);
 		    tryname = SvPVX_const(namesv);
@@ -4119,12 +4225,12 @@ S_require_file(pTHX_ SV *sv)
 		    SSize_t i;
 		    SV *const msg = newSVpvs_flags("", SVs_TEMP);
 		    SV *const inc = newSVpvs_flags("", SVs_TEMP);
-                    const char *e = name + len - 3; /* possible .pm */
 		    for (i = 0; i <= AvFILL(ar); i++) {
 			sv_catpvs(inc, " ");
 			sv_catsv(inc, *av_fetch(ar, i, TRUE));
 		    }
-		    if (e > name && _memEQs(e, ".pm")) {
+		    if (memENDPs(name, len, ".pm")) {
+                        const char *e = name + len - (sizeof(".pm") - 1);
 			const char *c;
                         bool utf8 = cBOOL(SvUTF8(sv));
 
@@ -4154,7 +4260,7 @@ S_require_file(pTHX_ SV *sv)
                         }
 
                         if (c == e && isIDFIRST_lazy_if_safe(name, e, utf8)) {
-                            sv_catpv(msg, " (you may need to install the ");
+                            sv_catpvs(msg, " (you may need to install the ");
                             for (c = name; c < e; c++) {
                                 if (*c == '/') {
                                     sv_catpvs(msg, "::");
@@ -4163,14 +4269,14 @@ S_require_file(pTHX_ SV *sv)
                                     sv_catpvn(msg, c, 1);
                                 }
                             }
-                            sv_catpv(msg, " module)");
+                            sv_catpvs(msg, " module)");
                         }
 		    }
-		    else if (len >= 2 && memEQ(name + len - 2, ".h", 3)) {
-			sv_catpv(msg, " (change .h to .ph maybe?) (did you run h2ph?)");
+		    else if (memENDs(name, len, ".h")) {
+			sv_catpvs(msg, " (change .h to .ph maybe?) (did you run h2ph?)");
 		    }
-		    else if (len >= 3 && memEQ(name + len - 3, ".ph", 4)) {
-			sv_catpv(msg, " (did you run h2ph?)");
+		    else if (memENDs(name, len, ".ph")) {
+			sv_catpvs(msg, " (did you run h2ph?)");
 		    }
 
 		    /* diag_listed_as: Can't locate %s */
@@ -5162,8 +5268,11 @@ PP(pp_enterwhen)
        to the op that follows the leavewhen.
        RETURNOP calls PUTBACK which restores the stack pointer after the POPs.
     */
-    if (!(PL_op->op_flags & OPf_SPECIAL) && !SvTRUEx(POPs))
+    if (!(PL_op->op_flags & OPf_SPECIAL) && !SvTRUEx(POPs)) {
+	if (gimme == G_SCALAR)
+	    PUSHs(&PL_sv_undef);
 	RETURNOP(cLOGOP->op_other->op_next);
+    }
 
     cx = cx_pushblock(CXt_WHEN, gimme, SP, PL_savestack_ix);
     cx_pushwhen(cx);
@@ -5362,7 +5471,8 @@ S_doparseform(pTHX_ SV *sv)
 	    if (s < send) {
 	        skipspaces = 0;
                 continue;
-            } /* else FALL THROUGH */
+            }
+            /* FALLTHROUGH */
 	case '\n':
 	    arg = s - base;
 	    skipspaces++;

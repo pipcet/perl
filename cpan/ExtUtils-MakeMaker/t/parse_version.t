@@ -23,7 +23,7 @@ my %versions = (q[$VERSION = '1.00']            => '1.00',
                 '$VERSION = undef'              => 'undef',
                 '$wibble  = 1.0'                => undef,
                 q[my $VERSION = '1.01']         => 'undef',
-                q[local $VERISON = '1.02']      => 'undef',
+                q[local $VERSION = '1.02']      => 'undef',
                 q[local $FOO::VERSION = '1.30'] => 'undef',
                 q[if( $Foo::VERSION >= 3.00 ) {]=> 'undef',
                 q[our $VERSION = '1.23';]       => '1.23',
@@ -53,7 +53,7 @@ if( $Has_Version ) {
     $versions{q[$VERSION = v1.2.3]} = 'v1.2.3';
 }
 
-if( $] >= 5.011001 ) {
+if( "$]" >= 5.011001 ) {
     $versions{'package Foo 1.23;'         } = '1.23';
     $versions{'package Foo::Bar 1.23;'    } = '1.23';
     $versions{'package Foo v1.2.3;'       } = 'v1.2.3';
@@ -81,7 +81,7 @@ our $VERSION = 2.34;
 END
 }
 
-if( $] >= 5.014 ) {
+if( "$]" >= 5.014 ) {
     $versions{'package Foo 1.23 { }'         } = '1.23';
     $versions{'package Foo::Bar 1.23 { }'    } = '1.23';
     $versions{'package Foo v1.2.3 { }'       } = 'v1.2.3';
@@ -110,7 +110,7 @@ our $VERSION = 2.34;
 END
 }
 
-if ( $] > 5.009 && $] < 5.012 ) {
+if ( "$]" < 5.012 ) {
   delete $versions{'$VERSION = -1.0'};
 }
 

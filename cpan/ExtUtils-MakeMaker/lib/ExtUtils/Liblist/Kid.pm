@@ -11,8 +11,8 @@ use 5.006;
 
 use strict;
 use warnings;
-our $VERSION = '7.30';
-$VERSION = eval $VERSION;
+our $VERSION = '7.44';
+$VERSION =~ tr/_//d;
 
 use ExtUtils::MakeMaker::Config;
 use Cwd 'cwd';
@@ -49,15 +49,23 @@ sub _unix_os2_ext {
     # $potential_libs
     # this is a rewrite of Andy Dougherty's extliblist in perl
 
+    require Text::ParseWords;
+
     my ( @searchpath );    # from "-L/path" entries in $potential_libs
-    my ( @libpath ) = split " ", $Config{'libpth'} || '';
+    my ( @libpath ) = Text::ParseWords::quotewords( '\s+', 0, $Config{'libpth'} || '' );
     my ( @ldloadlibs, @bsloadlibs, @extralibs, @ld_run_path, %ld_run_path_seen );
     my ( @libs,       %libs_seen );
     my ( $fullname,   @fullname );
     my ( $pwd )   = cwd();    # from Cwd.pm
     my ( $found ) = 0;
 
-    foreach my $thislib ( split ' ', $potential_libs ) {
+    if ( $^O eq 'darwin' or $^O eq 'next' )  {
+        # 'escape' Mach-O ld -framework and -F flags, so they aren't dropped later on
+        $potential_libs =~ s/(^|\s)(-(?:weak_|reexport_|lazy_)?framework)\s+(\S+)/$1-Wl,$2 -Wl,$3/g;
+        $potential_libs =~ s/(^|\s)(-F)\s*(\S+)/$1-Wl,$2 -Wl,$3/g;
+    }
+
+    foreach my $thislib ( Text::ParseWords::quotewords( '\s+', 0, $potential_libs) ) {
         my ( $custom_name ) = '';
 
         # Handle possible linker path arguments.
@@ -82,6 +90,7 @@ sub _unix_os2_ext {
                 $thislib = $self->catdir( $pwd, $thislib );
             }
             push( @searchpath, $thislib );
+            $thislib = qq{"$thislib"} if $thislib =~ / /; # protect spaces if there
             push( @extralibs,  "$ptype$thislib" );
             push( @ldloadlibs, "$rtype$thislib" );
             next;
@@ -201,7 +210,8 @@ sub _unix_os2_ext {
             # Now update library lists
 
             # what do we know about this library...
-            my $is_dyna = ( $fullname !~ /\Q$Config_libext\E\z/ );
+            # "Sounds like we should always assume it's a dynamic library on AIX."
+            my $is_dyna = $^O eq 'aix' ? 1 : ( $fullname !~ /\Q$Config_libext\E\z/ );
             my $in_perl = ( $libs =~ /\B-l:?\Q${thislib}\E\b/s );
 
             # include the path to the lib once in the dynamic linker path

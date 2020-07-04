@@ -6,6 +6,8 @@ BEGIN {
     set_up_inc('../lib');
 }
 
+$| = 0; # test.pl now sets it on, which causes problems here.
+
 use strict;	# Amazed that this hackery can be made strict ...
 use Tie::Scalar;
 
@@ -111,7 +113,7 @@ plan $tests;
 ## Section 1
 ############
 
-use vars qw($fox $multiline $foo $good);
+our ($fox, $multiline, $foo, $good);
 
 format OUT =
 the quick brown @<<
@@ -251,7 +253,7 @@ $right = <<EOT;
 EOT
 
 my $was1 = my $was2 = '';
-use vars '$format2';
+our $format2;
 for (0..10) {           
   # lexical picture
   $^A = '';
@@ -327,6 +329,7 @@ close  OUT4a or die "Could not close: $!";
 is cat('Op_write.tmp'), "Nasdaq dropping\n", 'skipspace inside "${...}"'
     and unlink_all "Op_write.tmp";
 
+our $test1;
 eval <<'EOFORMAT';
 format OUT10 =
 @####.## @0###.##
@@ -336,7 +339,6 @@ EOFORMAT
 
 open(OUT10, '>Op_write.tmp') || die "Can't create Op_write.tmp";
 
-use vars '$test1';
 $test1 = 12.95;
 write(OUT10);
 close OUT10 or die "Could not close: $!";
@@ -1910,7 +1912,7 @@ like $@, qr'Undefined format',
 # This syntax error used to cause a crash, double free, or a least
 # a bad read.
 # See the long-winded explanation at:
-#   https://rt.perl.org/rt3/Ticket/Display.html?id=43425#txn-1144500
+#   https://github.com/Perl/perl5/issues/8953#issuecomment-543978716
 eval q|
 format =
 @

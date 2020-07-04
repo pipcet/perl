@@ -34,10 +34,10 @@ foreach (@{(setup_embed())[0]}) {
   next if @$_ < 2;
   next unless $_->[2]  =~ /warn|(?<!ov)err|(\b|_)die|croak/i;
   # The flag p means that this function may have a 'Perl_' prefix
-  # The flag s means that this function may have a 'S_' prefix
+  # The flag S means that this function may have a 'S_' prefix
   push @functions, $_->[2];
   push @functions, 'Perl_' . $_->[2] if $_->[0] =~ /p/;
-  push @functions, 'S_' . $_->[2] if $_->[0] =~ /s/;
+  push @functions, 'S_' . $_->[2] if $_->[0] =~ /S/;
 };
 push @functions, 'Perl_mess';
 
@@ -49,7 +49,7 @@ my $source_msg_re =
    "(?<routine>\\bDIE\\b|$function_re)";
 my $text_re = '"(?<text>(?:\\\\"|[^"]|"\s*[A-Z_]+\s*")*)"';
 my $source_msg_call_re = qr/$source_msg_re(?:_nocontext)? \s*
-    \((?:aTHX_)? \s*
+    \( (?: \s* Perl_form \( )? (?:aTHX_)? \s*
     (?:packWARN\d*\((?<category>.*?)\),)? \s*
     $text_re /x;
 my $bad_version_re = qr{BADVERSION\([^"]*$text_re};
@@ -76,7 +76,20 @@ my $category_re = qr/ [a-z0-9_:]+?/;    # Note: requires an initial space
 my $severity_re = qr/ . (?: \| . )* /x; # A severity is a single char, but can
                                         # be of the form 'S|P|W'
 my @same_descr;
+my $depth = 0;
 while (<$diagfh>) {
+  if (m/^=over/) {
+    $depth++;
+    next;
+  }
+  if (m/^=back/) {
+    $depth--;
+    next;
+  }
+
+  # Stuff deeper than main level is ignored
+  next if $depth != 1;
+
   if (m/^=item (.*)/) {
     $cur_entry = $1;
 
@@ -141,12 +154,17 @@ while (<$diagfh>) {
   }
 }
 
+if ($depth != 0) {
+    diag ("Unbalance =over/=back.  Fix before proceeding; over - back = " . $depth);
+    exit(1);
+}
+
 foreach my $cur_entry ( keys %entries) {
     next if $entries{$cur_entry}{todo}; # If in this file, won't have a severity
     if (! exists $entries{$cur_entry}{severity}
 
             # If there is no first line, it was two =items in a row, so the
-            # second one is the one with with text, not this one.
+            # second one is the one with text, not this one.
         && exists $entries{$cur_entry}{first_line}
 
             # If the first line refers to another message, no need for severity
@@ -305,6 +323,8 @@ sub check_file {
       # Sometimes the regexp will pick up too much for the category
       # e.g., WARN_UNINITIALIZED), PL_warn_uninit_sv ... up to the next )
       $category && $category =~ s/\).*//s;
+      # Special-case yywarn
+      /yywarn/ and $category = 'syntax';
       if (/win32_croak_not_implemented\(/) {
         $name .= " not implemented!"
       }

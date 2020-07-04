@@ -92,24 +92,6 @@
 #define __attribute__(_arg_)
 #endif
 
-/* HAS_BCMP:
- *	This symbol is defined if the bcmp() routine is available to
- *	compare blocks of memory.
- */
-#define HAS_BCMP	/**/
-
-/* HAS_BCOPY:
- *	This symbol is defined if the bcopy() routine is available to
- *	copy blocks of memory.
- */
-#define HAS_BCOPY	/**/
-
-/* HAS_BZERO:
- *	This symbol is defined if the bzero() routine is available to
- *	set a memory block to 0.
- */
-#define HAS_BZERO	/**/
-
 /* HAS_CHOWN:
  *	This symbol, if defined, indicates that the chown routine is
  *	available.
@@ -128,30 +110,11 @@
  */
 /*#define	HAS_CHSIZE		/ **/
 
-/* HASCONST:
- *	This symbol, if defined, indicates that this C compiler knows about
- *	the const type. There is no need to actually test for that symbol
- *	within your programs. The mere use of the "const" keyword will
- *	trigger the necessary tests.
- */
-#define HASCONST	/**/
-#ifndef HASCONST
-#define const
-#endif
-
 /* HAS_CUSERID:
  *	This symbol, if defined, indicates that the cuserid routine is
  *	available to get character login names.
  */
 #define HAS_CUSERID		/**/
-
-/* HAS_DBL_DIG:
- *	This symbol, if defined, indicates that this system's <float.h>
- *	or <limits.h> defines the symbol DBL_DIG, which is the number
- *	of significant digits in a double precision number.  If this
- *	symbol is not defined, a guess of 15 is usually pretty good.
- */
-#define HAS_DBL_DIG 	/* */
 
 /* HAS_DIFFTIME:
  *	This symbol, if defined, indicates that the difftime routine is
@@ -281,7 +244,7 @@
  *	This symbol, if defined, indicates that the link routine is
  *	available to create hard links.
  */
-/* #define HAS_LINK	/**/
+/* #define HAS_LINK	/ **/
 
 /* HAS_LOCALECONV:
  *	This symbol, if defined, indicates that the localeconv routine is
@@ -299,7 +262,7 @@
  *	This symbol, if defined, indicates that the lstat routine is
  *	available to do file stats on symbolic links.
  */
-/*#define HAS_LSTAT		/**/
+/*#define HAS_LSTAT		/ **/
 
 /* HAS_MBLEN:
  *	This symbol, if defined, indicates that the mblen routine is available
@@ -318,32 +281,6 @@
  *	to covert a multibyte to a wide character.
  */
 #define HAS_MBTOWC		/**/
-
-/* HAS_MEMCMP:
- *	This symbol, if defined, indicates that the memcmp routine is available
- *	to compare blocks of memory.
- */
-#define HAS_MEMCMP	/**/
-
-/* HAS_MEMCPY:
- *	This symbol, if defined, indicates that the memcpy routine is available
- *	to copy blocks of memory.
- */
-#define HAS_MEMCPY	/**/
-
-/* HAS_MEMMOVE:
- *	This symbol, if defined, indicates that the memmove routine is available
- *	to copy potentially overlapping blocks of memory. This should be used
- *	only when HAS_SAFE_BCOPY is not defined. If neither is there, roll your
- *	own version.
- */
-#define HAS_MEMMOVE	/**/
-
-/* HAS_MEMSET:
- *	This symbol, if defined, indicates that the memset routine is available
- *	to set blocks of memory.
- */
-#define HAS_MEMSET	/**/
 
 /* HAS_MKDIR:
  *	This symbol, if defined, indicates that the mkdir routine is available
@@ -445,7 +382,7 @@
  *	This symbol, if defined, indicates that the readlink routine is
  *	available to read the value of a symbolic link.
  */
-/*#define HAS_READLINK		/**/
+/*#define HAS_READLINK		/ **/
 
 /* HAS_RENAME:
  *	This symbol, if defined, indicates that the rename routine is available
@@ -497,7 +434,7 @@
  *	This symbol, if defined, indicates that the setpgid(pid, gpid)
  *	routine is available to set process group ID.
  */
-#define HAS_SETPGID	/**/
+#define HAS_SETPGID	/ **/
 
 /* HAS_SETPGRP2:
  *	This symbol, if defined, indicates that the setpgrp2() (as in DG/UX)
@@ -555,30 +492,11 @@
  */
 #define HAS_SETSID	/**/
 
-/* HAS_STRCHR:
- *	This symbol is defined to indicate that the strchr()/strrchr()
- *	functions are available for string searching. If not, try the
- *	index()/rindex() pair.
- */
-/* HAS_INDEX:
- *	This symbol is defined to indicate that the index()/rindex()
- *	functions are available for string searching.
- */
-#define HAS_STRCHR	/**/
-/*#define HAS_INDEX	/ **/
-
 /* HAS_STRCOLL:
  *	This symbol, if defined, indicates that the strcoll routine is
  *	available to compare strings using collating information.
  */
 #define HAS_STRCOLL	/**/
-
-/* USE_STRUCT_COPY:
- *	This symbol, if defined, indicates that this C compiler knows how
- *	to copy structures.  If undefined, you'll need to use a block copy
- *	routine of some sort instead.
- */
-#define	USE_STRUCT_COPY	/**/
 
 /* HAS_STRTOD:
  *	This symbol, if defined, indicates that the strtod routine is
@@ -602,7 +520,7 @@
  *	This symbol, if defined, indicates that the symlink routine is available
  *	to create symbolic links.
  */
-/*#define HAS_SYMLINK	/**/
+/*#define HAS_SYMLINK	/ **/
 
 /* HAS_SYSCALL:
  *	This symbol, if defined, indicates that the syscall routine is
@@ -657,15 +575,6 @@
  *	available to let the process sleep on a sub-second accuracy.
  */
 /*#define HAS_USLEEP		/ **/
-
-/* HASVOLATILE:
- *	This symbol, if defined, indicates that this C compiler knows about
- *	the volatile declaration.
- */
-#define	HASVOLATILE	/**/
-#ifndef HASVOLATILE
-#define volatile	/* config-skip */
-#endif
 
 /* HAS_WAIT4:
  *	This symbol, if defined, indicates that wait4() exists.
@@ -738,37 +647,11 @@
  */
 #define I_FCNTL	/**/
 
-/* I_FLOAT:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <float.h> to get definition of symbols like DBL_MAX or
- *	DBL_MIN, i.e. machine dependent floating point values.
- */
-#define I_FLOAT		/**/
-
-/* I_LIMITS:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <limits.h> to get definition of symbols like WORD_BIT or
- *	LONG_MAX, i.e. machine dependant limitations.
- */
-#define I_LIMITS		/**/
-
 /* I_LOCALE:
  *	This symbol, if defined, indicates to the C program that it should
  *	include <locale.h>.
  */
 #define	I_LOCALE		/**/
-
-/* I_MATH:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <math.h>.
- */
-#define I_MATH		/**/
-
-/* I_MEMORY:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <memory.h>.
- */
-/*#define I_MEMORY		/ **/
 
 /* I_NET_ERRNO:
  *	This symbol, if defined, indicates that <net/errno.h> exists and 
@@ -781,24 +664,6 @@
  *	include <netinet/in.h>. Otherwise, you may try <sys/in.h>.
  */
 #define I_NETINET_IN	/* config-skip */
-
-/* I_STDDEF:
- *	This symbol, if defined, indicates that <stddef.h> exists and should
- *	be included.
- */
-#define I_STDDEF	/**/
-
-/* I_STDLIB:
- *	This symbol, if defined, indicates that <stdlib.h> exists and should
- *	be included.
- */
-#define I_STDLIB		/**/
-
-/* I_STRING:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <string.h> (USG systems) instead of <strings.h> (BSD systems).
- */
-#define I_STRING		/**/
 
 /* I_SYS_DIR:
  *	This symbol, if defined, indicates to the C program that it should
@@ -909,14 +774,6 @@
  *	include <utime.h>.
  */
 #define I_UTIME		/**/
-
-/* I_VALUES:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <values.h> to get definition of symbols like MINFLOAT or
- *	MAXLONG, i.e. machine dependant limitations.  Probably, you
- *	should use <limits.h> instead, if it is available.
- */
-/*#define I_VALUES		/ **/
 
 /* I_VFORK:
  *	This symbol, if defined, indicates to the C program that it should
@@ -1376,7 +1233,7 @@
  *	This symbol, if defined, indicates that the "fast stdio"
  *	is available to manipulate the stdio buffers directly.
  */
-/*#define HAS_FAST_STDIO		/**/
+/*#define HAS_FAST_STDIO		/ **/
 
 /* HAS_FCHDIR:
  *	This symbol, if defined, indicates that the fchdir routine is
@@ -1897,7 +1754,7 @@
  *	This symbol, if defined, indicates that the ilogbl routine is
  *	available.  If scalbnl is also present we can emulate frexpl.
  */
-/*#define HAS_ILOGBL		/**/
+/*#define HAS_ILOGBL		/ **/
 
 /* HAS_INT64_T:
  *     This symbol will defined if the C compiler supports int64_t.
@@ -2011,12 +1868,6 @@
  *	available to map a file into memory.
  */
 /*#define HAS_MADVISE		/ **/
-
-/* HAS_MEMCHR:
- *	This symbol, if defined, indicates that the memchr routine is available
- *	to locate characters within a C string.
- */
-#define HAS_MEMCHR	/**/
 
 /* HAS_MKDTEMP:
  *	This symbol, if defined, indicates that the mkdtemp routine is
@@ -2154,29 +2005,6 @@
  */
 /*#define HAS_RECVMSG		/ **/
 
-/* HAS_SAFE_BCOPY:
- *	This symbol, if defined, indicates that the bcopy routine is available
- *	to copy potentially overlapping memory blocks. Normally, you should
- *	probably use memmove() or memcpy(). If neither is defined, roll your
- *	own version.
- */
-/*#define HAS_SAFE_BCOPY	/ **/
-
-/* HAS_SAFE_MEMCPY:
- *	This symbol, if defined, indicates that the memcpy routine is available
- *	to copy potentially overlapping memory blocks.  If you need to
- *	copy overlapping memory blocks, you should check HAS_MEMMOVE and
- *	use memmove() instead, if available.
- */
-/*#define HAS_SAFE_MEMCPY	/ **/
-
-/* HAS_SANE_MEMCMP:
- *	This symbol, if defined, indicates that the memcmp routine is available
- *	and can be used to compare relative magnitudes of chars with their high
- *	bits set.  If it is not defined, roll your own version.
- */
-#define HAS_SANE_MEMCMP	/**/
-
 /* HAS_SBRK_PROTO:
  *	This symbol, if defined, indicates that the system provides
  *	a prototype for the sbrk() function.  Otherwise, it is up
@@ -2196,7 +2024,7 @@
  *	This symbol, if defined, indicates that the scalbnl routine is
  *	available.  If ilogbl is also present we can emulate frexpl.
  */
-/*#define HAS_SCALBNL		/**/
+/*#define HAS_SCALBNL		/ **/
 
 /* HAS_SENDMSG:
  *	This symbol, if defined, indicates that the sendmsg routine is
@@ -2518,24 +2346,12 @@
 #define FILE_bufsiz(fp)	((fp)->_cnt + (fp)->_ptr - (fp)->_base)
 #endif
 
-/* HAS_STRERROR:
- *	This symbol, if defined, indicates that the strerror routine is
- *	available to translate error numbers to strings. See the writeup
- *	of Strerror() in this file before you try to define your own.
- */
 /* HAS_SYS_ERRLIST:
  *	This symbol, if defined, indicates that the sys_errlist array is
  *	available to translate error numbers to strings. The extern int
  *	sys_nerr gives the size of that table.
  */
-/* Strerror:
- *	This preprocessor symbol is defined as a macro if strerror() is
- *	not available to translate error numbers to strings but sys_errlist[]
- *	array is there.
- */
-#define HAS_STRERROR		/**/
 #define HAS_SYS_ERRLIST	/**/
-#define Strerror(e) strerror(e)
 
 /* HAS_STRERROR_R:
  *	This symbol, if defined, indicates that the strerror_r routine
@@ -2678,20 +2494,6 @@
  *	handler using "Signal_t handler(sig)".
  */
 #define Signal_t void	/* Signal handler's return type */
-
-/* HAS_VPRINTF:
- *	This symbol, if defined, indicates that the vprintf routine is available
- *	to printf with a pointer to an argument list.  If unavailable, you
- *	may need to write your own, probably in terms of _doprnt().
- */
-/* USE_CHAR_VSPRINTF:
- *	This symbol is defined if this system has vsprintf() returning type
- *	(char*).  The trend seems to be to declare it as "int vsprintf()".  It
- *	is up to the package author to declare vsprintf correctly based on the
- *	symbol.
- */
-#define HAS_VPRINTF	/**/
-#define USE_CHAR_VSPRINTF 	/**/
 
 /* HAS_WRITEV:
  *	This symbol, if defined, indicates that the writev routine is
@@ -3329,8 +3131,8 @@
  *	This symbol contains the ~name expanded version of PRIVLIB, to be used
  *	in programs that are not prepared to deal with ~ expansion at run-time.
  */
-#define PRIVLIB "/sys/lib/perl/5.27.3"		/**/
-#define PRIVLIB_EXP "/sys/lib/perl/5.27.3"		/**/
+#define PRIVLIB "/sys/lib/perl/5.33.0"		/**/
+#define PRIVLIB_EXP "/sys/lib/perl/5.33.0"		/**/
 
 /* PTRSIZE:
  *	This symbol contains the size of a pointer, so that the C preprocessor
@@ -3457,9 +3259,9 @@
  *	removed.  The elements in inc_version_list (inc_version_list.U) can
  *	be tacked onto this variable to generate a list of directories to search.
  */
-#define SITELIB "/sys/lib/perl/5.27.3/site_perl"		/**/
-#define SITELIB_EXP "/sys/lib/perl/5.27.3/site_perl"		/**/
-#define SITELIB_STEM "/sys/lib/perl/5.27.3/site_perl"		/**/
+#define SITELIB "/sys/lib/perl/5.33.0/site_perl"		/**/
+#define SITELIB_EXP "/sys/lib/perl/5.33.0/site_perl"		/**/
+#define SITELIB_STEM "/sys/lib/perl/5.33.0/site_perl"		/**/
 
 /* Size_t_size:
  *	This symbol holds the size of a Size_t in bytes.
@@ -3722,35 +3524,6 @@
  */
 /*#define I_NDBM	/ **/
 
-/* I_STDARG:
- *	This symbol, if defined, indicates that <stdarg.h> exists and should
- *	be included.
- */
-/* I_VARARGS:
- *	This symbol, if defined, indicates to the C program that it should
- *	include <varargs.h>.
- */
-#define I_STDARG		/**/
-/*#define I_VARARGS	/ **/
-
-/* CAN_PROTOTYPE:
- *	If defined, this macro indicates that the C compiler can handle
- *	function prototypes.
- */
-/* _:
- *	This macro is used to declare function parameters for folks who want
- *	to make declarations with prototypes using a different style than
- *	the above macros.  Use double parentheses.  For example:
- *
- *		int main _((int argc, char *argv[]));
- */
-#define	CAN_PROTOTYPE	/**/
-#ifdef CAN_PROTOTYPE
-#define	_(args) args
-#else
-#define	_(args) ()
-#endif
-
 /* SH_PATH:
  *	This symbol contains the full pathname to the shell used on this
  *	on this system to execute Bourne shell scripts.  Usually, this will be
@@ -3776,13 +3549,13 @@
  *	This symbol, if defined, indicates that the copysignl routine is
  *	available.  If aintl is also present we can emulate modfl.
  */
-/*#define HAS_COPYSIGNL		/**/
+/*#define HAS_COPYSIGNL		/ **/
 
 /* USE_CPLUSPLUS:
  *	This symbol, if defined, indicates that a C++ compiler was
  *	used to compiled Perl and will be used to compile extensions.
  */
-/*#define USE_CPLUSPLUS		/**/
+/*#define USE_CPLUSPLUS		/ **/
 
 /* HAS_DBMINIT_PROTO:
  *	This symbol, if defined, indicates that the system provides

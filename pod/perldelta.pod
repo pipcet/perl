@@ -5,15 +5,15 @@
 [ this is a template for a new perldelta file.  Any text flagged as XXX needs
 to be processed before release. ]
 
-perldelta - what is new for perl v5.27.3
+perldelta - what is new for perl v5.33.0
 
 =head1 DESCRIPTION
 
-This document describes differences between the 5.27.2 release and the 5.27.3
+This document describes differences between the 5.32.0 release and the 5.33.0
 release.
 
-If you are upgrading from an earlier release such as 5.27.1, first read
-L<perl5272delta>, which describes differences between 5.27.1 and 5.27.2.
+If you are upgrading from an earlier release such as 5.30.0, first read
+L<perl5320delta>, which describes differences between 5.30.0 and 5.32.0.
 
 =head1 Notice
 
@@ -51,7 +51,7 @@ XXX Any deprecated features, syntax, modules etc. should be listed here.
 
 =head2 Module removals
 
-XXX Remove this section if inapplicable.
+XXX Remove this section if not applicable.
 
 The following modules will be removed from the core distribution in a
 future release, and will at that time need to be installed from CPAN.
@@ -115,7 +115,7 @@ release manager will have to investigate the situation carefully.)
 
 =item *
 
-XXX
+XXX Remove this section if not applicable.
 
 =back
 
@@ -126,6 +126,8 @@ XXX
 =item *
 
 L<XXX> has been upgraded from version A.xx to B.yy.
+
+If there was something important to note about this change, include that here.
 
 =back
 
@@ -155,8 +157,8 @@ XXX Description of the purpose of the new file here
 =head2 Changes to Existing Documentation
 
 We have attempted to update the documentation to reflect the changes
-listed in this document.  If you find any we have missed, send email
-to L<perlbug@perl.org|mailto:perlbug@perl.org>.
+listed in this document.  If you find any we have missed, open an issue
+at L<https://github.com/Perl/perl5/issues>.
 
 XXX Changes which significantly change existing files in F<pod/> go here.
 However, any changes to F<pod/perldiag.pod> should go in the L</Diagnostics>
@@ -222,7 +224,7 @@ XXX Describe change here
 
 =head1 Utility Changes
 
-XXX Changes to installed programs such as F<perlbug> and F<xsubpp> go here.
+XXX Changes to installed programs such as F<perldoc> and F<xsubpp> go here.
 Most of these are built within the directory F<utils>.
 
 [ List utility changes as a =head2 entry for each utility and =item
@@ -361,23 +363,7 @@ files in F<ext/> and F<lib/> are best summarized in L</Modules and Pragmata>.
 
 =item *
 
-Fixed a duplicate symbol failure with C<-flto -mieee-fp> builds.
-F<pp.c> defined C<_LIB_VERSION> which C<-lieee> already defines. [perl
-#131786]
-
-=item *
-
-The tokenizer no longer consumes the exponent part of a floating
-point number if it's incomplete. [perl #131725]
-
-=item *
-
-On non-threaded builds, for C<m/$null/> where C<$null> is an empty
-string is no longer treated as if the C</o> flag was present when the
-previous matching match operator included the C</o> flag.  The
-rewriting used to implement this behavior could confuse the
-interpreter.  This matches the behaviour of threaded builds.  [perl
-#124368]
+XXX
 
 =back
 
@@ -410,28 +396,27 @@ the perldelta of a previous release.
 
 =head1 Obituary
 
-XXX If any significant core contributor has died, we've added a short obituary
-here.
+XXX If any significant core contributor or member of the CPAN community has
+died, add a short obituary here.
 
 =head1 Acknowledgements
 
 XXX Generate this with:
 
-  perl Porting/acknowledgements.pl v5.25.5..HEAD
+  perl Porting/acknowledgements.pl v5.33.0..HEAD
 
 =head1 Reporting Bugs
 
 If you find what you think is a bug, you might check the perl bug database
-at L<https://rt.perl.org/> .  There may also be information at
-L<http://www.perl.org/> , the Perl Home Page.
+at L<https://github.com/Perl/perl5/issues>.  There may also be information at
+L<http://www.perl.org/>, the Perl Home Page.
 
-If you believe you have an unreported bug, please run the L<perlbug> program
-included with your release.  Be sure to trim your bug down to a tiny but
-sufficient test case.  Your bug report, along with the output of C<perl -V>,
-will be sent off to perlbug@perl.org to be analysed by the Perl porting team.
+If you believe you have an unreported bug, please open an issue at
+L<https://github.com/Perl/perl5/issues>.  Be sure to trim your bug down to a
+tiny but sufficient test case.
 
 If the bug you are reporting has security implications which make it
-inappropriate to send to a publicly archived mailing list, then see
+inappropriate to send to a public issue tracker, then see
 L<perlsec/SECURITY VULNERABILITY CONTACT INFORMATION>
 for details of how to report the issue.
 

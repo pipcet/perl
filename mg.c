@@ -41,6 +41,7 @@ tie.
 #include "EXTERN.h"
 #define PERL_IN_MG_C
 #include "perl.h"
+#include "feature.h"
 
 #if defined(HAS_GETGROUPS) || defined(HAS_SETGROUPS)
 #  ifdef I_GRP
@@ -60,12 +61,6 @@ tie.
 
 #ifdef HAS_PRCTL_SET_NAME
 #  include <sys/prctl.h>
-#endif
-
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-Signal_t Perl_csighandler(int sig, siginfo_t *, void *);
-#else
-Signal_t Perl_csighandler(int sig);
 #endif
 
 #ifdef __Lynx__
@@ -556,12 +551,18 @@ S_mg_free_struct(pTHX_ SV *sv, MAGIC *mg)
     const MGVTBL* const vtbl = mg->mg_virtual;
     if (vtbl && vtbl->svt_free)
 	vtbl->svt_free(aTHX_ sv, mg);
-    if (mg->mg_ptr && mg->mg_type != PERL_MAGIC_regex_global) {
+
+    if (mg->mg_type == PERL_MAGIC_collxfrm && mg->mg_len >= 0)
+        /* collate magic uses string len not buffer len, so
+         * free even with mg_len == 0 */
+        Safefree(mg->mg_ptr);
+    else if (mg->mg_ptr && mg->mg_type != PERL_MAGIC_regex_global) {
 	if (mg->mg_len > 0 || mg->mg_type == PERL_MAGIC_utf8)
 	    Safefree(mg->mg_ptr);
 	else if (mg->mg_len == HEf_SVKEY)
 	    SvREFCNT_dec(MUTABLE_SV(mg->mg_ptr));
     }
+
     if (mg->mg_flags & MGf_REFCOUNTED)
 	SvREFCNT_dec(mg->mg_obj);
     Safefree(mg);
@@ -594,7 +595,7 @@ Perl_mg_free(pTHX_ SV *sv)
 }
 
 /*
-=for apidoc Am|void|mg_free_type|SV *sv|int how
+=for apidoc mg_free_type
 
 Remove any magic of type C<how> from the SV C<sv>.  See L</sv_magic>.
 
@@ -610,6 +611,42 @@ Perl_mg_free_type(pTHX_ SV *sv, int how)
 	moremg = mg->mg_moremagic;
 	if (mg->mg_type == how) {
             MAGIC *newhead;
+	    /* temporarily move to the head of the magic chain, in case
+	       custom free code relies on this historical aspect of mg_free */
+	    if (prevmg) {
+		prevmg->mg_moremagic = moremg;
+		mg->mg_moremagic = SvMAGIC(sv);
+		SvMAGIC_set(sv, mg);
+	    }
+	    newhead = mg->mg_moremagic;
+	    mg_free_struct(sv, mg);
+	    SvMAGIC_set(sv, newhead);
+	    mg = prevmg;
+	}
+    }
+    mg_magical(sv);
+}
+
+/*
+=for apidoc mg_freeext
+
+Remove any magic of type C<how> using virtual table C<vtbl> from the
+SV C<sv>.  See L</sv_magic>.
+
+C<mg_freeext(sv, how, NULL)> is equivalent to C<mg_free_type(sv, how)>.
+
+=cut
+*/
+
+void
+Perl_mg_freeext(pTHX_ SV *sv, int how, const MGVTBL *vtbl)
+{
+    MAGIC *mg, *prevmg, *moremg;
+    PERL_ARGS_ASSERT_MG_FREEEXT;
+    for (prevmg = NULL, mg = SvMAGIC(sv); mg; prevmg = mg, mg = moremg) {
+	MAGIC *newhead;
+	moremg = mg->mg_moremagic;
+	if (mg->mg_type == how && (vtbl == NULL || mg->mg_virtual == vtbl)) {
 	    /* temporarily move to the head of the magic chain, in case
 	       custom free code relies on this historical aspect of mg_free */
 	    if (prevmg) {
@@ -782,20 +819,76 @@ S_fixup_errno_string(pTHX_ SV* sv)
          * avoid as many possible backward compatibility issues as possible, we
          * don't turn on the flag unless we have to.  So the flag stays off for
          * an entirely invariant string.  We assume that if the string looks
-         * like UTF-8, it really is UTF-8:  "text in any other encoding that
-         * uses bytes with the high bit set is extremely unlikely to pass a
-         * UTF-8 validity test"
+         * like UTF-8 in a single script, it really is UTF-8:  "text in any
+         * other encoding that uses bytes with the high bit set is extremely
+         * unlikely to pass a UTF-8 validity test"
          * (http://en.wikipedia.org/wiki/Charset_detection).  There is a
          * potential that we will get it wrong however, especially on short
-         * error message text.  (If it turns out to be necessary, we could also
-         * keep track if the current LC_MESSAGES locale is UTF-8) */
-        if (! IN_BYTES  /* respect 'use bytes' */
-            && ! is_utf8_invariant_string((U8*) SvPVX_const(sv), SvCUR(sv))
-            && is_utf8_string((U8*) SvPVX_const(sv), SvCUR(sv)))
-        {
+         * error message text, so do an additional check. */
+        if ( ! IN_BYTES  /* respect 'use bytes' */
+            && is_utf8_non_invariant_string((U8*) SvPVX_const(sv), SvCUR(sv))
+
+#ifdef USE_LOCALE_MESSAGES
+
+            &&  _is_cur_LC_category_utf8(LC_MESSAGES)
+
+#else   /* If can't check directly, at least can see if script is consistent,
+           under UTF-8, which gives us an extra measure of confidence. */
+
+            && isSCRIPT_RUN((const U8 *) SvPVX_const(sv), (U8 *) SvEND(sv),
+                            TRUE) /* Means assume UTF-8 */
+#endif
+
+        ) {
             SvUTF8_on(sv);
         }
     }
+}
+
+/*
+=for apidoc sv_string_from_errnum
+
+Generates the message string describing an OS error and returns it as
+an SV.  C<errnum> must be a value that C<errno> could take, identifying
+the type of error.
+
+If C<tgtsv> is non-null then the string will be written into that SV
+(overwriting existing content) and it will be returned.  If C<tgtsv>
+is a null pointer then the string will be written into a new mortal SV
+which will be returned.
+
+The message will be taken from whatever locale would be used by C<$!>,
+and will be encoded in the SV in whatever manner would be used by C<$!>.
+The details of this process are subject to future change.  Currently,
+the message is taken from the C locale by default (usually producing an
+English message), and from the currently selected locale when in the scope
+of the C<use locale> pragma.  A heuristic attempt is made to decode the
+message from the locale's character encoding, but it will only be decoded
+as either UTF-8 or ISO-8859-1.  It is always correctly decoded in a UTF-8
+locale, usually in an ISO-8859-1 locale, and never in any other locale.
+
+The SV is always returned containing an actual string, and with no other
+OK bits set.  Unlike C<$!>, a message is even yielded for C<errnum> zero
+(meaning success), and if no useful message is available then a useless
+string (currently empty) is returned.
+
+=cut
+*/
+
+SV *
+Perl_sv_string_from_errnum(pTHX_ int errnum, SV *tgtsv)
+{
+    char const *errstr;
+    if(!tgtsv)
+	tgtsv = sv_newmortal();
+    errstr = my_strerror(errnum);
+    if(errstr) {
+	sv_setpv(tgtsv, errstr);
+	fixup_errno_string(tgtsv);
+    } else {
+	SvPVCLEAR(tgtsv);
+    }
+    return tgtsv;
 }
 
 #ifdef VMS
@@ -900,6 +993,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 	break;
 #endif  /* End of platforms with special handling for $^E; others just fall
            through to $! */
+    /* FALLTHROUGH */
 
     case '!':
 	{
@@ -918,14 +1012,12 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
                 SvPVCLEAR(sv);
             }
             else {
-
-                /* Strerror can return NULL on some platforms, which will
-                 * result in 'sv' not being considered SvOK.  The SvNOK_on()
+                sv_string_from_errnum(errno, sv);
+                /* If no useful string is available, don't
+                 * claim to have a string part.  The SvNOK_on()
                  * below will cause just the number part to be valid */
-                sv_setpv(sv, my_strerror(errno));
-                if (SvOK(sv)) {
-                    fixup_errno_string(sv);
-                }
+                if (!SvCUR(sv))
+                    SvPOK_off(sv);
             }
             RESTORE_ERRNO;
 	}
@@ -935,7 +1027,9 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 	break;
 
     case '\006':		/* ^F */
-	sv_setiv(sv, (IV)PL_maxsysfd);
+        if (nextchar == '\0') {
+            sv_setiv(sv, (IV)PL_maxsysfd);
+        }
 	break;
     case '\007':		/* ^GLOBAL_PHASE */
 	if (strEQ(remaining, "LOBAL_PHASE")) {
@@ -951,7 +1045,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 	break;
     case '\014':		/* ^LAST_FH */
 	if (strEQ(remaining, "AST_FH")) {
-	    if (PL_last_in_gv) {
+	    if (PL_last_in_gv && (SV*)PL_last_in_gv != &PL_sv_undef) {
 		assert(isGV_with_GP(PL_last_in_gv));
 		SV_CHECK_THINKFIRST_COW_DROP(sv);
 		prepare_SV_for_RV(sv);
@@ -977,7 +1071,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
         sv_setiv(sv, (IV)PL_perldb);
 	break;
     case '\023':		/* ^S */
-        {
+	if (nextchar == '\0') {
 	    if (PL_parser && PL_parser->lex_state != LEX_NOTPARSING)
 		SvOK_off(sv);
 	    else if (PL_in_eval)
@@ -985,6 +1079,18 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
 	    else
 		sv_setiv(sv, 0);
 	}
+	else if (strEQ(remaining, "AFE_LOCALES")) {
+
+#if ! defined(USE_ITHREADS) || defined(USE_THREAD_SAFE_LOCALE)
+
+	    sv_setuv(sv, (UV) 1);
+
+#else
+	    sv_setuv(sv, (UV) 0);
+
+#endif
+
+        }
 	break;
     case '\024':		/* ^T */
 	if (nextchar == '\0') {
@@ -1018,14 +1124,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
                 goto set_undef;
 	    }
             else if (PL_compiling.cop_warnings == pWARN_ALL) {
-		/* Get the bit mask for $warnings::Bits{all}, because
-		 * it could have been extended by warnings::register */
-		HV * const bits = get_hv("warnings::Bits", 0);
-		SV ** const bits_all = bits ? hv_fetchs(bits, "all", FALSE) : NULL;
-		if (bits_all)
-		    sv_copypv(sv, *bits_all);
-	        else
-		    sv_setpvn(sv, WARN_ALLstring, WARNsize);
+		sv_setpvn(sv, WARN_ALLstring, WARNsize);
 	    }
             else {
 	        sv_setpvn(sv, (char *) (PL_compiling.cop_warnings + 1),
@@ -1379,19 +1478,45 @@ Perl_magic_clearsig(pTHX_ SV *sv, MAGIC *mg)
     return sv_unmagic(sv, mg->mg_type);
 }
 
+
+#ifdef PERL_USE_3ARG_SIGHANDLER
 Signal_t
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-Perl_csighandler(int sig, siginfo_t *sip PERL_UNUSED_DECL, void *uap PERL_UNUSED_DECL)
+Perl_csighandler(int sig, Siginfo_t *sip, void *uap)
+{
+    Perl_csighandler3(sig, sip, uap);
+}
 #else
+Signal_t
 Perl_csighandler(int sig)
+{
+    Perl_csighandler3(sig, NULL, NULL);
+}
 #endif
+
+Signal_t
+Perl_csighandler1(int sig)
+{
+    Perl_csighandler3(sig, NULL, NULL);
+}
+
+/* Handler intended to directly handle signal calls from the kernel.
+ * (Depending on configuration, the kernel may actually call one of the
+ * wrappers csighandler() or csighandler1() instead.)
+ * It either queues up the signal or dispatches it immediately depending
+ * on whether safe signals are enabled and whether the signal is capable
+ * of being deferred (e.g. SEGV isn't).
+ */
+
+Signal_t
+Perl_csighandler3(int sig, Siginfo_t *sip PERL_UNUSED_DECL, void *uap PERL_UNUSED_DECL)
 {
 #ifdef PERL_GET_SIG_CONTEXT
     dTHXa(PERL_GET_SIG_CONTEXT);
 #else
     dTHX;
 #endif
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
+
+#ifdef PERL_USE_3ARG_SIGHANDLER
 #if defined(__cplusplus) && defined(__GNUC__)
     /* g++ doesn't support PERL_UNUSED_DECL, so the sip and uap
      * parameters would be warned about. */
@@ -1399,6 +1524,7 @@ Perl_csighandler(int sig)
     PERL_UNUSED_ARG(uap);
 #endif
 #endif
+
 #ifdef FAKE_PERSISTENT_SIGNAL_HANDLERS
     (void) rsignal(sig, PL_csighandlerp);
     if (PL_sig_ignoring[sig]) return;
@@ -1424,11 +1550,20 @@ Perl_csighandler(int sig)
 	   (PL_signals & PERL_SIGNALS_UNSAFE_FLAG))
 	/* Call the perl level handler now--
 	 * with risk we may be in malloc() or being destructed etc. */
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-	(*PL_sighandlerp)(sig, NULL, NULL);
+    {
+        if (PL_sighandlerp == Perl_sighandler)
+            /* default handler, so can call perly_sighandler() directly
+             * rather than via Perl_sighandler, passing the extra
+             * 'safe = false' arg
+             */
+            Perl_perly_sighandler(sig, NULL, NULL, 0 /* unsafe */);
+        else
+#ifdef PERL_USE_3ARG_SIGHANDLER
+            (*PL_sighandlerp)(sig, NULL, NULL);
 #else
-	(*PL_sighandlerp)(sig);
+            (*PL_sighandlerp)(sig);
 #endif
+    }
     else {
 	if (!PL_psig_pend) return;
 	/* Set a flag to say this signal is pending, that is awaiting delivery after
@@ -1506,11 +1641,19 @@ Perl_despatch_signals(pTHX)
 	    }
 #endif
  	    PL_psig_pend[sig] = 0;
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-	    (*PL_sighandlerp)(sig, NULL, NULL);
+            if (PL_sighandlerp == Perl_sighandler)
+                /* default handler, so can call perly_sighandler() directly
+                 * rather than via Perl_sighandler, passing the extra
+                 * 'safe = true' arg
+                 */
+                Perl_perly_sighandler(sig, NULL, NULL, 1 /* safe */);
+            else
+#ifdef PERL_USE_3ARG_SIGHANDLER
+                (*PL_sighandlerp)(sig, NULL, NULL);
 #else
-	    (*PL_sighandlerp)(sig);
+                (*PL_sighandlerp)(sig);
 #endif
+
 #ifdef HAS_SIGPROCMASK
 	    if (!was_blocked)
 		LEAVE;
@@ -1610,7 +1753,8 @@ Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
 	       Ideally we'd find some way of making SVs at (C) compile time, or
 	       at least, doing most of the work.  */
 	    if (!PL_psig_name[i]) {
-		PL_psig_name[i] = newSVpvn(s, len);
+		const char* name = PL_sig_name[i];
+		PL_psig_name[i] = newSVpvn(name, strlen(name));
 		SvREADONLY_on(PL_psig_name[i]);
 	    }
 	} else {
@@ -1657,7 +1801,7 @@ Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
 	     * access to a known hint bit in a known OP, we can't
 	     * tell whether HINT_STRICT_REFS is in force or not.
 	     */
-	    if (!strchr(s,':') && !strchr(s,'\''))
+	    if (!memchr(s, ':', len) && !memchr(s, '\'', len))
 		Perl_sv_insert_flags(aTHX_ sv, 0, 0, STR_WITH_LEN("main::"),
 				     SV_GMAGIC);
 	    if (i)
@@ -1826,8 +1970,8 @@ Perl_magic_methcall(pTHX_ SV *sv, const MAGIC *mg, SV *meth, U32 flags,
 	va_start(args, argc);
 
 	do {
-	    SV *const sv = va_arg(args, SV *);
-	    PUSHs(sv);
+	    SV *const this_sv = va_arg(args, SV *);
+	    PUSHs(this_sv);
 	} while (--argc);
 
 	va_end(args);
@@ -2091,12 +2235,12 @@ Perl_magic_cleararylen_p(pTHX_ SV *sv, MAGIC *mg)
     PERL_UNUSED_CONTEXT;
 
     /* Reset the iterator when the array is cleared */
-#if IVSIZE == I32SIZE
-    *((IV *) &(mg->mg_len)) = 0;
-#else
-    if (mg->mg_ptr)
-        *((IV *) mg->mg_ptr) = 0;
-#endif
+    if (sizeof(IV) == sizeof(SSize_t)) {
+	*((IV *) &(mg->mg_len)) = 0;
+    } else {
+	if (mg->mg_ptr)
+	    *((IV *) mg->mg_ptr) = 0;
+    }
 
     return 0;
 }
@@ -2431,6 +2575,15 @@ Perl_vivify_defelem(pTHX_ SV *sv)
 }
 
 int
+Perl_magic_setnonelem(pTHX_ SV *sv, MAGIC *mg)
+{
+    PERL_ARGS_ASSERT_MAGIC_SETNONELEM;
+    PERL_UNUSED_ARG(mg);
+    sv_unmagic(sv, PERL_MAGIC_nonelem);
+    return 0;
+}
+
+int
 Perl_magic_killbackrefs(pTHX_ SV *sv, MAGIC *mg)
 {
     PERL_ARGS_ASSERT_MAGIC_KILLBACKREFS;
@@ -2682,7 +2835,8 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	FmLINES(PL_bodytarget) = 0;
 	if (SvPOK(PL_bodytarget)) {
 	    char *s = SvPVX(PL_bodytarget);
-	    while ( ((s = strchr(s, '\n'))) ) {
+            char *e = SvEND(PL_bodytarget);
+	    while ( ((s = (char *) memchr(s, '\n', e - s))) ) {
 		FmLINES(PL_bodytarget)++;
 		s++;
 	    }
@@ -2715,24 +2869,22 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	if (*(mg->mg_ptr+1) == '\0') {
 #ifdef VMS
 	    set_vaxc_errno(SvIV(sv));
-#else
-#  ifdef WIN32
+#elif defined(WIN32)
 	    SetLastError( SvIV(sv) );
-#  else
-#    ifdef OS2
+#elif defined(OS2)
 	    os2_setsyserrno(SvIV(sv));
-#    else
+#else
 	    /* will anyone ever use this? */
 	    SETERRNO(SvIV(sv), 4);
-#    endif
-#  endif
 #endif
 	}
 	else if (strEQ(mg->mg_ptr + 1, "NCODING") && SvOK(sv))
             Perl_croak(aTHX_ "${^ENCODING} is no longer supported");
 	break;
     case '\006':	/* ^F */
-	PL_maxsysfd = SvIV(sv);
+        if (mg->mg_ptr[1] == '\0') {
+            PL_maxsysfd = SvIV(sv);
+        }
 	break;
     case '\010':	/* ^H */
         {
@@ -2814,45 +2966,34 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	else if (strEQ(mg->mg_ptr+1, "ARNING_BITS")) {
 	    if ( ! (PL_dowarn & G_WARN_ALL_MASK)) {
 		if (!SvPOK(sv)) {
-	            PL_compiling.cop_warnings = pWARN_STD;
+            free_and_set_cop_warnings(&PL_compiling, pWARN_STD);
 		    break;
 		}
 		{
 		    STRLEN len, i;
-		    int accumulate = 0 ;
-		    int any_fatals = 0 ;
-		    const char * const ptr = SvPV_const(sv, len) ;
+		    int not_none = 0, not_all = 0;
+		    const U8 * const ptr = (const U8 *)SvPV_const(sv, len) ;
 		    for (i = 0 ; i < len ; ++i) {
-		        accumulate |= ptr[i] ;
-		        any_fatals |= (ptr[i] & 0xAA) ;
+			not_none |= ptr[i];
+			not_all |= ptr[i] ^ 0x55;
 		    }
-		    if (!accumulate) {
-		        if (!specialWARN(PL_compiling.cop_warnings))
-			    PerlMemShared_free(PL_compiling.cop_warnings);
-			PL_compiling.cop_warnings = pWARN_NONE;
-		    }
-		    /* Yuck. I can't see how to abstract this:  */
-		    else if (isWARN_on(
-                                ((STRLEN *)SvPV_nolen_const(sv)) - 1,
-                                WARN_ALL)
-                            && !any_fatals)
-                    {
-			if (!specialWARN(PL_compiling.cop_warnings))
-			    PerlMemShared_free(PL_compiling.cop_warnings);
-	                PL_compiling.cop_warnings = pWARN_ALL;
-	                PL_dowarn |= G_WARN_ONCE ;
-	            }
-                    else {
-			STRLEN len;
-			const char *const p = SvPV_const(sv, len);
+		    if (!not_none) {
+                free_and_set_cop_warnings(&PL_compiling, pWARN_NONE);
+		    } else if (len >= WARNsize && !not_all) {
+                free_and_set_cop_warnings(&PL_compiling, pWARN_ALL);
+	            PL_dowarn |= G_WARN_ONCE ;
+	        }
+            else {
+			     STRLEN len;
+			     const char *const p = SvPV_const(sv, len);
 
-			PL_compiling.cop_warnings
-			    = Perl_new_warnings_bitfield(aTHX_ PL_compiling.cop_warnings,
+			     PL_compiling.cop_warnings
+			         = Perl_new_warnings_bitfield(aTHX_ PL_compiling.cop_warnings,
 							 p, len);
 
-	                if (isWARN_on(PL_compiling.cop_warnings, WARN_ONCE))
+	             if (isWARN_on(PL_compiling.cop_warnings, WARN_ONCE))
 	                    PL_dowarn |= G_WARN_ONCE ;
-	            }
+	       }
 
 		}
 	    }
@@ -2975,7 +3116,7 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 #else
 #   define PERL_VMS_BANG 0
 #endif
-#if defined(WIN32) && ! defined(UNDER_CE)
+#if defined(WIN32)
 	SETERRNO(win32_get_errno(SvIOK(sv) ? SvIVX(sv) : SvOK(sv) ? sv_2iv(sv) : 0),
 		 (SvIV(sv) == EVMSERR) ? 4 : PERL_VMS_BANG);
 #else
@@ -2995,25 +3136,21 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	}
 #ifdef HAS_SETRUID
 	PERL_UNUSED_RESULT(setruid(new_uid));
-#else
-#ifdef HAS_SETREUID
+#elif defined(HAS_SETREUID)
         PERL_UNUSED_RESULT(setreuid(new_uid, (Uid_t)-1));
-#else
-#ifdef HAS_SETRESUID
+#elif defined(HAS_SETRESUID)
         PERL_UNUSED_RESULT(setresuid(new_uid, (Uid_t)-1, (Uid_t)-1));
 #else
 	if (new_uid == PerlProc_geteuid()) {		/* special case $< = $> */
-#ifdef PERL_DARWIN
+#  ifdef PERL_DARWIN
 	    /* workaround for Darwin's setuid peculiarity, cf [perl #24122] */
 	    if (new_uid != 0 && PerlProc_getuid() == 0)
                 PERL_UNUSED_RESULT(PerlProc_setuid(0));
-#endif
+#  endif
             PERL_UNUSED_RESULT(PerlProc_setuid(new_uid));
 	} else {
 	    Perl_croak(aTHX_ "setruid() not implemented");
 	}
-#endif
-#endif
 #endif
 	break;
 	}
@@ -3028,11 +3165,9 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	}
 #ifdef HAS_SETEUID
 	PERL_UNUSED_RESULT(seteuid(new_euid));
-#else
-#ifdef HAS_SETREUID
+#elif defined(HAS_SETREUID)
 	PERL_UNUSED_RESULT(setreuid((Uid_t)-1, new_euid));
-#else
-#ifdef HAS_SETRESUID
+#elif defined(HAS_SETRESUID)
 	PERL_UNUSED_RESULT(setresuid((Uid_t)-1, new_euid, (Uid_t)-1));
 #else
 	if (new_euid == PerlProc_getuid())		/* special case $> = $< */
@@ -3040,8 +3175,6 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	else {
 	    Perl_croak(aTHX_ "seteuid() not implemented");
 	}
-#endif
-#endif
 #endif
 	break;
 	}
@@ -3056,11 +3189,9 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	}
 #ifdef HAS_SETRGID
 	PERL_UNUSED_RESULT(setrgid(new_gid));
-#else
-#ifdef HAS_SETREGID
+#elif defined(HAS_SETREGID)
 	PERL_UNUSED_RESULT(setregid(new_gid, (Gid_t)-1));
-#else
-#ifdef HAS_SETRESGID
+#elif defined(HAS_SETRESGID)
         PERL_UNUSED_RESULT(setresgid(new_gid, (Gid_t)-1, (Gid_t) -1));
 #else
 	if (new_gid == PerlProc_getegid())			/* special case $( = $) */
@@ -3068,8 +3199,6 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	else {
 	    Perl_croak(aTHX_ "setrgid() not implemented");
 	}
-#endif
-#endif
 #endif
 	break;
 	}
@@ -3087,7 +3216,8 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	{
 	    const char *p = SvPV_const(sv, len);
             Groups_t *gary = NULL;
-            const char* endptr;
+            const char* p_end = p + len;
+            const char* endptr = p_end;
             UV uv;
 #ifdef _SC_NGROUPS_MAX
            int maxgrp = sysconf(_SC_NGROUPS_MAX);
@@ -3110,6 +3240,7 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
                 if (endptr == NULL)
                     break;
                 p = endptr;
+                endptr = p_end;
                 while (isSPACE(*p))
                     ++p;
                 if (!*p)
@@ -3139,11 +3270,9 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	}
 #ifdef HAS_SETEGID
 	PERL_UNUSED_RESULT(setegid(new_egid));
-#else
-#ifdef HAS_SETREGID
+#elif defined(HAS_SETREGID)
 	PERL_UNUSED_RESULT(setregid((Gid_t)-1, new_egid));
-#else
-#ifdef HAS_SETRESGID
+#elif defined(HAS_SETRESGID)
 	PERL_UNUSED_RESULT(setresgid((Gid_t)-1, new_egid, (Gid_t)-1));
 #else
 	if (new_egid == PerlProc_getgid())			/* special case $) = $( */
@@ -3151,8 +3280,6 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
 	else {
 	    Perl_croak(aTHX_ "setegid() not implemented");
 	}
-#endif
-#endif
 #endif
 	break;
 	}
@@ -3218,12 +3345,62 @@ Perl_whichsig_pvn(pTHX_ const char *sig, STRLEN len)
     return -1;
 }
 
+
+/* Perl_sighandler(), Perl_sighandler1(), Perl_sighandler3():
+ * these three function are intended to be called by the OS as 'C' level
+ * signal handler functions in the case where unsafe signals are being
+ * used - i.e. they immediately invoke Perl_perly_sighandler() to call the
+ * perl-level sighandler, rather than deferring.
+ * In fact, the core itself will normally use Perl_csighandler as the
+ * OS-level handler; that function will then decide whether to queue the
+ * signal or call Perl_sighandler / Perl_perly_sighandler itself. So these
+ * functions are more useful for e.g. POSIX.xs when it wants explicit
+ * control of what's happening.
+ */
+
+
+#ifdef PERL_USE_3ARG_SIGHANDLER
+
 Signal_t
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-Perl_sighandler(int sig, siginfo_t *sip, void *uap)
+Perl_sighandler(int sig, Siginfo_t *sip, void *uap)
+{
+    Perl_perly_sighandler(sig, sip, uap, 0);
+}
+
 #else
+
+Signal_t
 Perl_sighandler(int sig)
+{
+    Perl_perly_sighandler(sig, NULL, NULL, 0);
+}
+
 #endif
+
+Signal_t
+Perl_sighandler1(int sig)
+{
+    Perl_perly_sighandler(sig, NULL, NULL, 0);
+}
+
+Signal_t
+Perl_sighandler3(int sig, Siginfo_t *sip PERL_UNUSED_DECL, void *uap PERL_UNUSED_DECL)
+{
+    Perl_perly_sighandler(sig, sip, uap, 0);
+}
+
+
+/* Invoke the perl-level signal handler. This function is called either
+ * directly from one of the C-level signals handlers (Perl_sighandler or
+ * Perl_csighandler), or for safe signals, later from
+ * Perl_despatch_signals() at a suitable safe point during execution.
+ *
+ * 'safe' is a boolean indicating the latter call path.
+ */
+
+Signal_t
+Perl_perly_sighandler(int sig, Siginfo_t *sip PERL_UNUSED_DECL,
+                    void *uap PERL_UNUSED_DECL, bool safe)
 {
 #ifdef PERL_GET_SIG_CONTEXT
     dTHXa(PERL_GET_SIG_CONTEXT);
@@ -3296,48 +3473,48 @@ Perl_sighandler(int sig)
     PUSHSTACKi(PERLSI_SIGNAL);
     PUSHMARK(SP);
     PUSHs(sv);
+
 #if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
     {
 	 struct sigaction oact;
 
-	 if (sigaction(sig, 0, &oact) == 0 && oact.sa_flags & SA_SIGINFO) {
-	      if (sip) {
-		   HV *sih = newHV();
-		   SV *rv  = newRV_noinc(MUTABLE_SV(sih));
-		   /* The siginfo fields signo, code, errno, pid, uid,
-		    * addr, status, and band are defined by POSIX/SUSv3. */
-		   (void)hv_stores(sih, "signo", newSViv(sip->si_signo));
-		   (void)hv_stores(sih, "code", newSViv(sip->si_code));
-#ifdef HAS_SIGINFO_SI_ERRNO
-		   (void)hv_stores(sih, "errno",      newSViv(sip->si_errno));
-#endif
-#ifdef HAS_SIGINFO_SI_STATUS
-		   (void)hv_stores(sih, "status",     newSViv(sip->si_status));
-#endif
-#ifdef HAS_SIGINFO_SI_UID
-		   {
-			SV *uid = newSV(0);
-			sv_setuid(uid, sip->si_uid);
-			(void)hv_stores(sih, "uid", uid);
-		   }
-#endif
-#ifdef HAS_SIGINFO_SI_PID
-		   (void)hv_stores(sih, "pid",        newSViv(sip->si_pid));
-#endif
-#ifdef HAS_SIGINFO_SI_ADDR
-		   (void)hv_stores(sih, "addr",       newSVuv(PTR2UV(sip->si_addr)));
-#endif
-#ifdef HAS_SIGINFO_SI_BAND
-		   (void)hv_stores(sih, "band",       newSViv(sip->si_band));
-#endif
-		   EXTEND(SP, 2);
-		   PUSHs(rv);
-		   mPUSHp((char *)sip, sizeof(*sip));
-	      }
+	 if (sip && sigaction(sig, 0, &oact) == 0 && oact.sa_flags & SA_SIGINFO) {
+               HV *sih = newHV();
+               SV *rv  = newRV_noinc(MUTABLE_SV(sih));
+               /* The siginfo fields signo, code, errno, pid, uid,
+                * addr, status, and band are defined by POSIX/SUSv3. */
+               (void)hv_stores(sih, "signo", newSViv(sip->si_signo));
+               (void)hv_stores(sih, "code", newSViv(sip->si_code));
+#  ifdef HAS_SIGINFO_SI_ERRNO
+               (void)hv_stores(sih, "errno",      newSViv(sip->si_errno));
+#  endif
+#  ifdef HAS_SIGINFO_SI_STATUS
+               (void)hv_stores(sih, "status",     newSViv(sip->si_status));
+#  endif
+#  ifdef HAS_SIGINFO_SI_UID
+               {
+                    SV *uid = newSV(0);
+                    sv_setuid(uid, sip->si_uid);
+                    (void)hv_stores(sih, "uid", uid);
+               }
+#  endif
+#  ifdef HAS_SIGINFO_SI_PID
+               (void)hv_stores(sih, "pid",        newSViv(sip->si_pid));
+#  endif
+#  ifdef HAS_SIGINFO_SI_ADDR
+               (void)hv_stores(sih, "addr",       newSVuv(PTR2UV(sip->si_addr)));
+#  endif
+#  ifdef HAS_SIGINFO_SI_BAND
+               (void)hv_stores(sih, "band",       newSViv(sip->si_band));
+#  endif
+               EXTEND(SP, 2);
+               PUSHs(rv);
+               mPUSHp((char *)sip, sizeof(*sip));
 
 	 }
     }
 #endif
+
     PUTBACK;
 
     errsv_save = newSVsv(ERRSV);
@@ -3349,27 +3526,35 @@ Perl_sighandler(int sig)
 	SV * const errsv = ERRSV;
 	if (SvTRUE_NN(errsv)) {
 	    SvREFCNT_dec(errsv_save);
+
 #ifndef PERL_MICRO
-	/* Handler "died", for example to get out of a restart-able read().
-	 * Before we re-do that on its behalf re-enable the signal which was
-	 * blocked by the system when we entered.
-	 */
-#ifdef HAS_SIGPROCMASK
-#if defined(HAS_SIGACTION) && defined(SA_SIGINFO)
-	    if (sip || uap)
-#endif
-	    {
+            /* Handler "died", for example to get out of a restart-able read().
+             * Before we re-do that on its behalf re-enable the signal which was
+             * blocked by the system when we entered.
+             */
+#  ifdef HAS_SIGPROCMASK
+	    if (!safe) {
+                /* safe signals called via dispatch_signals() set up a
+                 * savestack destructor, unblock_sigmask(), to
+                 * automatically unblock the handler at the end. If
+                 * instead we get here directly, we have to do it
+                 * ourselves
+                 */
 		sigset_t set;
 		sigemptyset(&set);
 		sigaddset(&set,sig);
 		sigprocmask(SIG_UNBLOCK, &set, NULL);
 	    }
-#else
+#  else
 	    /* Not clear if this will work */
+            /* XXX not clear if this should be protected by 'if (safe)'
+             * too */
+
 	    (void)rsignal(sig, SIG_IGN);
 	    (void)rsignal(sig, PL_csighandlerp);
-#endif
+#  endif
 #endif /* !PERL_MICRO */
+
 	    die_sv(errsv);
 	}
 	else {
@@ -3485,6 +3670,7 @@ Perl_magic_sethint(pTHX_ SV *sv, MAGIC *mg)
     PL_hints |= HINT_LOCALIZE_HH;
     CopHINTHASH_set(&PL_compiling,
 	cophh_store_sv(CopHINTHASH_get(&PL_compiling), key, 0, sv, 0));
+    magic_sethint_feature(key, NULL, 0, sv, 0);
     return 0;
 }
 
@@ -3509,6 +3695,10 @@ Perl_magic_clearhint(pTHX_ SV *sv, MAGIC *mg)
 				 MUTABLE_SV(mg->mg_ptr), 0, 0)
 	 : cophh_delete_pvn(CopHINTHASH_get(&PL_compiling),
 				 mg->mg_ptr, mg->mg_len, 0, 0));
+    if (mg->mg_len == HEf_SVKEY)
+        magic_sethint_feature(MUTABLE_SV(mg->mg_ptr), NULL, 0, NULL, FALSE);
+    else
+        magic_sethint_feature(NULL, mg->mg_ptr, mg->mg_len, NULL, FALSE);
     return 0;
 }
 
@@ -3527,6 +3717,7 @@ Perl_magic_clearhints(pTHX_ SV *sv, MAGIC *mg)
     PERL_UNUSED_ARG(mg);
     cophh_free(CopHINTHASH_get(&PL_compiling));
     CopHINTHASH_set(&PL_compiling, cophh_new_empty());
+    CLEARFEATUREBITS();
     return 0;
 }
 

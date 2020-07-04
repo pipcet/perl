@@ -3,8 +3,8 @@ use strict;
 BEGIN {
     require Time::HiRes;
     unless(&Time::HiRes::d_usleep) {
-	require Test::More;
-	Test::More::plan(skip_all => "no usleep()");
+        require Test::More;
+        Test::More::plan(skip_all => "no usleep()");
     }
 }
 
@@ -14,7 +14,7 @@ use t::Watchdog;
 
 eval { Time::HiRes::usleep(-2) };
 like $@, qr/::usleep\(-2\): negative time not invented yet/,
-	"negative time error";
+        "negative time error";
 
 my $limit = 0.25; # 25% is acceptable slosh for testing timers
 
@@ -32,7 +32,7 @@ SKIP: {
     Time::HiRes::usleep(500_000);
     my $f2 = Time::HiRes::time();
     my $d = $f2 - $f;
-    ok $d > 0.4 && $d < 0.9 or print("# slept $d secs $f to $f2\n");
+    ok $d > 0.49 or print("# slept $d secs $f to $f2\n");
 }
 
 SKIP: {
@@ -40,7 +40,7 @@ SKIP: {
     my $r = [ Time::HiRes::gettimeofday() ];
     Time::HiRes::sleep( 0.5 );
     my $f = Time::HiRes::tv_interval $r;
-    ok $f > 0.4 && $f < 0.9 or print("# slept $f instead of 0.5 secs.\n");
+    ok $f > 0.49 or print("# slept $f instead of 0.5 secs.\n");
 }
 
 SKIP: {
@@ -59,8 +59,8 @@ SKIP: {
     $msg = "$td went by while sleeping $sleep, ratio $ratio.\n";
 
     SKIP: {
-	skip $msg, 1 unless $td < $sleep * (1 + $limit);
-	ok $a < $limit or print("# $msg\n");
+        skip $msg, 1 unless $td < $sleep * (1 + $limit);
+        ok $a < $limit or print("# $msg\n");
     }
 
     $t0 = Time::HiRes::gettimeofday();
@@ -71,8 +71,8 @@ SKIP: {
     $msg = "$td went by while sleeping $sleep, ratio $ratio.\n";
 
     SKIP: {
-	skip $msg, 1 unless $td < $sleep * (1 + $limit);
-	ok $a < $limit or print("# $msg\n");
+        skip $msg, 1 unless $td < $sleep * (1 + $limit);
+        ok $a < $limit or print("# $msg\n");
     }
 }
 

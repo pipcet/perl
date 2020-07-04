@@ -14,6 +14,115 @@ BEGIN {
 $|=1;
 
 use XS::APItest;
+use Config;
+my $word_length = defined $Config{quadkind} ? 8 : 4;
+
+# Below we test some byte-oriented functions that look for UTF-8 variant bytes
+# and we know can work on full words at a time.  Hence this is not black box
+# testing.  We know how long a word is.  Suppose it is 4.  We set things up so
+# that we have a string containing 3 bytes followed by 4, followed by 3, and
+# we tell our APItest functions to position the string so it starts at 1 byte
+# past a word boundary.  That way the first 3 bytes are the final ones of a
+# word, and the final 3 are the initial ones of a non-complete word.  This
+# assumes that the initial and final non-full word bytes are treated
+# individually, so we don't have to test the various combinations of partially
+# filled words.
+
+my $offset = 1;  # Start 1 byte past word boundary.
+
+# We choose an invariant and a variant that are at the boundaries between
+# those two types on ASCII platforms.  And, just in case the EBCDIC ever
+# changes to do per-word, we choose arbitrarily an invariant that has most of
+# its bits set natively, and a variant that has most unset.   First create
+# versions for display in the test names.
+my $display_invariant = isASCII ? "7F" : sprintf "%02X", utf8::unicode_to_native(0x9F);
+my $display_variant =   isASCII ? "80" : sprintf "%02X", utf8::unicode_to_native(0xA0);
+my $invariant = chr hex $display_invariant;
+my $variant = chr hex $display_variant;
+
+# We create a string with the correct number of bytes.  The -1 is to make the
+# final portion not quite fill a full word and $offset to do the same for the
+# initial portion.)
+my $string_length = 3 * $word_length - 1 - $offset;
+my $all_invariants = $invariant x $string_length;
+my $display_all_invariants = $display_invariant x $string_length;
+
+my $ret_ref = test_is_utf8_invariant_string_loc($all_invariants, $offset,
+                                                length $all_invariants);
+pass("The tests below are for is_utf8_invariant_string_loc() with string"
+   . " starting $offset bytes after a word boundary");
+is($ret_ref->[0], 1, "$display_all_invariants contains no variants");
+
+# Just create a string with a single variant, in all the possible positions.
+for my $pos (0.. length($all_invariants) - 1) {
+    my $test_string = $all_invariants;
+    my $test_display = $display_all_invariants;
+
+    substr($test_string, $pos, 1) = $variant;
+    substr($test_display, $pos * 2, 2) = $display_variant;
+    my $ret_ref = test_is_utf8_invariant_string_loc($test_string, $offset,
+                                                    length $test_string);
+    if (is($ret_ref->[0], 0, "$test_display has a variant")) {
+        is($ret_ref->[1], $pos, "   at position $pos");
+    }
+}
+
+# Now work on variant_under_utf8_count().
+pass("The tests below are for variant_under_utf8_count() with string"
+   . " starting $offset bytes after a word boundary");
+is(test_variant_under_utf8_count($all_invariants, $offset,
+                                length $all_invariants),
+                                0,
+                                "$display_all_invariants contains 0 variants");
+
+# First, put a variant in each possible position in the flanking partial words
+for my $pos (0 .. $word_length - $offset,
+             2 * $word_length .. length($all_invariants) - 1)
+{
+    my $test_string = $all_invariants;
+    my $test_display = $display_all_invariants;
+
+    substr($test_string, $pos, 1) = $variant;
+    substr($test_display, $pos * 2, 2) = $display_variant;
+    is(test_variant_under_utf8_count($test_string, $offset, length $test_string),
+                                     1,
+                                     "$test_display contains 1 variant");
+}
+
+# Then try all possible combinations of variant/invariant in the full word in
+# the middle  (We've already tested the case with 0 variants, so start at 1.)
+for my $bit_pattern (1 .. (1 << $word_length) - 1) {
+    my $bits = $bit_pattern;
+    my $display_word = "";
+    my $test_word = "";
+    my $count = 0;
+
+    # Every 1 bit gets the variant for this particular $bit_pattern.
+    for my $bit (0 .. 7) {
+        if ($bits & 1) {
+            $count++;
+            $test_word .= $variant;
+            $display_word .= $display_variant;
+        }
+        else {
+            $test_word .= $invariant;
+            $display_word .= $display_invariant;
+        }
+        $bits >>= 1;
+    }
+
+    my $test_string = $variant x ($word_length - 1)
+                    . $test_word
+                    . $variant x ($word_length - 1);
+    my $display_string = $display_variant x ($word_length - 1)
+                        . $display_word
+                        . $display_variant x ($word_length - 1);
+    my $expected_count = $count + 2 * $word_length - 2;
+    is(test_variant_under_utf8_count($test_string, $offset,
+                        length $test_string), $expected_count,
+                        "$display_string contains $expected_count variants");
+}
+
 
 my $pound_sign = chr utf8::unicode_to_native(163);
 
@@ -58,10 +167,10 @@ foreach ([0, '', '', 'empty'],
     my ($expect, $left, $right, $desc) = @$_;
     my $copy = $right;
     utf8::encode($copy);
-    is(bytes_cmp_utf8($left, $copy), $expect, $desc);
+    is(bytes_cmp_utf8($left, $copy), $expect, "bytes_cmp_utf8: $desc");
     next if $right =~ tr/\0-\377//c;
     utf8::encode($left);
-    is(bytes_cmp_utf8($right, $left), -$expect, "$desc reversed");
+    is(bytes_cmp_utf8($right, $left), -$expect, "... and $desc reversed");
 }
 
 # The keys to this hash are Unicode code points, their values are the native

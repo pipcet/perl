@@ -70,11 +70,6 @@
 #    define __int64 long long
 #  endif
 #  define Win32_Winsock
-#ifdef __cplusplus
-/* Mingw32 gcc -xc++ objects to __attribute((unused)) at least */
-#undef  PERL_UNUSED_DECL
-#define PERL_UNUSED_DECL
-#endif
 #endif
 
 
@@ -85,7 +80,7 @@
 
 /* now even GCC supports __declspec() */
 /* miniperl has no reason to export anything */
-#if defined(PERL_IS_MINIPERL) && !defined(UNDER_CE) && defined(_MSC_VER)
+#if defined(PERL_IS_MINIPERL)
 #  define DllExport
 #else
 #  if defined(PERLDLL)
@@ -103,28 +98,49 @@
  * The XS code in the re extension is special, in that it redefines
  * core APIs locally, so don't mark them as "dllimport" because GCC
  * cannot handle this situation.
+ *
+ * Certain old GCCs will not allow the function pointer of dllimport marked
+ * function to be "const". This was fixed later on. Since this is a
+ * deoptimization, target "gcc version 3.4.5 (mingw-vista special r3)" only,
+ * The GCC bug was fixed in GCC patch "varasm.c (initializer_constant_valid_p):
+ * Don't deny DECL_DLLIMPORT_P on functions", which probably was first released
+ * in GCC 4.3.0, this #if can be expanded upto but not including 4.3.0 if more
+ * deployed GCC are found that wont build with the follow error, initializer
+ * element is a PerlIO func exported from perl5xx.dll.
+ *
+ * encoding.xs:610: error: initializer element is not constant
+ * encoding.xs:610: error: (near initialization for `PerlIO_encode.Open')
  */
-#if !defined(PERLDLL) && !defined(PERL_EXT_RE_BUILD)
-#  ifdef __cplusplus
-#    define PERL_CALLCONV extern "C" __declspec(dllimport)
-#    ifdef _MSC_VER
-#      define PERL_CALLCONV_NO_RET extern "C" __declspec(dllimport) __declspec(noreturn)
+
+#if (defined(__GNUC__) && defined(__MINGW32__) && \
+     !defined(__MINGW64_VERSION_MAJOR) && !defined(__clang__) && \
+	((__GNUC__ < 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ <= 5))))
+/* use default fallbacks from perl.h for this particular GCC */
+#else
+#  if !defined(PERLDLL) && !defined(PERL_EXT_RE_BUILD)
+#    ifdef __cplusplus
+#      define PERL_CALLCONV extern "C" __declspec(dllimport)
+#      ifdef _MSC_VER
+#        define PERL_CALLCONV_NO_RET extern "C" __declspec(dllimport) __declspec(noreturn)
+#      endif
+#    else
+#      define PERL_CALLCONV __declspec(dllimport)
+#      ifdef _MSC_VER
+#        define PERL_CALLCONV_NO_RET __declspec(dllimport) __declspec(noreturn)
+#      endif
 #    endif
-#  else
-#    define PERL_CALLCONV __declspec(dllimport)
+#  else /* MSVC noreturn support inside the interp */
 #    ifdef _MSC_VER
-#      define PERL_CALLCONV_NO_RET __declspec(dllimport) __declspec(noreturn)
+#      define PERL_CALLCONV_NO_RET __declspec(noreturn)
 #    endif
-#  endif
-#else /* MSVC noreturn support inside the interp */
-#  ifdef _MSC_VER
-#    define PERL_CALLCONV_NO_RET __declspec(noreturn)
 #  endif
 #endif
 
 #ifdef _MSC_VER
 #  define PERL_STATIC_NO_RET __declspec(noreturn) static
 #  define PERL_STATIC_INLINE_NO_RET __declspec(noreturn) PERL_STATIC_INLINE
+#  define PERL_STATIC_FORCE_INLINE __forceinline static
+#  define PERL_STATIC_FORCE_INLINE_NO_RET __declspec(noreturn) __forceinline static
 #endif
 
 #define  WIN32_LEAN_AND_MEAN
@@ -199,7 +215,6 @@ struct utsname {
 #endif
 #endif
 
-#define  STANDARD_C	1
 #define  DOSISH		1		/* no escaping our roots */
 #define  OP_BINARY	O_BINARY	/* mistake in in pp_sys.c? */
 
@@ -241,23 +256,18 @@ struct utsname {
 
 /* VC uses non-standard way to determine the size and alignment if bit-fields */
 /* MinGW will compile with -mms-bitfields, so should use the same types */
-#define PERL_BITFIELD8  unsigned char
-#define PERL_BITFIELD16 unsigned short
-#define PERL_BITFIELD32 unsigned int
+#define PERL_BITFIELD8  U8
+#define PERL_BITFIELD16 U16
+#define PERL_BITFIELD32 U32
 
 #ifdef _MSC_VER			/* Microsoft Visual C++ */
 
-#ifndef UNDER_CE
 typedef long		uid_t;
 typedef long		gid_t;
 typedef unsigned short	mode_t;
-#endif
 
 #if _MSC_VER < 1800
 #define isnan		_isnan	/* Defined already in VC++ 12.0 */
-#endif
-#ifdef UNDER_CE /* revisit what function this becomes celib vs corelibc, prv warning here*/
-#  undef snprintf
 #endif
 #define snprintf	_snprintf
 #define vsnprintf	_vsnprintf
@@ -267,8 +277,7 @@ typedef unsigned short	mode_t;
 #  pragma intrinsic(_rotl64,_rotr64)
 #endif
 
-#pragma warning(push)
-#pragma warning(disable:4756;disable:4056)
+MSVC_DIAG_IGNORE(4756 4056)
 PERL_STATIC_INLINE
 double S_Infinity() {
     /* this is a real C literal which can get further constant folded
@@ -277,7 +286,8 @@ double S_Infinity() {
        folding INF is creating -INF */
     return (DBL_MAX+DBL_MAX);
 }
-#pragma warning(pop)
+MSVC_DIAG_RESTORE
+
 #define NV_INF S_Infinity()
 
 /* selectany allows duplicate and unused data symbols to be removed by
@@ -296,7 +306,7 @@ __PL_nan_u = { 0x7FF8000000000000UI64 };
 #if _MSC_VER >= 1900
 
 /* No longer declared in stdio.h */
-char *gets(char* buffer);
+EXTERN_C char *gets(char* buffer);
 
 #define tzname _tzname
 
@@ -326,7 +336,7 @@ typedef struct
 #define PERLIO_FILE_base(f) (((__crt_stdio_stream_data*)(f))->_base)
 #define PERLIO_FILE_cnt(f)  (((__crt_stdio_stream_data*)(f))->_cnt)
 #define PERLIO_FILE_flag(f) ((int)(((__crt_stdio_stream_data*)(f))->_flags))
-#define PERLIO_FILE_file(f) ((int)(((__crt_stdio_stream_data*)(f))->_file))
+#define PERLIO_FILE_file(f) (*(int*)(&((__crt_stdio_stream_data*)(f))->_file))
 
 #endif
 
@@ -717,16 +727,13 @@ EXTERN_C _CRTIMP ioinfo* __pioinfo[];
 DllExport void *win32_signal_context(void);
 #define PERL_GET_SIG_CONTEXT win32_signal_context()
 
-#ifdef UNDER_CE
-#define Win_GetModuleHandle   XCEGetModuleHandleA
-#define Win_GetProcAddress    XCEGetProcAddressA
-#define Win_GetModuleFileName XCEGetModuleFileNameA
-#define Win_CreateSemaphore   CreateSemaphoreW
-#else
 #define Win_GetModuleHandle   GetModuleHandle
 #define Win_GetProcAddress    GetProcAddress
 #define Win_GetModuleFileName GetModuleFileName
 #define Win_CreateSemaphore   CreateSemaphore
+
+#if defined(PERL_CORE) && !defined(O_ACCMODE)
+#  define O_ACCMODE (O_RDWR | O_WRONLY | O_RDONLY)
 #endif
 
 #endif /* _INC_WIN32_PERL5 */

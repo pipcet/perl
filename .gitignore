@@ -34,6 +34,7 @@ bug*.pl
 /perlmain.c
 /perlmini.c
 /pod/Makefile
+/preload
 /runtests
 /writemain
 /x2p/Makefile
@@ -61,6 +62,7 @@ perldtrace.h
 
 # general build products (darwin)
 *.dylib
+*.DS_Store
 
 # general build products (Win32)
 *.def
@@ -120,7 +122,6 @@ lib/perldoc.pod
 lib/buildcustomize.pl
 lib/unicore/CombiningClass.pl
 lib/unicore/Decomposition.pl
-lib/unicore/Heavy.pl
 lib/unicore/Name.pl
 lib/unicore/Name.pm
 lib/unicore/TestProp.pl
@@ -134,12 +135,14 @@ xlib/
 
 # test byproducts
 ext/Test-Harness/t/ext/
+ext/XS-APItest/APItest.bso
 t/rantests
 t/tmp*
 t/perl
 t/test_state
 *.output
 *.tmp
+*.bak
 t/*.ph
 t/lib/*.ph
 

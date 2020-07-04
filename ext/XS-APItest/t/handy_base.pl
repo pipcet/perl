@@ -162,12 +162,11 @@ local $SIG{__WARN__} = sub { push @warnings, @_ };
 my %utf8_param_code = (
                         "_safe"                 =>  0,
                         "_safe, malformed"      =>  1,
-                        "deprecated unsafe"     => -1,
-                        "deprecated mathoms"    => -2,
                       );
 
 # This test is split into this number of files.
 my $num_test_files = $ENV{TEST_JOBS} || 1;
+$::TEST_CHUNK = 0 if $num_test_files == 1 && ! defined $::TEST_CHUNK;
 $num_test_files = 10 if $num_test_files > 10;
 
 my $property_count = -1;
@@ -329,7 +328,6 @@ foreach my $name (sort keys %properties, 'octal') {
 
                     foreach my $utf8_param("_safe",
                                            "_safe, malformed",
-                                           "deprecated unsafe"
                                           )
                     {
                         my $utf8_param_code = $utf8_param_code{$utf8_param};
@@ -554,8 +552,6 @@ foreach my $name (sort keys %to_properties) {
         $char = quotemeta $char if $char eq '\\' || $char eq "'";
         foreach my $utf8_param("_safe",
                                 "_safe, malformed",
-                                "deprecated unsafe",
-                                "deprecated mathoms",
                                 )
         {
             use Config;

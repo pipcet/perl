@@ -3,7 +3,7 @@
  *
  *    Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001
  *    2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
- *    2013, 2014, 2015, 2016, 2017 by Larry Wall and others
+ *    2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020 by Larry Wall and others
  *
  *    You may distribute under the terms of either the GNU General Public
  *    License or the Artistic License, as specified in the README file.
@@ -62,10 +62,6 @@ union control_un {
 #  endif
 #endif
 
-#if !defined(STANDARD_C) && !defined(HAS_GETENV_PROTOTYPE) && !defined(PERL_MICRO)
-char *getenv (char *); /* Usually in <stdlib.h> */
-#endif
-
 static I32 read_e_script(pTHX_ int idx, SV *buf_sv, int maxlen);
 
 #ifdef SETUID_SCRIPTS_ARE_SECURE_NOW
@@ -96,8 +92,11 @@ S_init_tls_and_interp(PerlInterpreter *my_perl)
 	PERL_SET_THX(my_perl);
 	OP_REFCNT_INIT;
 	OP_CHECK_MUTEX_INIT;
+        KEYWORD_PLUGIN_MUTEX_INIT;
 	HINTS_REFCNT_INIT;
         LOCALE_INIT;
+        USER_PROP_MUTEX_INIT;
+        ENV_INIT;
 	MUTEX_INIT(&PL_dollarzero_mutex);
 	MUTEX_INIT(&PL_my_ctx_mutex);
 #  endif
@@ -218,26 +217,6 @@ Initializes a new Perl interpreter.  See L<perlembed>.
 =cut
 */
 
-static void
-S_fixup_platform_bugs(void)
-{
-#if defined(__GLIBC__) && IVSIZE == 8 \
-    && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
-    {
-        IV l =   3;
-        IV r = -10;
-        /* Cannot do this check with inlined IV constants since
-         * that seems to work correctly even with the buggy glibc. */
-        if (l % r == -3) {
-            dTHX;
-            /* Yikes, we have the bug.
-             * Patch in the workaround version. */
-            PL_ppaddr[OP_I_MODULO] = &Perl_pp_i_modulo_glibc_bugfix;
-        }
-    }
-#endif
-}
-
 void
 perl_construct(pTHXx)
 {
@@ -264,7 +243,10 @@ perl_construct(pTHXx)
     SvREADONLY_on(&PL_sv_placeholder);
     SvREFCNT(&PL_sv_placeholder) = SvREFCNT_IMMORTAL;
 
-    PL_sighandlerp = (Sighandler_t) Perl_sighandler;
+    PL_sighandlerp  = Perl_sighandler;
+    PL_sighandler1p = Perl_sighandler1;
+    PL_sighandler3p = Perl_sighandler3;
+
 #ifdef PERL_USES_PL_PIDSTATUS
     PL_pidstatus = newHV();
 #endif
@@ -273,14 +255,35 @@ perl_construct(pTHXx)
 
     init_stacks();
 
-    init_ids();
+/* The PERL_INTERNAL_RAND_SEED set-up must be after init_stacks because it calls
+ * things that may put SVs on the stack.
+ */
 
-    S_fixup_platform_bugs();
+#ifdef NO_PERL_INTERNAL_RAND_SEED
+    Perl_drand48_init_r(&PL_internal_random_state, seed());
+#else
+    {
+        UV seed;
+        const char *env_pv;
+        if (PerlProc_getuid() != PerlProc_geteuid() ||
+            PerlProc_getgid() != PerlProc_getegid() ||
+            !(env_pv = PerlEnv_getenv("PERL_INTERNAL_RAND_SEED")) ||
+            grok_number(env_pv, strlen(env_pv), &seed) != IS_NUMBER_IN_UV) {
+            seed = seed();
+        }
+        Perl_drand48_init_r(&PL_internal_random_state, (U32)seed);
+    }
+#endif
+
+    init_ids();
 
     JMPENV_BOOTSTRAP;
     STATUS_ALL_SUCCESS;
 
-    init_i18nl10n(1);
+    init_uniprops();
+    (void) uvchr_to_utf8_flags((U8 *) PL_TR_SPECIAL_HANDLING_UTF8,
+                               TR_SPECIAL_HANDLING,
+                               UNICODE_ALLOW_ABOVE_IV_MAX);
 
 #if defined(LOCAL_PATCH_COUNT)
     PL_localpatches = local_patches;	/* For possible -v */
@@ -355,15 +358,20 @@ perl_construct(pTHXx)
          * constructing hashes */
         PL_hash_seed_set= TRUE;
     }
-    /* Note that strtab is a rather special HV.  Assumptions are made
-       about not iterating on it, and not adding tie magic to it.
-       It is properly deallocated in perl_destruct() */
-    PL_strtab = newHV();
 
-    /* SHAREKEYS tells us that the hash has its keys shared with PL_strtab,
-     * which is not the case with PL_strtab itself */
-    HvSHAREKEYS_off(PL_strtab);			/* mandatory */
-    hv_ksplit(PL_strtab, 1 << 11);
+    /* Allow PL_strtab to be pre-initialized before calling perl_construct.
+    * can use a custom optimized PL_strtab hash before calling perl_construct */
+    if (!PL_strtab) {
+        /* Note that strtab is a rather special HV.  Assumptions are made
+           about not iterating on it, and not adding tie magic to it.
+           It is properly deallocated in perl_destruct() */
+        PL_strtab = newHV();
+
+        /* SHAREKEYS tells us that the hash has its keys shared with PL_strtab,
+         * which is not the case with PL_strtab itself */
+        HvSHAREKEYS_off(PL_strtab);			/* mandatory */
+        hv_ksplit(PL_strtab, 1 << 11);
+    }
 
     Zero(PL_sv_consts, SV_CONSTS_COUNT, SV*);
 
@@ -398,23 +406,14 @@ perl_construct(pTHXx)
 	PL_mmap_page_size = sysconf(_SC_MMAP_PAGE_SIZE);
 #   endif
 	if ((long) PL_mmap_page_size < 0) {
-	  if (errno) {
-	    SV * const error = ERRSV;
-	    SvUPGRADE(error, SVt_PV);
-	    Perl_croak(aTHX_ "panic: sysconf: %s", SvPV_nolen_const(error));
-	  }
-	  else
-	    Perl_croak(aTHX_ "panic: sysconf: pagesize unknown");
+	    Perl_croak(aTHX_ "panic: sysconf: %s",
+		errno ? Strerror(errno) : "pagesize unknown");
 	}
       }
-#else
-#   ifdef HAS_GETPAGESIZE
+#elif defined(HAS_GETPAGESIZE)
       PL_mmap_page_size = getpagesize();
-#   else
-#       if defined(I_SYS_PARAM) && defined(PAGESIZE)
+#elif defined(I_SYS_PARAM) && defined(PAGESIZE)
       PL_mmap_page_size = PAGESIZE;       /* compiletime, bad */
-#       endif
-#   endif
 #endif
       if (PL_mmap_page_size <= 0)
 	Perl_croak(aTHX_ "panic: bad pagesize %" IVdf,
@@ -435,32 +434,12 @@ perl_construct(pTHXx)
     /* Start with 1 bucket, for DFS.  It's unlikely we'll need more.  */
     HvMAX(PL_registered_mros) = 0;
 
-    PL_XPosix_ptrs[_CC_ASCII] = _new_invlist_C_array(ASCII_invlist);
-    PL_XPosix_ptrs[_CC_ALPHANUMERIC] = _new_invlist_C_array(XPosixAlnum_invlist);
-    PL_XPosix_ptrs[_CC_ALPHA] = _new_invlist_C_array(XPosixAlpha_invlist);
-    PL_XPosix_ptrs[_CC_BLANK] = _new_invlist_C_array(XPosixBlank_invlist);
-    PL_XPosix_ptrs[_CC_CASED] =  _new_invlist_C_array(Cased_invlist);
-    PL_XPosix_ptrs[_CC_CNTRL] = _new_invlist_C_array(XPosixCntrl_invlist);
-    PL_XPosix_ptrs[_CC_DIGIT] = _new_invlist_C_array(XPosixDigit_invlist);
-    PL_XPosix_ptrs[_CC_GRAPH] = _new_invlist_C_array(XPosixGraph_invlist);
-    PL_XPosix_ptrs[_CC_LOWER] = _new_invlist_C_array(XPosixLower_invlist);
-    PL_XPosix_ptrs[_CC_PRINT] = _new_invlist_C_array(XPosixPrint_invlist);
-    PL_XPosix_ptrs[_CC_PUNCT] = _new_invlist_C_array(XPosixPunct_invlist);
-    PL_XPosix_ptrs[_CC_SPACE] = _new_invlist_C_array(XPerlSpace_invlist);
-    PL_XPosix_ptrs[_CC_UPPER] = _new_invlist_C_array(XPosixUpper_invlist);
-    PL_XPosix_ptrs[_CC_VERTSPACE] = _new_invlist_C_array(VertSpace_invlist);
-    PL_XPosix_ptrs[_CC_WORDCHAR] = _new_invlist_C_array(XPosixWord_invlist);
-    PL_XPosix_ptrs[_CC_XDIGIT] = _new_invlist_C_array(XPosixXDigit_invlist);
-    PL_GCB_invlist = _new_invlist_C_array(_Perl_GCB_invlist);
-    PL_SB_invlist = _new_invlist_C_array(_Perl_SB_invlist);
-    PL_WB_invlist = _new_invlist_C_array(_Perl_WB_invlist);
-    PL_LB_invlist = _new_invlist_C_array(_Perl_LB_invlist);
-    PL_Assigned_invlist = _new_invlist_C_array(Assigned_invlist);
-#ifdef HAS_POSIX_2008_LOCALE
+#ifdef USE_POSIX_2008_LOCALE
     PL_C_locale_obj = newlocale(LC_ALL_MASK, "C", NULL);
 #endif
 
     ENTER;
+    init_i18nl10n(1);
 }
 
 /*
@@ -582,7 +561,31 @@ Perl_dump_sv_child(pTHX_ SV *sv)
 /*
 =for apidoc perl_destruct
 
-Shuts down a Perl interpreter.  See L<perlembed>.
+Shuts down a Perl interpreter.  See L<perlembed> for a tutorial.
+
+C<my_perl> points to the Perl interpreter.  It must have been previously
+created through the use of L</perl_alloc> and L</perl_construct>.  It may
+have been initialised through L</perl_parse>, and may have been used
+through L</perl_run> and other means.  This function should be called for
+any Perl interpreter that has been constructed with L</perl_construct>,
+even if subsequent operations on it failed, for example if L</perl_parse>
+returned a non-zero value.
+
+If the interpreter's C<PL_exit_flags> word has the
+C<PERL_EXIT_DESTRUCT_END> flag set, then this function will execute code
+in C<END> blocks before performing the rest of destruction.  If it is
+desired to make any use of the interpreter between L</perl_parse> and
+L</perl_destruct> other than just calling L</perl_run>, then this flag
+should be set early on.  This matters if L</perl_run> will not be called,
+or if anything else will be done in addition to calling L</perl_run>.
+
+Returns a value be a suitable value to pass to the C library function
+C<exit> (or to return from C<main>), to serve as an exit code indicating
+the nature of the way the interpreter terminated.  This takes into account
+any failure of L</perl_parse> and any early exit from L</perl_run>.
+The exit code is of the type required by the host operating system,
+so because of differing exit code conventions it is not portable to
+interpret specific numeric values as having specific meanings.
 
 =cut
 */
@@ -591,7 +594,7 @@ int
 perl_destruct(pTHXx)
 {
     dVAR;
-    VOL signed char destruct_level;  /* see possible values in intrpvar.h */
+    volatile signed char destruct_level;  /* see possible values in intrpvar.h */
     HV *hv;
 #ifdef DEBUG_LEAKING_SCALARS_FORK_DUMP
     pid_t child;
@@ -609,7 +612,6 @@ perl_destruct(pTHXx)
     PERL_WAIT_FOR_CHILDREN;
 
     destruct_level = PL_perl_destruct_level;
-#if defined(DEBUGGING) || defined(PERL_TRACK_MEMPOOL)
     {
 	const char * const s = PerlEnv_getenv("PERL_DESTRUCT_LEVEL");
 	if (s) {
@@ -623,16 +625,13 @@ perl_destruct(pTHXx)
                 else
                     i = 0;
             }
-#ifdef DEBUGGING
 	    if (destruct_level < i) destruct_level = i;
-#endif
 #ifdef PERL_TRACK_MEMPOOL
             /* RT #114496, for perl_free */
             PL_perl_destruct_level = i;
 #endif
 	}
     }
-#endif
 
     if (PL_exit_flags & PERL_EXIT_DESTRUCT_END) {
         dJMPENV;
@@ -650,6 +649,21 @@ perl_destruct(pTHXx)
     FREETMPS;
     assert(PL_scopestack_ix == 0);
 
+    /* normally when we get here, PL_parser should be null due to having
+     * its original (null) value restored by SAVEt_PARSER during leaving
+     * scope (usually before run-time starts in fact).
+     * But if a thread is created within a BEGIN block, the parser is
+     * duped, but the SAVEt_PARSER savestack entry isn't. So PL_parser
+     * never gets cleaned up.
+     * Clean it up here instead. This is a bit of a hack.
+     */
+    if (PL_parser) {
+        /* stop parser_free() stomping on PL_curcop */
+        PL_parser->saved_curcop = PL_curcop;
+        parser_free(PL_parser);
+    }
+
+
     /* Need to flush since END blocks can produce output */
     /* flush stdout separately, since we can identify it */
 #ifdef USE_PERLIO
@@ -658,7 +672,7 @@ perl_destruct(pTHXx)
         if (*stdo && PerlIO_flush(stdo)) {
             PerlIO_restore_errno(stdo);
             if (errno)
-                PerlIO_printf(PerlIO_stderr(), "Unable to flush stdout: %s",
+                PerlIO_printf(PerlIO_stderr(), "Unable to flush stdout: %s\n",
                     Strerror(errno));
             if (!STATUS_UNIX)
                 STATUS_ALL_FAILURE;
@@ -705,7 +719,7 @@ perl_destruct(pTHXx)
 	   fail gracefully  */
 	int fd[2];
 
-	if(socketpair(AF_UNIX, SOCK_STREAM, 0, fd)) {
+	if(PerlSock_socketpair_cloexec(AF_UNIX, SOCK_STREAM, 0, fd)) {
 	    perror("Debug leaking scalars socketpair failed");
 	    abort();
 	}
@@ -804,7 +818,7 @@ perl_destruct(pTHXx)
 		   back into Perl_debug_log, as if we never actually closed it
 		*/
 		if(got_fd != debug_fd) {
-		    if (dup2(got_fd, debug_fd) == -1) {
+		    if (PerlLIO_dup2_cloexec(got_fd, debug_fd) == -1) {
 			where = "dup2";
 			goto abort;
 		    }
@@ -1107,7 +1121,39 @@ perl_destruct(pTHXx)
     Safefree(PL_collation_name);
     PL_collation_name = NULL;
 #endif
-
+#if   defined(USE_POSIX_2008_LOCALE)      \
+ &&   defined(USE_THREAD_SAFE_LOCALE)     \
+ && ! defined(HAS_QUERYLOCALE)
+    for (i = 0; i < (int) C_ARRAY_LENGTH(PL_curlocales); i++) {
+        Safefree(PL_curlocales[i]);
+        PL_curlocales[i] = NULL;
+    }
+#endif
+#ifdef HAS_POSIX_2008_LOCALE
+    {
+        /* This also makes sure we aren't using a locale object that gets freed
+         * below */
+        const locale_t old_locale = uselocale(LC_GLOBAL_LOCALE);
+        if (   old_locale != LC_GLOBAL_LOCALE
+#  ifdef USE_POSIX_2008_LOCALE
+            && old_locale != PL_C_locale_obj
+#  endif
+        ) {
+            DEBUG_Lv(PerlIO_printf(Perl_debug_log,
+                     "%s:%d: Freeing %p\n", __FILE__, __LINE__, old_locale));
+            freelocale(old_locale);
+        }
+    }
+#  ifdef USE_LOCALE_NUMERIC
+    if (PL_underlying_numeric_obj) {
+        DEBUG_Lv(PerlIO_printf(Perl_debug_log,
+                    "%s:%d: Freeing %p\n", __FILE__, __LINE__,
+                    PL_underlying_numeric_obj));
+        freelocale(PL_underlying_numeric_obj);
+        PL_underlying_numeric_obj = (locale_t) NULL;
+    }
+#  endif
+#endif
 #ifdef USE_LOCALE_NUMERIC
     Safefree(PL_numeric_name);
     PL_numeric_name = NULL;
@@ -1115,59 +1161,93 @@ perl_destruct(pTHXx)
     PL_numeric_radix_sv = NULL;
 #endif
 
-    /* clear character classes  */
-    for (i = 0; i < POSIX_SWASH_COUNT; i++) {
-        SvREFCNT_dec(PL_utf8_swash_ptrs[i]);
-        PL_utf8_swash_ptrs[i] = NULL;
+    if (PL_setlocale_buf) {
+        Safefree(PL_setlocale_buf);
+        PL_setlocale_buf = NULL;
     }
-    SvREFCNT_dec(PL_utf8_mark);
-    SvREFCNT_dec(PL_utf8_toupper);
-    SvREFCNT_dec(PL_utf8_totitle);
-    SvREFCNT_dec(PL_utf8_tolower);
-    SvREFCNT_dec(PL_utf8_tofold);
-    SvREFCNT_dec(PL_utf8_idstart);
-    SvREFCNT_dec(PL_utf8_idcont);
-    SvREFCNT_dec(PL_utf8_foldable);
-    SvREFCNT_dec(PL_utf8_foldclosures);
-    SvREFCNT_dec(PL_AboveLatin1);
-    SvREFCNT_dec(PL_InBitmap);
-    SvREFCNT_dec(PL_UpperLatin1);
-    SvREFCNT_dec(PL_Latin1);
-    SvREFCNT_dec(PL_NonL1NonFinalFold);
-    SvREFCNT_dec(PL_HasMultiCharFold);
+
+    if (PL_langinfo_buf) {
+        Safefree(PL_langinfo_buf);
+        PL_langinfo_buf = NULL;
+    }
+
 #ifdef USE_LOCALE_CTYPE
     SvREFCNT_dec(PL_warn_locale);
-#endif
-    PL_utf8_mark	= NULL;
-    PL_utf8_toupper	= NULL;
-    PL_utf8_totitle	= NULL;
-    PL_utf8_tolower	= NULL;
-    PL_utf8_tofold	= NULL;
-    PL_utf8_idstart	= NULL;
-    PL_utf8_idcont	= NULL;
-    PL_utf8_foldclosures = NULL;
-    PL_AboveLatin1       = NULL;
-    PL_InBitmap          = NULL;
-    PL_HasMultiCharFold  = NULL;
-#ifdef USE_LOCALE_CTYPE
     PL_warn_locale       = NULL;
 #endif
-    PL_Latin1            = NULL;
-    PL_NonL1NonFinalFold = NULL;
-    PL_UpperLatin1       = NULL;
+
+    SvREFCNT_dec(PL_AboveLatin1);
+    PL_AboveLatin1 = NULL;
+    SvREFCNT_dec(PL_Assigned_invlist);
+    PL_Assigned_invlist = NULL;
+    SvREFCNT_dec(PL_GCB_invlist);
+    PL_GCB_invlist = NULL;
+    SvREFCNT_dec(PL_HasMultiCharFold);
+    PL_HasMultiCharFold = NULL;
+    SvREFCNT_dec(PL_InMultiCharFold);
+    PL_InMultiCharFold = NULL;
+    SvREFCNT_dec(PL_Latin1);
+    PL_Latin1 = NULL;
+    SvREFCNT_dec(PL_LB_invlist);
+    PL_LB_invlist = NULL;
+    SvREFCNT_dec(PL_SB_invlist);
+    PL_SB_invlist = NULL;
+    SvREFCNT_dec(PL_SCX_invlist);
+    PL_SCX_invlist = NULL;
+    SvREFCNT_dec(PL_UpperLatin1);
+    PL_UpperLatin1 = NULL;
+    SvREFCNT_dec(PL_in_some_fold);
+    PL_in_some_fold = NULL;
+    SvREFCNT_dec(PL_utf8_foldclosures);
+    PL_utf8_foldclosures = NULL;
+    SvREFCNT_dec(PL_utf8_idcont);
+    PL_utf8_idcont = NULL;
+    SvREFCNT_dec(PL_utf8_idstart);
+    PL_utf8_idstart = NULL;
+    SvREFCNT_dec(PL_utf8_perl_idcont);
+    PL_utf8_perl_idcont = NULL;
+    SvREFCNT_dec(PL_utf8_perl_idstart);
+    PL_utf8_perl_idstart = NULL;
+    SvREFCNT_dec(PL_utf8_xidcont);
+    PL_utf8_xidcont = NULL;
+    SvREFCNT_dec(PL_utf8_xidstart);
+    PL_utf8_xidstart = NULL;
+    SvREFCNT_dec(PL_WB_invlist);
+    PL_WB_invlist = NULL;
+    SvREFCNT_dec(PL_utf8_toupper);
+    PL_utf8_toupper = NULL;
+    SvREFCNT_dec(PL_utf8_totitle);
+    PL_utf8_totitle = NULL;
+    SvREFCNT_dec(PL_utf8_tolower);
+    PL_utf8_tolower = NULL;
+    SvREFCNT_dec(PL_utf8_tofold);
+    PL_utf8_tofold = NULL;
+    SvREFCNT_dec(PL_utf8_tosimplefold);
+    PL_utf8_tosimplefold = NULL;
+    SvREFCNT_dec(PL_utf8_charname_begin);
+    PL_utf8_charname_begin = NULL;
+    SvREFCNT_dec(PL_utf8_charname_continue);
+    PL_utf8_charname_continue = NULL;
+    SvREFCNT_dec(PL_utf8_mark);
+    PL_utf8_mark = NULL;
+    SvREFCNT_dec(PL_InBitmap);
+    PL_InBitmap = NULL;
+    SvREFCNT_dec(PL_CCC_non0_non230);
+    PL_CCC_non0_non230 = NULL;
+    SvREFCNT_dec(PL_Private_Use);
+    PL_Private_Use = NULL;
+
     for (i = 0; i < POSIX_CC_COUNT; i++) {
         SvREFCNT_dec(PL_XPosix_ptrs[i]);
         PL_XPosix_ptrs[i] = NULL;
-    }
-    PL_GCB_invlist = NULL;
-    PL_LB_invlist = NULL;
-    PL_SB_invlist = NULL;
-    PL_WB_invlist = NULL;
-    PL_Assigned_invlist = NULL;
 
-    if (!specialWARN(PL_compiling.cop_warnings))
-	PerlMemShared_free(PL_compiling.cop_warnings);
-    PL_compiling.cop_warnings = NULL;
+        if (i != _CC_CASED) {   /* A copy of Alpha */
+            SvREFCNT_dec(PL_Posix_ptrs[i]);
+            PL_Posix_ptrs[i] = NULL;
+        }
+    }
+
+    free_and_set_cop_warnings(&PL_compiling, NULL);
     cophh_free(CopHINTHASH_get(&PL_compiling));
     CopHINTHASH_set(&PL_compiling, cophh_new_empty());
     CopFILE_free(&PL_compiling);
@@ -1324,8 +1404,8 @@ perl_destruct(pTHXx)
 	    for (sv = sva + 1; sv < svend; ++sv) {
 		if (SvTYPE(sv) != (svtype)SVTYPEMASK) {
 		    PerlIO_printf(Perl_debug_log, "leaked: sv=0x%p"
-			" flags=0x%"UVxf
-			" refcnt=%"UVuf pTHX__FORMAT "\n"
+			" flags=0x%" UVxf
+			" refcnt=%" UVuf pTHX__FORMAT "\n"
 			"\tallocated at %s:%d %s %s (parent 0x%" UVxf ");"
 			"serial %" UVuf "\n",
 			(void*)sv, (UV)sv->sv_flags, (UV)sv->sv_refcnt
@@ -1554,7 +1634,59 @@ Perl_call_atexit(pTHX_ ATEXIT_t fn, void *ptr)
 /*
 =for apidoc perl_parse
 
-Tells a Perl interpreter to parse a Perl script.  See L<perlembed>.
+Tells a Perl interpreter to parse a Perl script.  This performs most
+of the initialisation of a Perl interpreter.  See L<perlembed> for
+a tutorial.
+
+C<my_perl> points to the Perl interpreter that is to parse the script.
+It must have been previously created through the use of L</perl_alloc>
+and L</perl_construct>.  C<xsinit> points to a callback function that
+will be called to set up the ability for this Perl interpreter to load
+XS extensions, or may be null to perform no such setup.
+
+C<argc> and C<argv> supply a set of command-line arguments to the Perl
+interpreter, as would normally be passed to the C<main> function of
+a C program.  C<argv[argc]> must be null.  These arguments are where
+the script to parse is specified, either by naming a script file or by
+providing a script in a C<-e> option.
+If L<C<$0>|perlvar/$0> will be written to in the Perl interpreter, then
+the argument strings must be in writable memory, and so mustn't just be
+string constants.
+
+C<env> specifies a set of environment variables that will be used by
+this Perl interpreter.  If non-null, it must point to a null-terminated
+array of environment strings.  If null, the Perl interpreter will use
+the environment supplied by the C<environ> global variable.
+
+This function initialises the interpreter, and parses and compiles the
+script specified by the command-line arguments.  This includes executing
+code in C<BEGIN>, C<UNITCHECK>, and C<CHECK> blocks.  It does not execute
+C<INIT> blocks or the main program.
+
+Returns an integer of slightly tricky interpretation.  The correct
+use of the return value is as a truth value indicating whether there
+was a failure in initialisation.  If zero is returned, this indicates
+that initialisation was successful, and it is safe to proceed to call
+L</perl_run> and make other use of it.  If a non-zero value is returned,
+this indicates some problem that means the interpreter wants to terminate.
+The interpreter should not be just abandoned upon such failure; the caller
+should proceed to shut the interpreter down cleanly with L</perl_destruct>
+and free it with L</perl_free>.
+
+For historical reasons, the non-zero return value also attempts to
+be a suitable value to pass to the C library function C<exit> (or to
+return from C<main>), to serve as an exit code indicating the nature
+of the way initialisation terminated.  However, this isn't portable,
+due to differing exit code conventions.  A historical bug is preserved
+for the time being: if the Perl built-in C<exit> is called during this
+function's execution, with a type of exit entailing a zero exit code
+under the host operating system's conventions, then this function
+returns zero rather than a non-zero value.  This bug, [perl #2754],
+leads to C<perl_run> being called (and therefore C<INIT> blocks and the
+main program running) despite a call to C<exit>.  It has been preserved
+because a popular module-installing module has come to rely on it and
+needs time to be fixed.  This issue is [perl #132577], and the original
+bug is due to be fixed in Perl 5.30.
 
 =cut
 */
@@ -1605,6 +1737,13 @@ perl_parse(pTHXx_ XSINIT_t xsinit, int argc, char **argv, char **env)
     }
 #endif
 
+    {
+	int i;
+	assert(argc >= 0);
+	for(i = 0; i != argc; i++)
+	    assert(argv[i]);
+	assert(!argv[argc]);
+    }
     PL_origargc = argc;
     PL_origargv = argv;
 
@@ -1756,6 +1895,15 @@ perl_parse(pTHXx_ XSINIT_t xsinit, int argc, char **argv, char **env)
 	    call_list(oldscope, PL_checkav);
 	}
 	ret = STATUS_EXIT;
+	if (ret == 0) {
+	    /*
+	     * At this point we should do
+	     *     ret = 0x100;
+	     * to avoid [perl #2754], but that bugfix has been postponed
+	     * because of the Module::Install breakage it causes
+	     * [perl #132577].
+	     */
+	}
 	break;
     case 3:
 	PerlIO_printf(Perl_error_log, "panic: top_env\n");
@@ -1871,7 +2019,7 @@ S_Internals_V(pTHX_ CV *cv)
 			     " PERL_USE_SAFE_PUTENV"
 #  endif
 #  ifdef SILENT_NO_TAINT_SUPPORT
-                             " SILENT_NO_TAINT_SUPPORT"
+			     " SILENT_NO_TAINT_SUPPORT"
 #  endif
 #  ifdef UNLINK_ALL_VERSIONS
 			     " UNLINK_ALL_VERSIONS"
@@ -1897,6 +2045,9 @@ S_Internals_V(pTHX_ CV *cv)
 #  ifdef USE_SITECUSTOMIZE
 			     " USE_SITECUSTOMIZE"
 #  endif	       
+#  ifdef USE_THREAD_SAFE_LOCALE
+			     " USE_THREAD_SAFE_LOCALE"
+#  endif
 	;
     PERL_UNUSED_ARG(cv);
     PERL_UNUSED_VAR(items);
@@ -2132,10 +2283,6 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 #endif
 	(s = PerlEnv_getenv("PERL5OPT")))
     {
-        /* s points to static memory in getenv(), which may be overwritten at
-         * any time; use a mortal copy instead */
-	s = SvPVX(sv_2mortal(newSVpv(s, 0)));
-
 	while (isSPACE(*s))
 	    s++;
 	if (*s == '-' && *(s+1) == 'T') {
@@ -2164,7 +2311,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 		d = s;
 		if (!*s)
 		    break;
-		if (!strchr("CDIMUdmtwW", *s))
+		if (!memCHRs("CDIMUdmtwW", *s))
 		    Perl_croak(aTHX_ "Illegal switch in PERL5OPT: -%c", *s);
 		while (++s && *s) {
 		    if (isSPACE(*s)) {
@@ -2196,6 +2343,21 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 	}
     }
     }
+
+#ifndef NO_PERL_INTERNAL_RAND_SEED
+    /* If we're not set[ug]id, we might have honored
+       PERL_INTERNAL_RAND_SEED in perl_construct().
+       At this point command-line options have been parsed, so if
+       we're now tainting and not set[ug]id re-seed.
+       This could possibly be wasteful if PERL_INTERNAL_RAND_SEED is invalid,
+       but avoids duplicating the logic from perl_construct().
+    */
+    if (TAINT_get &&
+        PerlProc_getuid() == PerlProc_geteuid() &&
+        PerlProc_getgid() == PerlProc_getegid()) {
+        Perl_drand48_init_r(&PL_internal_random_state, seed());
+    }
+#endif
 
     /* Set $^X early so that it can be used for relocatable paths in @INC  */
     /* and for SITELIB_EXP in USE_SITECUSTOMIZE                            */
@@ -2452,7 +2614,45 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 /*
 =for apidoc perl_run
 
-Tells a Perl interpreter to run.  See L<perlembed>.
+Tells a Perl interpreter to run its main program.  See L<perlembed>
+for a tutorial.
+
+C<my_perl> points to the Perl interpreter.  It must have been previously
+created through the use of L</perl_alloc> and L</perl_construct>, and
+initialised through L</perl_parse>.  This function should not be called
+if L</perl_parse> returned a non-zero value, indicating a failure in
+initialisation or compilation.
+
+This function executes code in C<INIT> blocks, and then executes the
+main program.  The code to be executed is that established by the prior
+call to L</perl_parse>.  If the interpreter's C<PL_exit_flags> word
+does not have the C<PERL_EXIT_DESTRUCT_END> flag set, then this function
+will also execute code in C<END> blocks.  If it is desired to make any
+further use of the interpreter after calling this function, then C<END>
+blocks should be postponed to L</perl_destruct> time by setting that flag.
+
+Returns an integer of slightly tricky interpretation.  The correct use
+of the return value is as a truth value indicating whether the program
+terminated non-locally.  If zero is returned, this indicates that
+the program ran to completion, and it is safe to make other use of the
+interpreter (provided that the C<PERL_EXIT_DESTRUCT_END> flag was set as
+described above).  If a non-zero value is returned, this indicates that
+the interpreter wants to terminate early.  The interpreter should not be
+just abandoned because of this desire to terminate; the caller should
+proceed to shut the interpreter down cleanly with L</perl_destruct>
+and free it with L</perl_free>.
+
+For historical reasons, the non-zero return value also attempts to
+be a suitable value to pass to the C library function C<exit> (or to
+return from C<main>), to serve as an exit code indicating the nature of
+the way the program terminated.  However, this isn't portable, due to
+differing exit code conventions.  An attempt is made to return an exit
+code of the type required by the host operating system, but because
+it is constrained to be non-zero, it is not necessarily possible to
+indicate every type of exit.  It is only reliable on Unix, where a zero
+exit code can be augmented with a set bit that will be ignored.  In any
+case, this function is not the correct place to acquire an exit code:
+one should get that from L</perl_destruct>.
 
 =cut
 */
@@ -2567,7 +2767,7 @@ S_run_body(pTHX_ I32 oldscope)
 /*
 =head1 SV Manipulation Functions
 
-=for apidoc p||get_sv
+=for apidoc get_sv
 
 Returns the SV of the specified Perl scalar.  C<flags> are passed to
 C<gv_fetchpv>.  If C<GV_ADD> is set and the
@@ -2593,7 +2793,7 @@ Perl_get_sv(pTHX_ const char *name, I32 flags)
 /*
 =head1 Array Manipulation Functions
 
-=for apidoc p||get_av
+=for apidoc get_av
 
 Returns the AV of the specified Perl global or package array with the given
 name (so it won't work on lexical variables).  C<flags> are passed 
@@ -2623,7 +2823,7 @@ Perl_get_av(pTHX_ const char *name, I32 flags)
 /*
 =head1 Hash Manipulation Functions
 
-=for apidoc p||get_hv
+=for apidoc get_hv
 
 Returns the HV of the specified Perl hash.  C<flags> are passed to
 C<gv_fetchpv>.  If C<GV_ADD> is set and the
@@ -2650,7 +2850,7 @@ Perl_get_hv(pTHX_ const char *name, I32 flags)
 /*
 =head1 CV Manipulation Functions
 
-=for apidoc p||get_cvn_flags
+=for apidoc get_cvn_flags
 
 Returns the CV of the specified Perl subroutine.  C<flags> are passed to
 C<gv_fetchpvn_flags>.  If C<GV_ADD> is set and the Perl subroutine does not
@@ -2658,7 +2858,7 @@ exist then it will be declared (which has the same effect as saying
 C<sub name;>).  If C<GV_ADD> is not set and the subroutine does not exist
 then NULL is returned.
 
-=for apidoc p||get_cv
+=for apidoc get_cv
 
 Uses C<strlen> to get the length of C<name>, then calls C<get_cvn_flags>.
 
@@ -2671,6 +2871,9 @@ Perl_get_cvn_flags(pTHX_ const char *name, STRLEN len, I32 flags)
     GV* const gv = gv_fetchpvn_flags(name, len, flags, SVt_PVCV);
 
     PERL_ARGS_ASSERT_GET_CVN_FLAGS;
+
+    if (gv && UNLIKELY(SvROK(gv)) && SvTYPE(SvRV((SV *)gv)) == SVt_PVCV)
+	return (CV*)SvRV((SV *)gv);
 
     /* XXX this is probably not what they think they're getting.
      * It has the same effect as "sub name;", i.e. just a forward
@@ -2699,7 +2902,7 @@ Perl_get_cv(pTHX_ const char *name, I32 flags)
 
 =head1 Callback Functions
 
-=for apidoc p||call_argv
+=for apidoc call_argv
 
 Performs a callback to the specified named and package-scoped Perl subroutine 
 with C<argv> (a C<NULL>-terminated array of strings) as arguments.  See
@@ -2730,7 +2933,7 @@ Perl_call_argv(pTHX_ const char *sub_name, I32 flags, char **argv)
 }
 
 /*
-=for apidoc p||call_pv
+=for apidoc call_pv
 
 Performs a callback to the specified Perl sub.  See L<perlcall>.
 
@@ -2748,7 +2951,7 @@ Perl_call_pv(pTHX_ const char *sub_name, I32 flags)
 }
 
 /*
-=for apidoc p||call_method
+=for apidoc call_method
 
 Performs a callback to the specified Perl method.  The blessed object must
 be on the stack.  See L<perlcall>.
@@ -2775,7 +2978,7 @@ Perl_call_method(pTHX_ const char *methname, I32 flags)
 
 /* May be called with any of a CV, a GV, or an SV containing the name. */
 /*
-=for apidoc p||call_sv
+=for apidoc call_sv
 
 Performs a callback to the Perl sub specified by the SV.
 
@@ -2794,18 +2997,21 @@ not be depended on.
 
 See L<perlcall>.
 
+=for apidoc Amnh||G_METHOD
+=for apidoc Amnh||G_METHOD_NAMED
+
 =cut
 */
 
 I32
-Perl_call_sv(pTHX_ SV *sv, VOL I32 flags)
+Perl_call_sv(pTHX_ SV *sv, volatile I32 flags)
           		/* See G_* flags in cop.h */
 {
     dVAR;
     LOGOP myop;		/* fake syntax tree node */
     METHOP method_op;
     I32 oldmark;
-    VOL I32 retval = 0;
+    volatile I32 retval = 0;
     bool oldcatch = CATCH_GET;
     int ret;
     OP* const oldop = PL_op;
@@ -2938,11 +3144,15 @@ Perl_call_sv(pTHX_ SV *sv, VOL I32 flags)
 /* Eval a string. The G_EVAL flag is always assumed. */
 
 /*
-=for apidoc p||eval_sv
+=for apidoc eval_sv
 
 Tells Perl to C<eval> the string in the SV.  It supports the same flags
 as C<call_sv>, with the obvious exception of C<G_EVAL>.  See L<perlcall>.
 
+The C<G_RETHROW> flag can be used if you only need eval_sv() to
+execute code specified by a string, but not catch any errors.
+
+=for apidoc Amnh||G_RETHROW
 =cut
 */
 
@@ -2953,8 +3163,8 @@ Perl_eval_sv(pTHX_ SV *sv, I32 flags)
 {
     dVAR;
     UNOP myop;		/* fake syntax tree node */
-    VOL I32 oldmark;
-    VOL I32 retval = 0;
+    volatile I32 oldmark;
+    volatile I32 retval = 0;
     int ret;
     OP* const oldop = PL_op;
     dJMPENV;
@@ -3024,6 +3234,11 @@ Perl_eval_sv(pTHX_ SV *sv, I32 flags)
 	    goto redo_body;
 	}
       fail:
+        if (flags & G_RETHROW) {
+            JMPENV_POP;
+            croak_sv(ERRSV);
+        }
+
 	PL_stack_sp = PL_stack_base + oldmark;
 	if ((flags & G_WANT) == G_ARRAY)
 	    retval = 0;
@@ -3046,7 +3261,7 @@ Perl_eval_sv(pTHX_ SV *sv, I32 flags)
 }
 
 /*
-=for apidoc p||eval_pv
+=for apidoc eval_pv
 
 Tells Perl to C<eval> the given string in scalar context and return an SV* result.
 
@@ -3060,21 +3275,19 @@ Perl_eval_pv(pTHX_ const char *p, I32 croak_on_error)
 
     PERL_ARGS_ASSERT_EVAL_PV;
 
-    eval_sv(sv, G_SCALAR);
-    SvREFCNT_dec(sv);
+    if (croak_on_error) {
+        sv_2mortal(sv);
+        eval_sv(sv, G_SCALAR | G_RETHROW);
+    }
+    else {
+        eval_sv(sv, G_SCALAR);
+        SvREFCNT_dec(sv);
+    }
 
     {
         dSP;
         sv = POPs;
         PUTBACK;
-    }
-
-    /* just check empty string or undef? */
-    if (croak_on_error) {
-	SV * const errsv = ERRSV;
-	if(SvTRUE_NN(errsv))
-	    /* replace with croak_sv? */
-	    Perl_croak_nocontext("%s", SvPV_nolen_const(errsv));
     }
 
     return sv;
@@ -3085,7 +3298,7 @@ Perl_eval_pv(pTHX_ const char *p, I32 croak_on_error)
 /*
 =head1 Embedding Functions
 
-=for apidoc p||require_pv
+=for apidoc require_pv
 
 Tells Perl to C<require> the file named by the string argument.  It is
 analogous to the Perl code C<eval "require '$file'">.  It's even
@@ -3195,6 +3408,7 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
       "  B  dump suBroutine definitions, including special Blocks like BEGIN\n",
       "  L  trace some locale setting information--for Perl core development\n",
       "  i  trace PerlIO layer processing\n",
+      "  y  trace y///, tr/// compilation and execution\n",
       NULL
     };
     UV uv = 0;
@@ -3203,7 +3417,7 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
 
     if (isALPHA(**s)) {
 	/* if adding extra options, remember to update DEBUG_MASK */
-	static const char debopts[] = "psltocPmfrxuUHXDSTRJvCAqMBLi";
+	static const char debopts[] = "psltocPmfrxuUHXDSTRJvCAqMBLiy";
 
 	for (; isWORDCHAR(**s); (*s)++) {
 	    const char * const d = strchr(debopts,**s);
@@ -3215,7 +3429,7 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
 	}
     }
     else if (isDIGIT(**s)) {
-        const char* e;
+        const char* e = *s + strlen(*s);
 	if (grok_atoUV(*s, &uv, &e))
             *s = e;
 	for (; isWORDCHAR(**s); (*s)++) ;
@@ -3371,12 +3585,6 @@ Perl_moreswitches(pTHX_ const char *s)
 
     case 'i':
 	Safefree(PL_inplace);
-#if defined(__CYGWIN__) /* do backup extension automagically */
-	if (*(s+1) == '\0') {
-	PL_inplace = savepvs(".bak");
-	return s+1;
-	}
-#endif /* __CYGWIN__ */
 	{
 	    const char * const start = ++s;
 	    while (*s && !isSPACE(*s))
@@ -3532,16 +3740,12 @@ Perl_moreswitches(pTHX_ const char *s)
 	return s;
     case 'W':
 	PL_dowarn = G_WARN_ALL_ON|G_WARN_ON;
-        if (!specialWARN(PL_compiling.cop_warnings))
-            PerlMemShared_free(PL_compiling.cop_warnings);
-	PL_compiling.cop_warnings = pWARN_ALL ;
+    free_and_set_cop_warnings(&PL_compiling, pWARN_ALL);
 	s++;
 	return s;
     case 'X':
 	PL_dowarn = G_WARN_ALL_OFF;
-        if (!specialWARN(PL_compiling.cop_warnings))
-            PerlMemShared_free(PL_compiling.cop_warnings);
-	PL_compiling.cop_warnings = pWARN_NONE ;
+    free_and_set_cop_warnings(&PL_compiling, pWARN_NONE);
 	s++;
 	return s;
     case '*':
@@ -3630,7 +3834,7 @@ S_minus_v(pTHX)
 #endif
 
 	PerlIO_printf(PIO_stdout,
-		      "\n\nCopyright 1987-2017, Larry Wall\n");
+		      "\n\nCopyright 1987-2020, Larry Wall\n");
 #ifdef MSDOS
 	PerlIO_printf(PIO_stdout,
 		      "\nMS-DOS port Copyright (c) 1989, 1990, Diomidis Spinellis\n");
@@ -3656,12 +3860,6 @@ S_minus_v(pTHX)
 #ifdef POSIX_BC
 	PerlIO_printf(PIO_stdout,
 		      "BS2000 (POSIX) port by Start Amadeus GmbH, 1998-1999\n");
-#endif
-#ifdef UNDER_CE
-	PerlIO_printf(PIO_stdout,
-			"WINCE port by Rainer Keuchel, 2001-2002\n"
-			"Built on " __DATE__ " " __TIME__ "\n\n");
-	wce_hitreturn();
 #endif
 #ifdef __SYMBIAN32__
 	PerlIO_printf(PIO_stdout,
@@ -3753,8 +3951,9 @@ STATIC void
 S_init_main_stash(pTHX)
 {
     GV *gv;
+    HV *hv = newHV();
 
-    PL_curstash = PL_defstash = (HV *)SvREFCNT_inc_simple_NN(newHV());
+    PL_curstash = PL_defstash = (HV *)SvREFCNT_inc_simple_NN(hv);
     /* We know that the string "main" will be in the global shared string
        table, so it's a small saving to use it rather than allocate another
        8 bytes.  */
@@ -3789,7 +3988,6 @@ S_init_main_stash(pTHX)
 #endif
     sv_grow(ERRSV, 240);	/* Preallocate - for immediate signals. */
     CLEAR_ERRSV();
-    SET_CURSTASH(PL_defstash);
     CopSTASH_set(&PL_compiling, PL_defstash);
     PL_debstash = GvHV(gv_fetchpvs("DB::", GV_ADDMULTI, SVt_PVHV));
     PL_globalstash = GvHV(gv_fetchpvs("CORE::GLOBAL::", GV_ADDMULTI,
@@ -3816,8 +4014,9 @@ S_open_script(pTHX_ const char *scriptname, bool dosearch, bool *suidscript)
         UV uv;
 	/* if find_script() returns, it returns a malloc()-ed value */
 	scriptname = PL_origfilename = find_script(scriptname, dosearch, NULL, 1);
+        s = scriptname + strlen(scriptname);
 
-	if (strEQs(scriptname, "/dev/fd/")
+	if (strBEGINs(scriptname, "/dev/fd/")
             && isDIGIT(scriptname[8])
             && grok_atoUV(scriptname + 8, &uv, &s)
             && uv <= PERL_INT_MAX
@@ -3879,29 +4078,19 @@ S_open_script(pTHX_ const char *scriptname, bool dosearch, bool *suidscript)
 	};
 	const char * const err = "Failed to create a fake bit bucket";
 	if (strEQ(scriptname, BIT_BUCKET)) {
-#ifdef HAS_MKSTEMP /* Hopefully mkstemp() is safe here. */
-            int old_umask = umask(0177);
-	    int tmpfd = mkstemp(tmpname);
-            umask(old_umask);
+	    int tmpfd = Perl_my_mkstemp_cloexec(tmpname);
 	    if (tmpfd > -1) {
 		scriptname = tmpname;
 		close(tmpfd);
 	    } else
 		Perl_croak(aTHX_ err);
-#else
-#  ifdef HAS_MKTEMP
-	    scriptname = mktemp(tmpname);
-	    if (!scriptname)
-		Perl_croak(aTHX_ err);
-#  endif
-#endif
 	}
 #endif
 	rsfp = PerlIO_open(scriptname,PERL_SCRIPT_MODE);
 #ifdef FAKE_BIT_BUCKET
-	if (memEQ(scriptname, FAKE_BIT_BUCKET_PREFIX,
-		  sizeof(FAKE_BIT_BUCKET_PREFIX) - 1)
-	    && strlen(scriptname) == sizeof(tmpname) - 1) {
+        if (   strBEGINs(scriptname, FAKE_BIT_BUCKET_PREFIX)
+	    && strlen(scriptname) == sizeof(tmpname) - 1)
+        {
 	    unlink(scriptname);
 	}
 	scriptname = BIT_BUCKET;
@@ -3916,15 +4105,6 @@ S_open_script(pTHX_ const char *scriptname, bool dosearch, bool *suidscript)
 		    CopFILE(PL_curcop), Strerror(errno));
     }
     fd = PerlIO_fileno(rsfp);
-#if defined(HAS_FCNTL) && defined(F_SETFD) && defined(FD_CLOEXEC)
-    if (fd >= 0) {
-        /* ensure close-on-exec */
-        if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
-            Perl_croak(aTHX_ "Can't open perl script \"%s\": %s\n",
-                       CopFILE(PL_curcop), Strerror(errno));
-        }
-    }
-#endif
 
     if (fd < 0 ||
         (PerlLIO_fstat(fd, &tmpstatbuf) >= 0
@@ -3936,12 +4116,20 @@ S_open_script(pTHX_ const char *scriptname, bool dosearch, bool *suidscript)
     return rsfp;
 }
 
-/* Mention
+/* In the days of suidperl, we refused to execute a setuid script stored on
+ * a filesystem mounted nosuid and/or noexec. This meant that we probed for the
+ * existence of the appropriate filesystem-statting function, and behaved
+ * accordingly. But even though suidperl is long gone, we must still include
+ * those probes for the benefit of modules like Filesys::Df, which expect the
+ * results of those probes to be stored in %Config; see RT#126368. So mention
+ * the relevant cpp symbols here, to ensure that metaconfig will include their
+ * probes in the generated Configure:
+ *
  * I_SYSSTATVFS	HAS_FSTATVFS
  * I_SYSMOUNT
  * I_STATFS	HAS_FSTATFS	HAS_GETFSSTAT
  * I_MNTENT	HAS_GETMNTENT	HAS_HASMNTOPT
- * here so that metaconfig picks them up. */
+ */
 
 
 #ifdef SETUID_SCRIPTS_ARE_SECURE_NOW
@@ -3998,7 +4186,7 @@ S_find_beginning(pTHX_ SV* linestr_sv, PerlIO *rsfp)
     if (*s++ == '-') {
 	while (isDIGIT(s2[-1]) || s2[-1] == '-' || s2[-1] == '.'
 	       || s2[-1] == '_') s2--;
-	if (strEQs(s2-4,"perl"))
+	if (strBEGINs(s2-4,"perl"))
 	    while ((s = moreswitches(s)))
 		;
     }
@@ -4550,136 +4738,24 @@ S_init_perllib(pTHX)
     /* miniperl gets just -I..., the split of $ENV{PERL5LIB}, and "." in @INC
        (and not the architecture specific directories from $ENV{PERL5LIB}) */
 
+#include "perl_inc_macro.h"
 /* Use the ~-expanded versions of APPLLIB (undocumented),
     SITEARCH, SITELIB, VENDORARCH, VENDORLIB, ARCHLIB and PRIVLIB
 */
-#ifdef APPLLIB_EXP
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(APPLLIB_EXP),
-		      INCPUSH_ADD_SUB_DIRS|INCPUSH_CAN_RELOCATE);
-#endif
+    INCPUSH_APPLLIB_EXP
+    INCPUSH_SITEARCH_EXP
+    INCPUSH_SITELIB_EXP
+    INCPUSH_PERL_VENDORARCH_EXP
+    INCPUSH_PERL_VENDORLIB_EXP
+    INCPUSH_ARCHLIB_EXP
+    INCPUSH_PRIVLIB_EXP
+    INCPUSH_PERL_OTHERLIBDIRS
+    INCPUSH_PERL5LIB
+    INCPUSH_APPLLIB_OLD_EXP
+    INCPUSH_SITELIB_STEM
+    INCPUSH_PERL_VENDORLIB_STEM
+    INCPUSH_PERL_OTHERLIBDIRS_ARCHONLY
 
-#ifdef SITEARCH_EXP
-    /* sitearch is always relative to sitelib on Windows for
-     * DLL-based path intuition to work correctly */
-#  if !defined(WIN32)
-	S_incpush_use_sep(aTHX_ STR_WITH_LEN(SITEARCH_EXP),
-			  INCPUSH_CAN_RELOCATE);
-#  endif
-#endif
-
-#ifdef SITELIB_EXP
-#  if defined(WIN32)
-    /* this picks up sitearch as well */
-	s = PerlEnv_sitelib_path(PERL_FS_VERSION, &len);
-	if (s)
-	    incpush_use_sep(s, len, INCPUSH_ADD_SUB_DIRS|INCPUSH_CAN_RELOCATE);
-#  else
-	S_incpush_use_sep(aTHX_ STR_WITH_LEN(SITELIB_EXP), INCPUSH_CAN_RELOCATE);
-#  endif
-#endif
-
-#ifdef PERL_VENDORARCH_EXP
-    /* vendorarch is always relative to vendorlib on Windows for
-     * DLL-based path intuition to work correctly */
-#  if !defined(WIN32)
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(PERL_VENDORARCH_EXP),
-		      INCPUSH_CAN_RELOCATE);
-#  endif
-#endif
-
-#ifdef PERL_VENDORLIB_EXP
-#  if defined(WIN32)
-    /* this picks up vendorarch as well */
-	s = PerlEnv_vendorlib_path(PERL_FS_VERSION, &len);
-	if (s)
-	    incpush_use_sep(s, len, INCPUSH_ADD_SUB_DIRS|INCPUSH_CAN_RELOCATE);
-#  else
-	S_incpush_use_sep(aTHX_ STR_WITH_LEN(PERL_VENDORLIB_EXP),
-			  INCPUSH_CAN_RELOCATE);
-#  endif
-#endif
-
-#ifdef ARCHLIB_EXP
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(ARCHLIB_EXP), INCPUSH_CAN_RELOCATE);
-#endif
-
-#ifndef PRIVLIB_EXP
-#  define PRIVLIB_EXP "/usr/local/lib/perl5:/usr/local/lib/perl"
-#endif
-
-#if defined(WIN32)
-    s = PerlEnv_lib_path(PERL_FS_VERSION, &len);
-    if (s)
-	incpush_use_sep(s, len, INCPUSH_ADD_SUB_DIRS|INCPUSH_CAN_RELOCATE);
-#else
-#  ifdef NETWARE
-    S_incpush_use_sep(aTHX_ PRIVLIB_EXP, 0, INCPUSH_CAN_RELOCATE);
-#  else
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(PRIVLIB_EXP), INCPUSH_CAN_RELOCATE);
-#  endif
-#endif
-
-#ifdef PERL_OTHERLIBDIRS
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(PERL_OTHERLIBDIRS),
-		      INCPUSH_ADD_VERSIONED_SUB_DIRS|INCPUSH_NOT_BASEDIR
-		      |INCPUSH_CAN_RELOCATE);
-#endif
-
-    if (!TAINTING_get) {
-#ifndef VMS
-/*
- * It isn't possible to delete an environment variable with
- * PERL_USE_SAFE_PUTENV set unless unsetenv() is also available, so in that
- * case we treat PERL5LIB as undefined if it has a zero-length value.
- */
-#if defined(PERL_USE_SAFE_PUTENV) && ! defined(HAS_UNSETENV)
-	if (perl5lib && *perl5lib != '\0')
-#else
-	if (perl5lib)
-#endif
-	    incpush_use_sep(perl5lib, 0,
-			    INCPUSH_ADD_OLD_VERS|INCPUSH_NOT_BASEDIR);
-#else /* VMS */
-	/* Treat PERL5?LIB as a possible search list logical name -- the
-	 * "natural" VMS idiom for a Unix path string.  We allow each
-	 * element to be a set of |-separated directories for compatibility.
-	 */
-	char buf[256];
-	int idx = 0;
-	if (vmstrnenv("PERL5LIB",buf,0,NULL,0))
-	    do {
-		incpush_use_sep(buf, 0,
-				INCPUSH_ADD_OLD_VERS|INCPUSH_NOT_BASEDIR);
-	    } while (vmstrnenv("PERL5LIB",buf,++idx,NULL,0));
-#endif /* VMS */
-    }
-
-/* Use the ~-expanded versions of APPLLIB (undocumented),
-    SITELIB and VENDORLIB for older versions
-*/
-#ifdef APPLLIB_EXP
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(APPLLIB_EXP), INCPUSH_ADD_OLD_VERS
-		      |INCPUSH_NOT_BASEDIR|INCPUSH_CAN_RELOCATE);
-#endif
-
-#if defined(SITELIB_STEM) && defined(PERL_INC_VERSION_LIST)
-    /* Search for version-specific dirs below here */
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(SITELIB_STEM),
-		      INCPUSH_ADD_OLD_VERS|INCPUSH_CAN_RELOCATE);
-#endif
-
-
-#if defined(PERL_VENDORLIB_STEM) && defined(PERL_INC_VERSION_LIST)
-    /* Search for version-specific dirs below here */
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(PERL_VENDORLIB_STEM),
-		      INCPUSH_ADD_OLD_VERS|INCPUSH_CAN_RELOCATE);
-#endif
-
-#ifdef PERL_OTHERLIBDIRS
-    S_incpush_use_sep(aTHX_ STR_WITH_LEN(PERL_OTHERLIBDIRS),
-		      INCPUSH_ADD_OLD_VERS|INCPUSH_ADD_ARCHONLY_SUB_DIRS
-		      |INCPUSH_CAN_RELOCATE);
-#endif
 #endif /* !PERL_IS_MINIPERL */
 
     if (!TAINTING_get) {
@@ -4693,12 +4769,10 @@ S_init_perllib(pTHX)
 
 #if defined(DOSISH) || defined(__SYMBIAN32__)
 #    define PERLLIB_SEP ';'
-#else
-#  if defined(__VMS)
+#elif defined(__VMS)
 #    define PERLLIB_SEP PL_perllib_sep
-#  else
+#else
 #    define PERLLIB_SEP ':'
-#  endif
 #endif
 #ifndef PERLLIB_MANGLE
 #  define PERLLIB_MANGLE(s,n) (s)
@@ -4781,7 +4855,7 @@ S_mayberelocate(pTHX_ const char *const dir, STRLEN len, U32 flags)
 	 */
 	    const char *libpath = SvPVX(libdir);
 	    STRLEN libpath_len = SvCUR(libdir);
-	    if (libpath_len >= 4 && memEQ (libpath, ".../", 4)) {
+	    if (memBEGINs(libpath, libpath_len, ".../")) {
 		/* Game on!  */
 		SV * const caret_X = get_sv("\030", 0);
 		/* Going to use the SV just as a scratch buffer holding a C
@@ -4807,12 +4881,9 @@ S_mayberelocate(pTHX_ const char *const dir, STRLEN len, U32 flags)
 		libpath = SvPVX(libdir);
 		libpath_len = SvCUR(libdir);
 
-		/* This would work more efficiently with memrchr, but as it's
-		   only a GNU extension we'd need to probe for it and
-		   implement our own. Not hard, but maybe not worth it?  */
-
 		prefix = SvPVX(prefix_sv);
-		lastslash = strrchr(prefix, '/');
+		lastslash = (char *) my_memrchr(prefix, '/',
+                             SvEND(prefix_sv) - prefix);
 
 		/* First time in with the *lastslash = '\0' we just wipe off
 		   the trailing /perl from (say) /usr/foo/bin/perl
@@ -4820,8 +4891,11 @@ S_mayberelocate(pTHX_ const char *const dir, STRLEN len, U32 flags)
 		if (lastslash) {
 		    SV *tempsv;
 		    while ((*lastslash = '\0'), /* Do that, come what may.  */
-                           (libpath_len >= 3 && _memEQs(libpath, "../")
-			    && (lastslash = strrchr(prefix, '/')))) {
+                           (   memBEGINs(libpath, libpath_len, "../")
+			    && (lastslash =
+                                  (char *) my_memrchr(prefix, '/',
+                                                   SvEND(prefix_sv) - prefix))))
+                    {
 			if (lastslash[1] == '\0'
 			    || (lastslash[1] == '.'
 				&& (lastslash[2] == '/' /* ends "/."  */
@@ -5024,7 +5098,7 @@ void
 Perl_call_list(pTHX_ I32 oldscope, AV *paramList)
 {
     SV *atsv;
-    VOL const line_t oldline = PL_curcop ? CopLINE(PL_curcop) : 0;
+    volatile const line_t oldline = PL_curcop ? CopLINE(PL_curcop) : 0;
     CV *cv;
     STRLEN len;
     int ret;
@@ -5102,6 +5176,15 @@ Perl_call_list(pTHX_ I32 oldscope, AV *paramList)
     }
 }
 
+/*
+=for apidoc my_exit
+
+A wrapper for the C library L<exit(3)>, honoring what L<perlapi/PL_exit_flags>
+say to do.
+
+=cut
+*/
+
 void
 Perl_my_exit(pTHX_ U32 status)
 {
@@ -5162,7 +5245,7 @@ Perl_my_failure_exit(pTHX)
 	 * success/warning codes to fatal with out changing
 	 * the POSIX status code.  The severity makes VMS native
 	 * status handling work, while UNIX mode programs use the
-	 * the POSIX exit codes.
+	 * POSIX exit codes.
 	 */
 	 if ((STATUS_NATIVE & (STS$K_SEVERE|STS$K_ERROR)) == 0) {
 	    STATUS_NATIVE &= STS$M_COND_ID;
@@ -5199,8 +5282,9 @@ Perl_my_failure_exit(pTHX)
 
 #else
     int exitstatus;
-    if (errno & 255)
-	STATUS_UNIX_SET(errno);
+    int eno = errno;
+    if (eno & 255)
+	STATUS_UNIX_SET(eno);
     else {
 	exitstatus = STATUS_UNIX >> 8;
 	if (exitstatus & 255)
@@ -5242,12 +5326,13 @@ static I32
 read_e_script(pTHX_ int idx, SV *buf_sv, int maxlen)
 {
     const char * const p  = SvPVX_const(PL_e_script);
-    const char *nl = strchr(p, '\n');
+    const char * const e  = SvEND(PL_e_script);
+    const char *nl = (char *) memchr(p, '\n', e - p);
 
     PERL_UNUSED_ARG(idx);
     PERL_UNUSED_ARG(maxlen);
 
-    nl = (nl) ? nl+1 : SvEND(PL_e_script);
+    nl = (nl) ? nl+1 : e;
     if (nl-p == 0) {
 	filter_del(read_e_script);
 	return 0;

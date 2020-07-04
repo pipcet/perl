@@ -18,13 +18,14 @@ BEGIN {
     elsif (!$can_fork) {
         $reason = 'no fork';
     }
+    $reason = q[Test out of sequence on windows] if $^O eq 'MSWin32' && $ENV{CONTINUOUS_INTEGRATION};
     if ($reason) {
 	print "1..0 # Skip: $reason\n";
 	exit 0;
     }
 }
 
-my $has_perlio = $] >= 5.008 && find PerlIO::Layer 'perlio';
+my $has_perlio = find PerlIO::Layer 'perlio';
 
 $| = 1;
 print "1..26\n";

@@ -1,6 +1,6 @@
 #!./perl
 
-print "1..117\n";
+print "1..120\n";
 
 $x = 'x';
 
@@ -396,7 +396,7 @@ for(qw< require goto last next redo CORE::dump >) {
     print "# $@" if $@;
 }
 
-# http://rt.perl.org/rt3/Ticket/Display.html?id=56880
+# https://github.com/Perl/perl5/issues/9415
 my $counter = 0;
 eval 'v23: $counter++; goto v23 unless $counter == 2';
 print "not " unless $counter == 2;
@@ -556,6 +556,15 @@ eval q|s##[}#e|;
  # Used to crash [perl #128171]
  eval ('/@0{0*->@*/*]');
  print "ok $test - 128171\n"; $test++;
+}
+{
+  # various sub-parse recovery issues that crashed perl
+  eval 's//${sub{b{]]]{}#$/ sub{}';
+  print "ok $test - 132640\n"; $test++;
+  eval 'qq{@{sub{]]}}}};shift';
+  print "ok $test - 125351\n"; $test++;
+  eval 'qq{@{sub{]]}}}}-shift';
+  print "ok $test - 126192\n"; $test++;
 }
 
 $foo = "WRONG"; $foo:: = "bar"; $bar = "baz";

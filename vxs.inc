@@ -5,7 +5,7 @@
 #  define VXS_CLASS "version"
 #  define VXSp(name) XS_##name
 /* VXSXSDP = XSUB Details Proto */
-#  define VXSXSDP(x) x
+#  define VXSXSDP(x) x, 0
 #else
 #  define VXS_CLASS "version::vxs"
 #  define VXSp(name) VXS_##name
@@ -138,7 +138,7 @@ VXS(universal_version)
 			    name, SvPVx_nolen_const(req));
 #else
 		Perl_croak(aTHX_
-			   "%" HEKf " does not define $%"HEKf
+			   "%" HEKf " does not define $%" HEKf
 			   "::VERSION--version check failed",
 			   HEKfARG(name), HEKfARG(name));
 #endif
@@ -219,7 +219,7 @@ VXS(version_new)
         SvGETMAGIC(vs);
         if(SvOK(vs))
             break;
-        /* drop through */
+        /* fall through */
     case 1:
         /* no param or explicit undef */
         /* create empty object */

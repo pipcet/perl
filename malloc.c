@@ -466,12 +466,12 @@ static const u_short buck_size[MAX_BUCKET_BY_TABLE + 1] =
   };
 #  define BUCKET_SIZE_NO_SURPLUS(i) ((i) % 2 ? buck_size[i] : (1 << ((i) >> BUCKET_POW2_SHIFT)))
 #  define BUCKET_SIZE_REAL(i) ((i) <= MAX_BUCKET_BY_TABLE		\
-			       ? buck_size[i] 				\
-			       : ((1 << ((i) >> BUCKET_POW2_SHIFT))	\
+			       ? ((size_t)buck_size[i])			\
+			       : ((((size_t)1) << ((i) >> BUCKET_POW2_SHIFT)) \
 				  - MEM_OVERHEAD(i)			\
 				  + POW2_OPTIMIZE_SURPLUS(i)))
 #else
-#  define BUCKET_SIZE_NO_SURPLUS(i) (1 << ((i) >> BUCKET_POW2_SHIFT))
+#  define BUCKET_SIZE_NO_SURPLUS(i) (((size_t)1) << ((i) >> BUCKET_POW2_SHIFT))
 #  define BUCKET_SIZE(i) (BUCKET_SIZE_NO_SURPLUS(i) + POW2_OPTIMIZE_SURPLUS(i))
 #  define BUCKET_SIZE_REAL(i) (BUCKET_SIZE(i) - MEM_OVERHEAD(i))
 #endif 
@@ -686,7 +686,7 @@ static const u_short blk_shift[LOG_OF_MIN_ARENA * BUCKETS_PER_POW2] =
 
 #ifdef PACK_MALLOC
 #  define MEM_OVERHEAD(bucket) \
-  (bucket <= MAX_PACKED ? 0 : M_OVERHEAD)
+  (bucket <= MAX_PACKED ? ((size_t)0) : M_OVERHEAD)
 #  ifdef SMALL_BUCKET_VIA_TABLE
 #    define START_SHIFTS_BUCKET ((MAX_PACKED_POW2 + 1) * BUCKETS_PER_POW2)
 #    define START_SHIFT MAX_PACKED_POW2
@@ -752,11 +752,11 @@ static const char bucket_of[] =
 #  define POW2_OPTIMIZE_ADJUST(nbytes)				\
    ((nbytes >= FIRST_BIG_BOUND) ? nbytes -= PERL_PAGESIZE : 0)
 #  define POW2_OPTIMIZE_SURPLUS(bucket)				\
-   ((bucket >= FIRST_BIG_POW2 * BUCKETS_PER_POW2) ? PERL_PAGESIZE : 0)
+   ((size_t)((bucket >= FIRST_BIG_POW2 * BUCKETS_PER_POW2) ? PERL_PAGESIZE : 0))
 
 #else  /* !TWO_POT_OPTIMIZE */
 #  define POW2_OPTIMIZE_ADJUST(nbytes)
-#  define POW2_OPTIMIZE_SURPLUS(bucket) 0
+#  define POW2_OPTIMIZE_SURPLUS(bucket) ((size_t)0)
 #endif /* !TWO_POT_OPTIMIZE */
 
 #define BARK_64K_LIMIT(what,nbytes,size)
@@ -822,30 +822,12 @@ static	union overhead *nextf[NBUCKETS];
 #ifdef USE_PERL_SBRK
 # define sbrk(a) Perl_sbrk(a)
 Malloc_t Perl_sbrk (int size);
-#else
-# ifndef HAS_SBRK_PROTO /* <unistd.h> usually takes care of this */
+#elif !defined(HAS_SBRK_PROTO) /* <unistd.h> usually takes care of this */
 extern	Malloc_t sbrk(int);
-# endif
 #endif
 
 #ifndef MIN_SBRK_FRAC1000	/* Backward compatibility */
 #  define MIN_SBRK_FRAC1000	(MIN_SBRK_FRAC * 10)
-#endif
-
-#ifndef START_EXTERN_C
-#  ifdef __cplusplus
-#    define START_EXTERN_C	extern "C" {
-#  else
-#    define START_EXTERN_C
-#  endif
-#endif
-
-#ifndef END_EXTERN_C
-#  ifdef __cplusplus
-#    define END_EXTERN_C		};
-#  else
-#    define END_EXTERN_C
-#  endif
 #endif
 
 #include "malloc_ctl.h"
@@ -1241,16 +1223,37 @@ S_adjust_size_and_find_bucket(size_t *nbytes_p)
 	return bucket;
 }
 
+/*
+These have the same interfaces as the C lib ones, so are considered documented
+
+=for apidoc malloc
+=for apidoc calloc
+=for apidoc realloc
+=cut
+*/
+
 Malloc_t
 Perl_malloc(size_t nbytes)
 {
         dVAR;
   	union overhead *p;
   	int bucket;
-
 #if defined(DEBUGGING) || defined(RCHECK)
 	MEM_SIZE size = nbytes;
 #endif
+
+        /* A structure that has more than PTRDIFF_MAX bytes is unfortunately
+         * legal in C, but in such, if two elements are far enough apart, we
+         * can't legally find out how far apart they are.  Limit the size of a
+         * malloc so that pointer subtraction in the same structure is always
+         * well defined */
+        if (nbytes > PTRDIFF_MAX) {
+            dTHX;
+            MYMALLOC_WRITE2STDERR("Memory requests are limited to PTRDIFF_MAX"
+                                  " bytes to prevent possible undefined"
+                                  " behavior");
+            return NULL;
+        }
 
 	BARK_64K_LIMIT("Allocation",nbytes,nbytes);
 #ifdef DEBUGGING
@@ -1327,8 +1330,9 @@ Perl_malloc(size_t nbytes)
 	MALLOC_UNLOCK;
 
 	DEBUG_m(PerlIO_printf(Perl_debug_log,
-			      "0x% "UVxf ": (%05lu) malloc %ld bytes\n",
-			      PTR2UV((Malloc_t)(p + CHUNK_SHIFT)), (unsigned long)(PL_an++),
+			      "%p: (%05lu) malloc %ld bytes\n",
+			      (Malloc_t)(p + CHUNK_SHIFT),
+                              (unsigned long)(PL_an++),
 			      (long)size));
 
 	FILLCHECK_DEADBEEF((unsigned char*)(p + CHUNK_SHIFT),
@@ -1673,10 +1677,11 @@ morecore(int bucket)
   		return;
 #ifndef NO_PERL_MALLOC_ENV
 	if (!were_called) {
-	    /* It's the our first time.  Initialize ourselves */
+	    /* It's our first time.  Initialize ourselves */
 	    were_called = 1;	/* Avoid a loop */
 	    if (!MallocCfg[MallocCfg_skip_cfg_env]) {
-		char *s = getenv("PERL_MALLOC_OPT"), *t = s, *off;
+		char *s = getenv("PERL_MALLOC_OPT"), *t = s;
+                const char *off;
 		const char *opts = PERL_MALLOC_OPT_CHARS;
 		int changed = 0;
 
@@ -1685,7 +1690,7 @@ morecore(int bucket)
 		    IV val = 0;
 
 		    t += 2;
-		    while (*t <= '9' && *t >= '0')
+		    while (isDIGIT(*t))
 			val = 10*val + *t++ - '0';
 		    if (!*t || *t == ';') {
 			if (MallocCfg[off - opts] != val)
@@ -2257,8 +2262,9 @@ Perl_dump_mstats(pTHX_ const char *s)
   	for (i = MIN_EVEN_REPORT; i <= buffer.topbucket; i += BUCKETS_PER_POW2) {
   		PerlIO_printf(Perl_error_log, 
 			      ((i < 8*BUCKETS_PER_POW2 || i == 10*BUCKETS_PER_POW2)
-			       ? " %5"UVuf 
-			       : ((i < 12*BUCKETS_PER_POW2) ? " %3"UVuf : " %"UVuf)),
+			       ? " %5" UVuf
+			       : ((i < 12*BUCKETS_PER_POW2) ? " %3" UVuf
+                                                            : " %" UVuf)),
 			      buffer.nfree[i]);
   	}
 #ifdef BUCKETS_ROOT2
@@ -2276,8 +2282,8 @@ Perl_dump_mstats(pTHX_ const char *s)
   	for (i = MIN_EVEN_REPORT; i <= buffer.topbucket; i += BUCKETS_PER_POW2) {
   		PerlIO_printf(Perl_error_log, 
 			      ((i < 8*BUCKETS_PER_POW2 || i == 10*BUCKETS_PER_POW2)
-			       ? " %5"IVdf
-			       : ((i < 12*BUCKETS_PER_POW2) ? " %3"IVdf : " %"IVdf)), 
+			       ? " %5" IVdf
+			       : ((i < 12*BUCKETS_PER_POW2) ? " %3" IVdf : " %" IVdf)),
 			      buffer.ntotal[i] - buffer.nfree[i]);
   	}
 #ifdef BUCKETS_ROOT2

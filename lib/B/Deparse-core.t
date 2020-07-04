@@ -36,7 +36,7 @@ BEGIN {
 
 use strict;
 use Test::More;
-plan tests => 3886;
+plan tests => 3904;
 
 use feature (sprintf(":%vd", $^V)); # to avoid relying on the feature
                                     # logic to add CORE::
@@ -79,22 +79,26 @@ sub testit {
 	my $desc = "$keyword: lex=$lex $expr => $expected_expr";
 	$desc .= " (lex sub)" if $lexsub;
 
-
+        my $code;
 	my $code_ref;
 	if ($lexsub) {
 	    package lexsubtest;
-	    no warnings 'experimental::lexical_subs';
+	    no warnings 'experimental::lexical_subs', 'experimental::isa';
 	    use feature 'lexical_subs';
 	    no strict 'vars';
-	    $code_ref =
-		eval "sub { state sub $keyword; ${vars}() = $expr }"
-			    || die "$@ in $expr";
+            $code = "sub { state sub $keyword; ${vars}() = $expr }";
+	    $code = "use feature 'isa';\n$code" if $keyword eq "isa";
+	    $code_ref = eval $code
+			    or die "$@ in $expr";
 	}
 	else {
 	    package test;
+	    no warnings 'experimental::isa';
 	    use subs ();
 	    import subs $keyword;
-	    $code_ref = eval "no strict 'vars'; sub { ${vars}() = $expr }"
+	    $code = "no strict 'vars'; sub { ${vars}() = $expr }";
+	    $code = "use feature 'isa';\n$code" if $keyword eq "isa";
+	    $code_ref = eval $code
 			    or die "$@ in $expr";
 	}
 
@@ -115,7 +119,8 @@ sub testit {
 	}
 
 	my $got_expr = $1;
-	is $got_expr, $expected_expr, $desc;
+	is $got_expr, $expected_expr, $desc
+            or ::diag("ORIGINAL CODE:\n$code");;
     }
 }
 
@@ -542,6 +547,7 @@ hex              01    $
 index            23    p
 int              01    $
 ioctl            3     p
+isa              B     -
 join             13    p
 # keys handled specially
 kill             123   p
@@ -639,7 +645,7 @@ sprintf          123   p
 sqrt             01    $
 srand            01    -
 stat             01    $
-state            123   p+ # skip with 0 args, as state() => ()
+state            123   p1+ # skip with 0 args, as state() => ()
 study            01    $+
 # sub handled specially
 substr           234   p

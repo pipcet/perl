@@ -24,8 +24,8 @@ my %Recognized_Att_Keys;
 our %macro_fsentity; # whether a macro is a filesystem name
 our %macro_dep; # whether a macro is a dependency
 
-our $VERSION = '7.30';
-$VERSION = eval $VERSION;  ## no critic [BuiltinFunctions::ProhibitStringyEval]
+our $VERSION = '7.44';
+$VERSION =~ tr/_//d;
 
 # Emulate something resembling CVS $Revision$
 (our $Revision = $VERSION) =~ s{_}{};
@@ -316,7 +316,7 @@ sub full_setup {
     PERLRUNINST PERL_CORE
     PERM_DIR PERM_RW PERM_RWX MAGICXS
     PL_FILES PM PM_FILTER PMLIBDIRS PMLIBPARENTDIRS POLLUTE
-    PREREQ_FATAL PREREQ_PM PREREQ_PRINT PRINT_PREREQ
+    PREREQ_FATAL PREREQ_PM PREREQ_PRINT PRINT_PREREQ PUREPERL_ONLY
     SIGN SKIP TEST_REQUIRES TYPEMAPS UNINST VERSION VERSION_FROM XS
     XSBUILD XSMULTI XSOPT XSPROTOARG XS_VERSION
     clean depend dist dynamic_lib linkext macro realclean tool_autosplit
@@ -398,7 +398,7 @@ sub full_setup {
           );
 
     # 5.5.3 doesn't have any concept of vendor libs
-    push @Get_from_Config, qw( vendorarchexp vendorlibexp ) if $] >= 5.006;
+    push @Get_from_Config, qw( vendorarchexp vendorlibexp ) if "$]" >= 5.006;
 
     foreach my $item (@attrib_help){
         $Recognized_Att_Keys{$item} = 1;
@@ -534,7 +534,7 @@ sub new {
             # simulate "use warnings FATAL => 'all'" for vintage perls
             die @_;
         };
-        !$self->{MIN_PERL_VERSION} or $self->{MIN_PERL_VERSION} <= $]
+        !$self->{MIN_PERL_VERSION} or $self->{MIN_PERL_VERSION} <= "$]"
     };
     if (!$perl_version_ok) {
         if (!defined $perl_version_ok) {
@@ -693,6 +693,7 @@ END
             } else {
                 my $value = $self->{$key};
                 # not going to test in FS so only stripping start
+                $value =~ s/"// if $key =~ /PERL$/ and $self->is_make_type('dmake');
                 $value =~ s/^"// if $key =~ /PERL$/;
                 $value = $self->catdir("..", $value)
                   unless $self->file_name_is_absolute($value);
@@ -702,7 +703,8 @@ END
         }
         if ($self->{PARENT}) {
             $self->{PARENT}->{CHILDREN}->{$newclass} = $self;
-            foreach my $opt (qw(POLLUTE PERL_CORE LINKTYPE LD OPTIMIZE)) {
+            foreach my $opt (qw(POLLUTE PERL_CORE LINKTYPE AR FULL_AR CC CCFLAGS
+                                OPTIMIZE LD LDDLFLAGS LDFLAGS PERL_ARCHLIB DESTDIR)) {
                 if (exists $self->{PARENT}->{$opt}
                     and not exists $self->{$opt})
                     {
@@ -1264,7 +1266,7 @@ sub write_file_via_tmp {
     die "write_file_via_tmp: 2nd arg must be ref" unless ref $contents;
     for my $chunk (@$contents) {
         my $to_write = $chunk;
-        utf8::encode $to_write if !$CAN_DECODE && $] > 5.008;
+        utf8::encode $to_write if !$CAN_DECODE && "$]" > 5.008;
         print $fh "$to_write\n" or die "Can't write to MakeMaker.tmp: $!";
     }
     close $fh or die "Can't write to MakeMaker.tmp: $!";
@@ -1426,6 +1428,8 @@ All inputs to WriteMakefile are Unicode characters, not just octets. EUMM
 seeks to handle all of these correctly. It is currently still not possible
 to portably use Unicode characters in module names, because this requires
 Perl to handle Unicode filenames, which is not yet the case on Windows.
+
+See L<ExtUtils::MakeMaker::FAQ> for details of the design and usage.
 
 =head2 How To Write A Makefile.PL
 
@@ -1817,7 +1821,7 @@ located in the C<x86> directory relative to the PPD itself.
 
 =item BUILD_REQUIRES
 
-Available in version 6.5503 and above.
+Available in version 6.55_03 and above.
 
 A hash of modules that are needed to build your module but not run it.
 
@@ -2069,6 +2073,8 @@ Defaults to $Config{installprivlib}.
 
 =item INSTALLSCRIPT
 
+Available in version 6.30_02 and above.
+
 Used by 'make install' which copies files from INST_SCRIPT to this
 directory if INSTALLDIRS=perl.
 
@@ -2105,7 +2111,9 @@ directory if INSTALLDIRS is set to site (default).
 =item INSTALLVENDORARCH
 
 Used by 'make install', which copies files from INST_ARCHLIB to this
-directory if INSTALLDIRS is set to vendor.
+directory if INSTALLDIRS is set to vendor. Note that if you do not set
+this, the value of INSTALLVENDORLIB will be used, which is probably not
+what you want.
 
 =item INSTALLVENDORBIN
 
@@ -2127,6 +2135,8 @@ INSTALLDIRS=vendor.  Defaults to $(VENDORPREFIX)/man/man$(MAN*EXT).
 If set to 'none', no man pages will be installed.
 
 =item INSTALLVENDORSCRIPT
+
+Available in version 6.30_02 and above.
 
 Used by 'make install' which copies files from INST_SCRIPT to this
 directory if INSTALLDIRS is set to vendor.
@@ -2233,10 +2243,14 @@ linkext below).
 
 =item MAGICXS
 
+Available in version 6.8305 and above.
+
 When this is set to C<1>, C<OBJECT> will be automagically derived from
 C<O_FILES>.
 
 =item MAKE
+
+Available in version 6.30_01 and above.
 
 Variant of make you intend to run the generated Makefile with.  This
 parameter lets Makefile.PL know what make quirks to account for when
@@ -2409,6 +2423,8 @@ Defaults to false.
 
 =item NO_MYMETA
 
+Available in version 6.57_02 and above.
+
 When true, suppresses the generation of MYMETA.yml and MYMETA.json module
 meta-data files during 'perl Makefile.PL'.
 
@@ -2416,11 +2432,15 @@ Defaults to false.
 
 =item NO_PACKLIST
 
+Available in version 6.7501 and above.
+
 When true, suppresses the writing of C<packlist> files for installs.
 
 Defaults to false.
 
 =item NO_PERLLOCAL
+
+Available in version 6.7501 and above.
 
 When true, suppresses the appending of installations to C<perllocal>.
 
@@ -2539,6 +2559,8 @@ avoided, it may be undefined)
 
 =item PERM_DIR
 
+Available in version 6.51_01 and above.
+
 Desired permission for directories. Defaults to C<755>.
 
 =item PERM_RW
@@ -2580,6 +2602,20 @@ In this case the program will be run multiple times using each target file.
 
     perl bin/foobar.PL bin/foobar1
     perl bin/foobar.PL bin/foobar2
+
+If an output file depends on extra input files beside the script itself,
+a hash ref can be used in version 7.36 and above:
+
+    PL_FILES => { 'foo.PL' => {
+        'foo.out' => 'foo.in',
+        'bar.out' => [qw(bar1.in bar2.in)],
+    }
+
+In this case the extra input files will be passed to the program after
+the target file:
+
+   perl foo.PL foo.out foo.in
+   perl foo.PL bar.out bar1.in bar2.in
 
 PL files are normally run B<after> pm_to_blib and include INST_LIB and
 INST_ARCH in their C<@INC>, so the just built modules can be
@@ -2660,9 +2696,13 @@ the installation of a package.
 
 =item PPM_UNINSTALL_EXEC
 
+Available in version 6.8502 and above.
+
 Name of the executable used to run C<PPM_UNINSTALL_SCRIPT> below. (e.g. perl)
 
 =item PPM_UNINSTALL_SCRIPT
+
+Available in version 6.8502 and above.
 
 Name of the script that gets executed by the Perl Package Manager before
 the removal of a package.
@@ -2760,6 +2800,8 @@ $Config{installprefix} will be used.
 Overridable by PREFIX
 
 =item SIGN
+
+Available in version 6.18 and above.
 
 When true, perform the generation and addition to the MANIFEST of the
 SIGNATURE file in the distdir during 'make distdir', via 'cpansign
@@ -2881,6 +2923,8 @@ deleted by a make clean.
 
 =item XSBUILD
 
+Available in version 7.12 and above.
+
 Hashref with options controlling the operation of C<XSMULTI>:
 
   {
@@ -2912,6 +2956,8 @@ make the final SO/SL, almost certainly including the XS basename with
 C<$(OBJ_EXT)> appended.
 
 =item XSMULTI
+
+Available in version 7.12 and above.
 
 When this is set to C<1>, multiple XS files may be placed under F<lib/>
 next to their corresponding C<*.pm> files (this is essential for compiling
@@ -2995,7 +3041,8 @@ be linked.
 
 =item postamble
 
-Anything put here will be passed to MY::postamble() if you have one.
+Anything put here will be passed to
+L<MY::postamble()|ExtUtils::MM_Any/postamble (o)> if you have one.
 
 =item realclean
 
@@ -3042,7 +3089,7 @@ or you can edit the default by saying something like:
 
 If you are running experiments with embedding perl as a library into
 other applications, you might find MakeMaker is not sufficient. You'd
-better have a look at ExtUtils::Embed which is a collection of utilities
+better have a look at L<ExtUtils::Embed> which is a collection of utilities
 for embedding.
 
 If you still need a different solution, try to develop another
@@ -3106,7 +3153,7 @@ override or create an attribute you would say something like
 =head2 Distribution Support
 
 For authors of extensions MakeMaker provides several Makefile
-targets. Most of the support comes from the ExtUtils::Manifest module,
+targets. Most of the support comes from the L<ExtUtils::Manifest> module,
 where additional documentation can be found.
 
 =over 4
@@ -3114,13 +3161,13 @@ where additional documentation can be found.
 =item    make distcheck
 
 reports which files are below the build directory but not in the
-MANIFEST file and vice versa. (See ExtUtils::Manifest::fullcheck() for
+MANIFEST file and vice versa. (See L<ExtUtils::Manifest/fullcheck> for
 details)
 
 =item    make skipcheck
 
 reports which files are skipped due to the entries in the
-C<MANIFEST.SKIP> file (See ExtUtils::Manifest::skipcheck() for
+C<MANIFEST.SKIP> file (See L<ExtUtils::Manifest/skipcheck> for
 details)
 
 =item    make distclean
@@ -3137,7 +3184,7 @@ C<*.bak>, C<*.old> and C<*.orig>
 =item    make manifest
 
 rewrites the MANIFEST file, adding all remaining files found (See
-ExtUtils::Manifest::mkmanifest() for details)
+L<ExtUtils::Manifest/mkmanifest> for details)
 
 =item    make distdir
 
@@ -3337,11 +3384,16 @@ Same as the PERL_CORE parameter.  The parameter overrides this.
 =head1 SEE ALSO
 
 L<Module::Build> is a pure-Perl alternative to MakeMaker which does
-not rely on make or any other external utility.  It is easier to
+not rely on make or any other external utility.  It may be easier to
 extend to suit your needs.
 
-L<Module::Install> is a wrapper around MakeMaker which adds features
-not normally available.
+L<Module::Build::Tiny> is a minimal pure-Perl alternative to MakeMaker
+that follows the Build.PL protocol of Module::Build but without its
+complexity and cruft, implementing only the installation of the module
+and leaving authoring to L<mbtiny> or other authoring tools.
+
+L<Module::Install> is a (now discouraged) wrapper around MakeMaker which
+adds features not normally available.
 
 L<ExtUtils::ModuleMaker> and L<Module::Starter> are both modules to
 help you setup your distribution.
@@ -3350,10 +3402,18 @@ L<CPAN::Meta> and L<CPAN::Meta::Spec> explain CPAN Meta files in detail.
 
 L<File::ShareDir::Install> makes it easy to install static, sometimes
 also referred to as 'shared' files. L<File::ShareDir> helps accessing
-the shared files after installation.
+the shared files after installation. L<Test::File::ShareDir> helps when
+writing tests to use the shared files both before and after installation.
 
-L<Dist::Zilla> makes it easy for the module author to create MakeMaker-based
-distributions with lots of bells and whistles.
+L<Dist::Zilla> is an authoring tool which allows great customization and
+extensibility of the author experience, relying on the existing install
+tools like ExtUtils::MakeMaker only for installation.
+
+L<Dist::Milla> is a Dist::Zilla bundle that greatly simplifies common
+usage.
+
+L<Minilla> is a minimal authoring tool that does the same things as
+Dist::Milla without the overhead of Dist::Zilla.
 
 =head1 AUTHORS
 

@@ -12,7 +12,7 @@ my $no_endianness = $] > 5.009 ? '' :
 my $no_signedness = $] > 5.009 ? '' :
   "Signed/unsigned pack modifiers not available on this perl";
 
-plan tests => 14713;
+plan tests => 14718;
 
 use strict;
 use warnings qw(FATAL all);
@@ -955,15 +955,11 @@ is("@{[unpack('U*', pack('U*', 100, 200))]}", "100 200");
     is("@{[pack('C0U*', map { utf8::native_to_unicode($_) } 64, 202)]}",
        pack("C*", 64, @bytes202));
 
-    # does unpack U0U on byte data warn?
-    {
-	use warnings qw(NONFATAL all);;
-
-        my $bad = pack("U0C", 202);
-        local $SIG{__WARN__} = sub { $@ = "@_" };
-        my @null = unpack('U0U', $bad);
-        like($@, qr/^Malformed UTF-8 character: /);
-    }
+    # does unpack U0U on byte data fail?
+    fresh_perl_like('my $bad = pack("U0C", 202); my @null = unpack("U0U", $bad);',
+                    qr/^Malformed UTF-8 character: /,
+                    {},
+                    "pack doesn't return malformed UTF-8");
 }
 
 {
@@ -1414,7 +1410,7 @@ is(scalar unpack('A /A /A Z20', '3004bcde'), 'bcde');
   my @b = unpack "$t X[$t] $t", $p;	# Extract, step back, extract again
   is(scalar @b, 2 * scalar @a);
   $b = "@b";
-  $b =~ s/(?:17000+|16999+)\d+(e-45) /17$1 /gi; # stringification is gamble
+  $b =~ s/(?:17000+|16999+)\d+(e-0?45) /17$1 /gi; # stringification is gamble
   is($b, "@a @a");
 
   use warnings qw(NONFATAL all);;
@@ -1427,7 +1423,7 @@ is(scalar unpack('A /A /A Z20', '3004bcde'), 'bcde');
   is($warning, undef);
   is(scalar @b, scalar @a);
   $b = "@b";
-  $b =~ s/(?:17000+|16999+)\d+(e-45) /17$1 /gi; # stringification is gamble
+  $b =~ s/(?:17000+|16999+)\d+(e-0?45) /17$1 /gi; # stringification is gamble
   is($b, "@a");
 }
 
@@ -2058,4 +2054,33 @@ SKIP:
 print pack("ucW", "0000", 0, 140737488355327) eq "\$,#`P,```\n\0\x{7fffffffffff}"
  ? "ok\n" : "not ok\n";
 EOS
+}
+
+SKIP:
+{
+  # [perl #131844] pointer addition overflow
+    $Config{ptrsize} == 4
+      or skip "[perl #131844] need 32-bit build for this test", 4;
+    # prevent ASAN just crashing on the allocation failure
+    local $ENV{ASAN_OPTIONS} = $ENV{ASAN_OPTIONS};
+    $ENV{ASAN_OPTIONS} .= ",allocator_may_return_null=1";
+    fresh_perl_like('pack "f999999999"', qr/Out of memory during pack/, { stderr => 1 },
+		    "pointer addition overflow");
+
+    # integer (STRLEN) overflow from addition of glen to current length
+    fresh_perl_like('pack "c10f1073741823"', qr/Out of memory during pack/, { stderr => 1 },
+		    "integer overflow calculating allocation (addition)");
+
+    fresh_perl_like('pack "W10f536870913", 256', qr/Out of memory during pack/, { stderr => 1 },
+		    "integer overflow calculating allocation (utf8)");
+
+    fresh_perl_like('pack "c10f1073741824"', qr/Out of memory during pack/, { stderr => 1 },
+		    "integer overflow calculating allocation (multiply)");
+}
+
+{
+    # [perl #132655] heap-buffer-overflow READ of size 11
+    # only expect failure under ASAN (and maybe valgrind)
+    fresh_perl_is('0.0 + unpack("u", "ab")', "", { stderr => 1 },
+                  "ensure unpack u of invalid data nul terminates result");
 }

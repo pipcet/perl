@@ -116,7 +116,102 @@ BEGIN {
 	;
 }
 
-our $VERSION = '1.43';
+sub _univ_mod_loaded {
+    return 0 unless exists($::{"UNIVERSAL::"});
+    for ($::{"UNIVERSAL::"}) {
+	return 0 unless ref \$_ eq "GLOB" && *$_{HASH} && exists $$_{"$_[0]::"};
+	for ($$_{"$_[0]::"}) {
+	    return 0 unless ref \$_ eq "GLOB" && *$_{HASH} && exists $$_{"VERSION"};
+	    for ($$_{"VERSION"}) {
+		return 0 unless ref \$_ eq "GLOB";
+		return ${*$_{SCALAR}};
+	    }
+	}
+    }
+}
+
+# _maybe_isa() is usually the UNIVERSAL::isa function.  We have to avoid
+# the latter if the UNIVERSAL::isa module has been loaded, to avoid infi-
+# nite recursion; in that case _maybe_isa simply returns true.
+my $isa;
+BEGIN {
+    if (_univ_mod_loaded('isa')) {
+        *_maybe_isa = sub { 1 }
+    }
+    else {
+        # Since we have already done the check, record $isa for use below
+        # when defining _StrVal.
+        *_maybe_isa = $isa = _fetch_sub(UNIVERSAL => "isa");
+    }
+}
+
+
+# We need an overload::StrVal or equivalent function, but we must avoid
+# loading any modules on demand, as Carp is used from __DIE__ handlers and
+# may be invoked after a syntax error.
+# We can copy recent implementations of overload::StrVal and use
+# overloading.pm, which is the fastest implementation, so long as
+# overloading is available.  If it is not available, we use our own pure-
+# Perl StrVal.  We never actually use overload::StrVal, for various rea-
+# sons described below.
+# overload versions are as follows:
+#     undef-1.00 (up to perl 5.8.0)   uses bless (avoid!)
+#     1.01-1.17  (perl 5.8.1 to 5.14) uses Scalar::Util
+#     1.18+      (perl 5.16+)         uses overloading
+# The ancient 'bless' implementation (that inspires our pure-Perl version)
+# blesses unblessed references and must be avoided.  Those using
+# Scalar::Util use refaddr, possibly the pure-Perl implementation, which
+# has the same blessing bug, and must be avoided.  Also, Scalar::Util is
+# loaded on demand.  Since we avoid the Scalar::Util implementations, we
+# end up having to implement our own overloading.pm-based version for perl
+# 5.10.1 to 5.14.  Since it also works just as well in more recent ver-
+# sions, we use it there, too.
+BEGIN {
+    if (eval { require "overloading.pm" }) {
+        *_StrVal = eval 'sub { no overloading; "$_[0]" }'
+    }
+    else {
+        # Work around the UNIVERSAL::can/isa modules to avoid recursion.
+
+        # _mycan is either UNIVERSAL::can, or, in the presence of an
+        # override, overload::mycan.
+        *_mycan = _univ_mod_loaded('can')
+            ? do { require "overload.pm"; _fetch_sub overload => 'mycan' }
+            : \&UNIVERSAL::can;
+
+        # _blessed is either UNIVERAL::isa(...), or, in the presence of an
+        # override, a hideous, but fairly reliable, workaround.
+        *_blessed = $isa
+            ? sub { &$isa($_[0], "UNIVERSAL") }
+            : sub {
+                my $probe = "UNIVERSAL::Carp_probe_" . rand;
+                no strict 'refs';
+                local *$probe = sub { "unlikely string" };
+                local $@;
+                local $SIG{__DIE__} = sub{};
+                (eval { $_[0]->$probe } || '') eq 'unlikely string'
+              };
+
+        *_StrVal = sub {
+            my $pack = ref $_[0];
+            # Perl's overload mechanism uses the presence of a special
+            # "method" named "((" or "()" to signal it is in effect.
+            # This test seeks to see if it has been set up.  "((" post-
+            # dates overloading.pm, so we can skip it.
+            return "$_[0]" unless _mycan($pack, "()");
+            # Even at this point, the invocant may not be blessed, so
+            # check for that.
+            return "$_[0]" if not _blessed($_[0]);
+            bless $_[0], "Carp";
+            my $str = "$_[0]";
+            bless $_[0], $pack;
+            $pack . substr $str, index $str, "=";
+        }
+    }
+}
+
+
+our $VERSION = '1.50';
 $VERSION =~ tr/_//d;
 
 our $MaxEvalLen = 0;
@@ -232,11 +327,33 @@ sub caller_info {
 
     my $sub_name = Carp::get_subname( \%call_info );
     if ( $call_info{has_args} ) {
-        my @args;
-        if (CALLER_OVERRIDE_CHECK_OK && @DB::args == 1
-            && ref $DB::args[0] eq ref \$i
-            && $DB::args[0] == \$i ) {
-            @DB::args = ();    # Don't let anyone see the address of $i
+        # Guard our serialization of the stack from stack refcounting bugs
+        # NOTE this is NOT a complete solution, we cannot 100% guard against
+        # these bugs.  However in many cases Perl *is* capable of detecting
+        # them and throws an error when it does.  Unfortunately serializing
+        # the arguments on the stack is a perfect way of finding these bugs,
+        # even when they would not affect normal program flow that did not
+        # poke around inside the stack.  Inside of Carp.pm it makes little
+        # sense reporting these bugs, as Carp's job is to report the callers
+        # errors, not the ones it might happen to tickle while doing so.
+        # See: https://rt.perl.org/Public/Bug/Display.html?id=131046
+        # and: https://rt.perl.org/Public/Bug/Display.html?id=52610
+        # for more details and discussion. - Yves
+        my @args = map {
+                my $arg;
+                local $@= $@;
+                eval {
+                    $arg = $_;
+                    1;
+                } or do {
+                    $arg = '** argument not available anymore **';
+                };
+                $arg;
+            } @DB::args;
+        if (CALLER_OVERRIDE_CHECK_OK && @args == 1
+            && ref $args[0] eq ref \$i
+            && $args[0] == \$i ) {
+            @args = ();    # Don't let anyone see the address of $i
             local $@;
             my $where = eval {
                 my $func    = $cgc or return '';
@@ -255,7 +372,6 @@ sub caller_info {
                 = "** Incomplete caller override detected$where; \@DB::args were not set **";
         }
         else {
-            @args = @DB::args;
             my $overflow;
             if ( $MaxArgNums and @args > $MaxArgNums )
             {    # More than we want to show?
@@ -282,9 +398,10 @@ our $in_recurse;
 sub format_arg {
     my $arg = shift;
 
-    if ( ref($arg) ) {
+    if ( my $pack= ref($arg) ) {
+
          # legitimate, let's not leak it.
-        if (!$in_recurse &&
+        if (!$in_recurse && _maybe_isa( $arg, 'UNIVERSAL' ) &&
 	    do {
                 local $@;
 	        local $in_recurse = 1;
@@ -307,8 +424,11 @@ sub format_arg {
         }
         else
         {
-	    my $sub = _fetch_sub(overload => 'StrVal');
-	    return $sub ? &$sub($arg) : "$arg";
+            # Argument may be blessed into a class with overloading, and so
+            # might have an overloaded stringification.  We don't want to
+            # risk getting the overloaded stringification, so we need to
+            # use _StrVal, our overload::StrVal()-equivalent.
+            return _StrVal $arg;
         }
     }
     return "undef" if !defined($arg);
@@ -451,6 +571,15 @@ sub longmess_heavy {
     return ret_backtrace( $i, @_ );
 }
 
+BEGIN {
+    if("$]" >= 5.017004) {
+        # The LAST_FH constant is a reference to the variable.
+        $Carp::{LAST_FH} = \eval '\${^LAST_FH}';
+    } else {
+        eval '*LAST_FH = sub () { 0 }';
+    }
+}
+
 # Returns a full stack backtrace starting from where it is
 # told.
 sub ret_backtrace {
@@ -467,7 +596,16 @@ sub ret_backtrace {
 
     my %i = caller_info($i);
     $mess = "$err at $i{file} line $i{line}$tid_msg";
-    if( defined $. ) {
+    if( $. ) {
+      # Use ${^LAST_FH} if available.
+      if (LAST_FH) {
+        if (${+LAST_FH}) {
+            $mess .= sprintf ", <%s> %s %d",
+                              *${+LAST_FH}{NAME},
+                              ($/ eq "\n" ? "line" : "chunk"), $.
+        }
+      }
+      else {
         local $@ = '';
         local $SIG{__DIE__};
         eval {
@@ -476,6 +614,7 @@ sub ret_backtrace {
         if($@ =~ /^Died at .*(, <.*?> (?:line|chunk) \d+).$/ ) {
             $mess .= $1;
         }
+      }
     }
     $mess .= "\.\n";
 
@@ -593,7 +732,8 @@ sub trusts_directly {
     for my $var (qw/ CARP_NOT ISA /) {
         # Don't try using the variable until we know it exists,
         # to avoid polluting the caller's namespace.
-        if ( $stash->{$var} && *{$stash->{$var}}{ARRAY} && @{$stash->{$var}} ) {
+        if ( $stash->{$var} && ref \$stash->{$var} eq 'GLOB'
+          && *{$stash->{$var}}{ARRAY} && @{$stash->{$var}} ) {
            return @{$stash->{$var}}
         }
     }

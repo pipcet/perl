@@ -21,6 +21,9 @@ if ($Config{'gccversion'} and $OPTIMIZE =~ /-g (gdb)? 3/x) {
   $OPTIMIZE =~ s/-g(gdb)?3/-g/g; # [88936] out of memory with -g3 since 2.062
 }
 
+# Windows uses a different name for the zlib library
+my $ZLIB_LIBRARY_NAME = $^O eq 'MSWin32' ? 'zlib' : 'z' ;
+
 #$WALL = ' -pedantic ' if $Config{'cc'} =~ /gcc/ ;
 #$WALL = ' -Wall -Wno-comment ' if $Config{'cc'} =~ /gcc/ ;
 
@@ -85,17 +88,39 @@ WriteMakefile(
     (
       $BUILD_ZLIB
         ? zlib_files($ZLIB_LIB)
-        : (LIBS => [ "-L$ZLIB_LIB -lz " ])
+        : (LIBS => [ "-L$ZLIB_LIB -l$ZLIB_LIBRARY_NAME " ])
     ),
     OPTIMIZE => $OPTIMIZE,
 
     INSTALLDIRS => ($] >= 5.009 && $] < 5.011 ? 'perl' : 'site'),
 
-    META_MERGE => {
-        no_index => {
-            directory => [ 't', 'private' ],
-        },
-    },    
+     ( eval { ExtUtils::MakeMaker->VERSION(6.46) }  
+        ? ( META_MERGE  => {
+    
+                "meta-spec" => { version => 2 },
+
+                no_index => {
+                    directory => [ 't', 'private' ],
+                },
+
+                resources   => {
+                
+                    bugtracker  => {
+                        web     => 'https://github.com/pmqs/Compress-Raw-Zlib/issues'
+                    },
+
+                    homepage    => 'https://github.com/pmqs/Compress-Raw-Zlib',
+
+                    repository  => {
+                        type    => 'git',
+                        url     => 'git://github.com/pmqs/Compress-Raw-Zlib.git',
+                        web     => 'https://github.com/pmqs/Compress-Raw-Zlib',
+                    },        
+                },
+              } 
+            ) 
+        : ()
+    ),
 
     ((ExtUtils::MakeMaker->VERSION() gt '6.30') ?
         ('LICENSE'  => 'perl')         : ()),    

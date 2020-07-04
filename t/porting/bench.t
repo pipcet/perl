@@ -7,9 +7,9 @@
 # See also t/porting/bench_selftest.pl
 
 BEGIN {
-    chdir '..' if -f 'test.pl' && -f 'thread_it.pl';
+    chdir '..' if -f 'test.pl';
+    @INC = ( './lib' );
     require './t/test.pl';
-    push @INC, 'lib';
 }
 
 use warnings;
@@ -22,11 +22,12 @@ use Config;
 # Only test on a platform likely to support forking, pipes, cachegrind
 # etc.  Add other platforms if you think they're safe.
 
-skip_all "not devel"   unless -d ".git";
+skip_all "not devel"   unless -d "./.git";
 skip_all "not linux"   unless $^O eq 'linux';
 skip_all "no valgrind" unless -x '/bin/valgrind' || -x '/usr/bin/valgrind';
 # Address sanitizer clashes horribly with cachegrind
 skip_all "not with ASAN" if $Config{ccflags} =~ /sanitize=address/;
+skip_all "cachegrind broken" if system "( ulimit -c 0; valgrind -q --tool=cachegrind --cachegrind-out-file=/dev/null $^X -e0 ) 2>/dev/null";
 
 
 my $bench_pl = "Porting/bench.pl";
@@ -76,10 +77,17 @@ my %format_qrs;
                     "("
                     . "\\s*-?\\d+\\."
                     . "\\d" x $l
-                    ."|\\s{"
-                    . ($l + 1)
-                    . ",}-)"
+                    ."|\\s*-)"
                }ge;
+
+        # convert run of space chars into ' +' or ' *'
+
+        $f =~ s/(\A|\n)(\\ )+/$1 */g;
+        $f =~ s/(\\ )+/ +/g;
+
+        # convert '---' placeholders into a regex
+        $f =~ s/(\\-){2,}/-+/g;
+
         $format_qrs{$name} = qr/\A$f\z/;
     }
 }
@@ -159,13 +167,41 @@ for my $test (
         "croak: --benchfile which returns 0"
     ],
     [
+        "--benchfile=t/porting/bench/oddentry perl",
+        qr{\AError: 't/porting/bench/oddentry' does not contain evenly paired test names and hashes\n},
+        "croak: --benchfile with odd number of entries"
+    ],
+    [
+        "--benchfile=t/porting/bench/badname perl",
+        qr{\AError: 't/porting/bench/badname': invalid test name: '1='\n},
+        "croak: --benchfile with invalid test name"
+    ],
+    [
+        "--benchfile=t/porting/bench/badhash perl",
+        qr{\AError: 't/porting/bench/badhash': invalid key 'blah' for test 'foo::bar'\n},
+        "croak: --benchfile with invalid test hash key"
+    ],
+    [
         "--norm=2 ./miniperl ./perl",
         "Error: --norm value 2 outside range 0..1\n",
         "croak: select-a-perl out of range"
     ],
     [
+        "--norm=-0 ./miniperl ./perl",
+        "Error: --norm value -0 outside range -1..-2\n",
+        "croak: select-a-perl out of range"
+    ],
+    [
+        "--norm=-3 ./miniperl ./perl",
+        "Error: --norm value -3 outside range -1..-2\n",
+        "croak: select-a-perl out of range"
+    ],
+    [
         "--sort=Ir:myperl ./miniperl ./perl",
-        "Error: --sort: unrecognised perl 'myperl'\n",
+        "Error: --sort: unrecognised perl 'myperl'\n"
+        . "Valid perl names are:\n"
+        . "    ./miniperl\n"
+        . "    ./perl\n",
         "croak: select-a-perl unrecognised"
     ],
     [
@@ -230,7 +266,7 @@ for my $test (
     ],
     [
         "--grindargs=Boz --debug --tests=call::sub::empty ./perl=A ./perl=B",
-        qr{Error: while executing call::sub::empty/A empty/short loop:\nunexpected code or cachegrind output:\n},
+        qr{Error: .*?(unexpected code or cachegrind output|gave return status)}s,
         "croak: cachegrind output format "
     ],
     [
@@ -371,7 +407,7 @@ $out = qx($bench_cmd -j 2 --write=$resultfile1 --tests=call::sub::empty $^X=p0 2
 is $out, "", "--write should produce no output (1 perl)";
 ok -s $resultfile1, "--write should create a non-empty results file (1 perl)";
 
-# and again with 2 perls. This is also tests the 'mix read and new new
+# and again with 2 perls. This is also tests the 'mix read and new
 # perls' functionality.
 
 note("running cachegrind for 2nd perl; may be slow...");
@@ -413,6 +449,11 @@ like $out, $format_qrs{percent2}, "basic cachegrind percent format; 2 perls";
 
 $out = qx($bench_cmd --read=$resultfile2 --norm=0 2>&1);
 like $out, $format_qrs{percent2}, "basic cachegrind percent format, norm; 2 perls";
+
+# ditto with negative norm
+
+$out = qx($bench_cmd --read=$resultfile2 --norm=-2 2>&1);
+like $out, $format_qrs{percent2}, "basic cachegrind percent format, norm -2; 2 perls";
 
 # read back the results in relative-percent form with sort
 
@@ -516,7 +557,7 @@ EOF
 $cmd =~ s/\n\s+/ /g;
 $out = qx($cmd);
 $out =~ s{^\./perl}{p0}m;
-$out =~ s{\Q       ./perl  perl2      0      1}
+$out =~ s{\Q       ./perl  perl2    p-0    p-1}
          {           p0     p1     p2     p3};
 like $out, $format_qrs{percent4}, "4 perls with autolabel and args and env";
 
@@ -527,12 +568,21 @@ done_testing();
 # Templates for expected output formats.
 #
 # Lines starting with '#' are skipped.
+#
 # Lines of the form 'FORMAT: foo' start and name a new template
+#
 # All other lines are part of the template
+#
 # Entries of the form NNNN.NN are converted into a regex of the form
 #    ( \s* -? \d+\.\d\d | - )
 # i.e. it expects number with a fixed number of digits after the point,
 # or a '-'.
+#
+# Any runs of space chars (but not tab) are converted into ' +',
+# or ' *' if at the start of a line
+#
+# Entries of the form --- are converted into [-]+
+#
 # Lines of the form %%FOO%% are substituted with format 'FOO'
 
 
@@ -731,7 +781,7 @@ Results for p1
 
      Ir     Dr     Dw   COND    IND COND_m  IND_m  Ir_m1  Dr_m1  Dw_m1  Ir_mm  Dr_mm  Dw_mm
  ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------
- NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN  call::sub::empty
+ NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN NNN.NN  call::sub::empty   function call with no args or body
 # ===================================================================
 FORMAT: compact_fields
 %%STD_HEADER%%
@@ -745,7 +795,7 @@ Results for p1
 
      Ir     Dr
  ------ ------
- NNN.NN NNN.NN  call::sub::empty
+ NNN.NN NNN.NN  call::sub::empty   function call with no args or body
 # ===================================================================
 FORMAT: 1field
 %%STD_HEADER%%
@@ -755,7 +805,7 @@ p0 at 100.0%.
 Higher is better: for example, using half as many instructions gives 200%,
 while using twice as many gives 50%.
 
-Results for field Ir.
+Results for field Ir
 
                      p0     p1
                  ------ ------
@@ -799,5 +849,5 @@ Results for p0
 
       Ir      Dr      Dw    COND     IND  COND_m   IND_m   Ir_m1   Dr_m1   Dw_m1   Ir_mm   Dr_mm   Dw_mm
   ------  ------  ------  ------  ------  ------  ------  ------  ------  ------  ------  ------  ------
- NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N  call::sub::empty
+ NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N NNNNN.N  call::sub::empty   function call with no args or body
 # ===================================================================

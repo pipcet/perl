@@ -34,6 +34,7 @@
 #include "EXTERN.h"
 #define PERL_IN_PP_HOT_C
 #include "perl.h"
+#include "regcomp.h"
 
 /* Hot code. */
 
@@ -253,11 +254,17 @@ PP(pp_unstack)
     return NORMAL;
 }
 
-PP(pp_concat)
+
+/* The main body of pp_concat, not including the magic/overload and
+ * stack handling.
+ * It does targ = left . right.
+ * Moved into a separate function so that pp_multiconcat() can use it
+ * too.
+ */
+
+PERL_STATIC_INLINE void
+S_do_concat(pTHX_ SV *left, SV *right, SV *targ, U8 targmy)
 {
-  dSP; dATARGET; tryAMAGICbin_MG(concat_amg, AMGf_assign);
-  {
-    dPOPTOPssrl;
     bool lbyte;
     STRLEN rlen;
     const char *rpv = NULL;
@@ -285,7 +292,7 @@ PP(pp_concat)
     else { /* $l .= $r   and   left == TARG */
 	if (!SvOK(left)) {
             if ((left == right                          /* $l .= $l */
-                 || (PL_op->op_private & OPpTARGET_MY)) /* $l = $l . $r */
+                 || targmy)                             /* $l = $l . $r */
                 && ckWARN(WARN_UNINITIALIZED)
                 )
                 report_uninit(left);
@@ -314,11 +321,802 @@ PP(pp_concat)
 	}
     }
     sv_catpvn_nomg(TARG, rpv, rlen);
+    SvSETMAGIC(TARG);
+}
 
-    SETTARG;
+
+PP(pp_concat)
+{
+  dSP; dATARGET; tryAMAGICbin_MG(concat_amg, AMGf_assign);
+  {
+    dPOPTOPssrl;
+    S_do_concat(aTHX_ left, right, targ, PL_op->op_private & OPpTARGET_MY);
+    SETs(TARG);
     RETURN;
   }
 }
+
+
+/* pp_multiconcat()
+
+Concatenate one or more args, possibly interleaved with constant string
+segments. The result may be assigned to, or appended to, a variable or
+expression.
+
+Several op_flags and/or op_private bits indicate what the target is, and
+whether it's appended to. Valid permutations are:
+
+    -                                  (PADTMP) = (A.B.C....)
+    OPpTARGET_MY                       $lex     = (A.B.C....)
+    OPpTARGET_MY,OPpLVAL_INTRO         my $lex  = (A.B.C....)
+    OPpTARGET_MY,OPpMULTICONCAT_APPEND $lex    .= (A.B.C....)
+    OPf_STACKED                        expr     = (A.B.C....)
+    OPf_STACKED,OPpMULTICONCAT_APPEND  expr    .= (A.B.C....)
+
+Other combinations like (A.B).(C.D) are not optimised into a multiconcat
+op, as it's too hard to get the correct ordering of ties, overload etc.
+
+In addition:
+
+    OPpMULTICONCAT_FAKE:       not a real concat, instead an optimised
+                               sprintf "...%s...". Don't call '.'
+                               overloading: only use '""' overloading.
+
+    OPpMULTICONCAT_STRINGIFY:  the RHS was of the form
+                               "...$a...$b..." rather than
+                               "..." . $a . "..." . $b . "..."
+
+An OP_MULTICONCAT is of type UNOP_AUX. The fixed slots of the aux array are
+defined with PERL_MULTICONCAT_IX_FOO constants, where:
+
+
+    FOO       index description
+    --------  ----- ----------------------------------
+    NARGS     0     number of arguments
+    PLAIN_PV  1     non-utf8 constant string
+    PLAIN_LEN 2     non-utf8 constant string length
+    UTF8_PV   3     utf8 constant string
+    UTF8_LEN  4     utf8 constant string length
+    LENGTHS   5     first of nargs+1 const segment lengths
+
+The idea is that a general string concatenation will have a fixed (known
+at compile time) number of variable args, interspersed with constant
+strings, e.g. "a=$a b=$b\n"
+
+All the constant string segments "a=", " b=" and "\n" are stored as a
+single string "a= b=\n", pointed to from the PLAIN_PV/UTF8_PV slot, along
+with a series of segment lengths: e.g. 2,3,1. In the case where the
+constant string is plain but has a different utf8 representation, both
+variants are stored, and two sets of (nargs+1) segments lengths are stored
+in the slots beginning at PERL_MULTICONCAT_IX_LENGTHS.
+
+A segment length of -1 indicates that there is no constant string at that
+point; this distinguishes between e.g. ($a . $b) and ($a . "" . $b), which
+have differing overloading behaviour.
+
+*/
+
+PP(pp_multiconcat)
+{
+    dSP;
+    SV *targ;                /* The SV to be assigned or appended to */
+    char *targ_pv;           /* where within SvPVX(targ) we're writing to */
+    STRLEN targ_len;         /* SvCUR(targ) */
+    SV **toparg;             /* the highest arg position on the stack */
+    UNOP_AUX_item *aux;      /* PL_op->op_aux buffer */
+    UNOP_AUX_item *const_lens; /* the segment length array part of aux */
+    const char *const_pv;    /* the current segment of the const string buf */
+    SSize_t nargs;           /* how many args were expected */
+    SSize_t stack_adj;       /* how much to adjust SP on return */
+    STRLEN grow;             /* final size of destination string (targ) */
+    UV targ_count;           /* how many times targ has appeared on the RHS */
+    bool is_append;          /* OPpMULTICONCAT_APPEND flag is set */
+    bool slow_concat;        /* args too complex for quick concat */
+    U32  dst_utf8;           /* the result will be utf8 (indicate this with
+                                SVf_UTF8 in a U32, rather than using bool,
+                                for ease of testing and setting) */
+    /* for each arg, holds the result of an SvPV() call */
+    struct multiconcat_svpv {
+        char          *pv;
+        SSize_t       len;
+    }
+        *targ_chain,         /* chain of slots where targ has appeared on RHS */
+        *svpv_p,             /* ptr for looping through svpv_buf */
+        *svpv_base,          /* first slot (may be greater than svpv_buf), */
+        *svpv_end,           /* and slot after highest result so far, of: */
+        svpv_buf[PERL_MULTICONCAT_MAXARG]; /* buf for storing SvPV() results */
+
+    aux   = cUNOP_AUXx(PL_op)->op_aux;
+    stack_adj = nargs = aux[PERL_MULTICONCAT_IX_NARGS].ssize;
+    is_append = cBOOL(PL_op->op_private & OPpMULTICONCAT_APPEND);
+
+    /* get targ from the stack or pad */
+
+    if (PL_op->op_flags & OPf_STACKED) {
+        if (is_append) {
+            /* for 'expr .= ...', expr is the bottom item on the stack */
+            targ = SP[-nargs];
+            stack_adj++;
+        }
+        else
+            /* for 'expr = ...', expr is the top item on the stack */
+            targ = POPs;
+    }
+    else {
+        SV **svp = &(PAD_SVl(PL_op->op_targ));
+        targ = *svp;
+        if (PL_op->op_private & OPpLVAL_INTRO) {
+            assert(PL_op->op_private & OPpTARGET_MY);
+            save_clearsv(svp);
+        }
+        if (!nargs)
+            /* $lex .= "const" doesn't cause anything to be pushed */
+            EXTEND(SP,1);
+    }
+
+    toparg = SP;
+    SP -= (nargs - 1);
+    grow          = 1;    /* allow for '\0' at minimum */
+    targ_count    = 0;
+    targ_chain    = NULL;
+    targ_len      = 0;
+    svpv_end      = svpv_buf;
+                    /* only utf8 variants of the const strings? */
+    dst_utf8      = aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv ? 0 : SVf_UTF8;
+
+
+    /* --------------------------------------------------------------
+     * Phase 1:
+     *
+     * stringify (i.e. SvPV()) every arg and store the resultant pv/len/utf8
+     * triplets in svpv_buf[]. Also increment 'grow' by the args' lengths.
+     *
+     * utf8 is indicated by storing a negative length.
+     *
+     * Where an arg is actually targ, the stringification is deferred:
+     * the length is set to 0, and the slot is added to targ_chain.
+     *
+     * If a magic, overloaded, or otherwise weird arg is found, which
+     * might have side effects when stringified, the loop is abandoned and
+     * we goto a code block where a more basic 'emulate calling
+     * pp_cpncat() on each arg in turn' is done.
+     */
+
+    for (; SP <= toparg; SP++, svpv_end++) {
+        U32 utf8;
+        STRLEN len;
+        SV *sv;
+
+        assert(svpv_end - svpv_buf < PERL_MULTICONCAT_MAXARG);
+
+        sv = *SP;
+
+        /* this if/else chain is arranged so that common/simple cases
+         * take few conditionals */
+
+        if (LIKELY((SvFLAGS(sv) & (SVs_GMG|SVf_ROK|SVf_POK)) == SVf_POK)) {
+            /* common case: sv is a simple non-magical PV */
+            if (targ == sv) {
+                /* targ appears on RHS.
+                 * Delay storing PV pointer; instead, add slot to targ_chain
+                 * so it can be populated later, after targ has been grown and
+                 * we know its final SvPVX() address.
+                 */
+              targ_on_rhs:
+                svpv_end->len = 0; /* zerojng here means we can skip
+                                      updating later if targ_len == 0 */
+                svpv_end->pv  = (char*)targ_chain;
+                targ_chain    = svpv_end;
+                targ_count++;
+                continue;
+            }
+
+            len           = SvCUR(sv);
+            svpv_end->pv  = SvPVX(sv);
+        }
+        else if (UNLIKELY(SvFLAGS(sv) & (SVs_GMG|SVf_ROK)))
+            /* may have side effects: tie, overload etc.
+             * Abandon 'stringify everything first' and handle
+             * args in strict order. Note that already-stringified args
+             * will be reprocessed, which is safe because the each first
+             * stringification would have been idempotent.
+             */
+            goto do_magical;
+        else if (SvNIOK(sv)) {
+            if (targ == sv)
+              goto targ_on_rhs;
+            /* stringify general valid scalar */
+            svpv_end->pv = sv_2pv_flags(sv, &len, 0);
+        }
+        else if (!SvOK(sv)) {
+            if (ckWARN(WARN_UNINITIALIZED))
+                /* an undef value in the presence of warnings may trigger
+                 * side affects */
+                goto do_magical;
+            svpv_end->pv = (char*)"";
+            len = 0;
+        }
+        else
+            goto do_magical; /* something weird */
+
+        utf8 = (SvFLAGS(sv) & SVf_UTF8);
+        dst_utf8   |= utf8;
+        ASSUME(len < SSize_t_MAX);
+        svpv_end->len = utf8 ? -(SSize_t)len : (SSize_t)len;
+        grow += len;
+    }
+
+    /* --------------------------------------------------------------
+     * Phase 2:
+     *
+     * Stringify targ:
+     *
+     * if targ appears on the RHS or is appended to, force stringify it;
+     * otherwise set it to "". Then set targ_len.
+     */
+
+    if (is_append) {
+        /* abandon quick route if using targ might have side effects */
+        if (UNLIKELY(SvFLAGS(targ) & (SVs_GMG|SVf_ROK)))
+            goto do_magical;
+
+        if (SvOK(targ)) {
+            U32 targ_utf8;
+          stringify_targ:
+            SvPV_force_nomg_nolen(targ);
+            targ_utf8 = SvFLAGS(targ) & SVf_UTF8;
+            if (UNLIKELY(dst_utf8 & ~targ_utf8)) {
+                 if (LIKELY(!IN_BYTES))
+                    sv_utf8_upgrade_nomg(targ);
+            }
+            else
+                dst_utf8 |= targ_utf8;
+
+            targ_len = SvCUR(targ);
+            grow += targ_len * (targ_count + is_append);
+            goto phase3;
+        }
+        else if (ckWARN(WARN_UNINITIALIZED))
+            /* warning might have side effects */
+            goto do_magical;
+        /* the undef targ will be silently SvPVCLEAR()ed below */
+    }
+    else if (UNLIKELY(SvTYPE(targ) >= SVt_REGEXP)) {
+        /* Assigning to some weird LHS type. Don't force the LHS to be an
+         * empty string; instead, do things 'long hand' by using the
+         * overload code path, which concats to a TEMP sv and does
+         * sv_catsv() calls rather than COPY()s. This ensures that even
+         * bizarre code like this doesn't break or crash:
+         *    *F = *F . *F.
+         * (which makes the 'F' typeglob an alias to the
+         * '*main::F*main::F' typeglob).
+         */
+        goto do_magical;
+    }
+    else if (targ_chain)
+        /* targ was found on RHS.
+         * Force stringify it, using the same code as the append branch
+         * above, except that we don't need the magic/overload/undef
+         * checks as these will already have been done in the phase 1
+         * loop.
+         */
+        goto stringify_targ;
+
+    /* unrolled SvPVCLEAR() - mostly: no need to grow or set SvCUR() to 0;
+     * those will be done later. */
+    SV_CHECK_THINKFIRST_COW_DROP(targ);
+    SvUPGRADE(targ, SVt_PV);
+    SvFLAGS(targ) &= ~(SVf_OK|SVf_IVisUV|SVf_UTF8);
+    SvFLAGS(targ) |= (SVf_POK|SVp_POK|dst_utf8);
+
+  phase3:
+
+    /* --------------------------------------------------------------
+     * Phase 3:
+     *
+     * UTF-8 tweaks and grow targ:
+     *
+     * Now that we know the length and utf8-ness of both the targ and
+     * args, grow targ to the size needed to accumulate all the args, based
+     * on whether targ appears on the RHS, whether we're appending, and
+     * whether any non-utf8 args expand in size if converted to utf8.
+     *
+     * For the latter, if dst_utf8 we scan non-utf8 args looking for
+     * variant chars, and adjust the svpv->len value of those args to the
+     * utf8 size and negate it to flag them. At the same time we un-negate
+     * the lens of any utf8 args since after this phase we no longer care
+     * whether an arg is utf8 or not.
+     *
+     * Finally, initialise const_lens and const_pv based on utf8ness.
+     * Note that there are 3 permutations:
+     *
+     * * If the constant string is invariant whether utf8 or not (e.g. "abc"),
+     *   then aux[PERL_MULTICONCAT_IX_PLAIN_PV/LEN] are the same as
+     *        aux[PERL_MULTICONCAT_IX_UTF8_PV/LEN] and there is one set of
+     *   segment lengths.
+     *
+     * * If the string is fully utf8, e.g. "\x{100}", then
+     *   aux[PERL_MULTICONCAT_IX_PLAIN_PV/LEN] == (NULL,0) and there is
+     *   one set of segment lengths.
+     *
+     * * If the string has different plain and utf8 representations
+     *   (e.g. "\x80"), then aux[PERL_MULTICONCAT_IX_PLAIN_PV/LEN]]
+     *   holds the plain rep, while aux[PERL_MULTICONCAT_IX_UTF8_PV/LEN]
+     *   holds the utf8 rep, and there are 2 sets of segment lengths,
+     *   with the utf8 set following after the plain set.
+     *
+     * On entry to this section the (pv,len) pairs in svpv_buf have the
+     * following meanings:
+     *    (pv,  len) a plain string
+     *    (pv, -len) a utf8 string
+     *    (NULL,  0) left-most targ \ linked together R-to-L
+     *    (next,  0) other targ     / in targ_chain
+     */
+
+    /* turn off utf8 handling if 'use bytes' is in scope */
+    if (UNLIKELY(dst_utf8 && IN_BYTES)) {
+        dst_utf8 = 0;
+        SvUTF8_off(targ);
+        /* undo all the negative lengths which flag utf8-ness */
+        for (svpv_p = svpv_buf; svpv_p < svpv_end; svpv_p++) {
+            SSize_t len = svpv_p->len;
+            if (len < 0)
+                svpv_p->len = -len;
+        }
+    }
+
+    /* grow += total of lengths of constant string segments */
+    {
+        SSize_t len;
+        len = aux[dst_utf8 ? PERL_MULTICONCAT_IX_UTF8_LEN
+                           : PERL_MULTICONCAT_IX_PLAIN_LEN].ssize;
+        slow_concat = cBOOL(len);
+        grow += len;
+    }
+
+    const_lens = aux + PERL_MULTICONCAT_IX_LENGTHS;
+
+    if (dst_utf8) {
+        const_pv = aux[PERL_MULTICONCAT_IX_UTF8_PV].pv;
+        if (   aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv
+            && const_pv != aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv)
+            /* separate sets of lengths for plain and utf8 */
+            const_lens += nargs + 1;
+
+        /* If the result is utf8 but some of the args aren't,
+         * calculate how much extra growth is needed for all the chars
+         * which will expand to two utf8 bytes.
+         * Also, if the growth is non-zero, negate the length to indicate
+         * that this is a variant string. Conversely, un-negate the
+         * length on utf8 args (which was only needed to flag non-utf8
+         * args in this loop */
+        for (svpv_p = svpv_buf; svpv_p < svpv_end; svpv_p++) {
+            SSize_t len, extra;
+
+            len = svpv_p->len;
+            if (len <= 0) {
+                svpv_p->len = -len;
+                continue;
+            }
+
+            extra = variant_under_utf8_count((U8 *) svpv_p->pv,
+                                             (U8 *) svpv_p->pv + len);
+            if (UNLIKELY(extra)) {
+                grow       += extra;
+                              /* -ve len indicates special handling */
+                svpv_p->len = -(len + extra);
+                slow_concat = TRUE;
+            }
+        }
+    }
+    else
+        const_pv = aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv;
+
+    /* unrolled SvGROW(), except don't check for SVf_IsCOW, which should
+     * already have been dropped */
+    assert(!SvIsCOW(targ));
+    targ_pv = (SvLEN(targ) < (grow) ? sv_grow(targ,grow) : SvPVX(targ));
+
+
+    /* --------------------------------------------------------------
+     * Phase 4:
+     *
+     * Now that targ has been grown, we know the final address of the targ
+     * PVX, if needed. Preserve / move targ contents if appending or if
+     * targ appears on RHS.
+     *
+     * Also update svpv_buf slots in targ_chain.
+     *
+     * Don't bother with any of this if the target length is zero:
+     * targ_len is set to zero unless we're appending or targ appears on
+     * RHS.  And even if it is, we can optimise by skipping this chunk of
+     * code for zero targ_len. In the latter case, we don't need to update
+     * the slots in targ_chain with the (zero length) target string, since
+     * we set the len in such slots to 0 earlier, and since the Copy() is
+     * skipped on zero length, it doesn't matter what svpv_p->pv contains.
+     *
+     * On entry to this section the (pv,len) pairs in svpv_buf have the
+     * following meanings:
+     *    (pv,  len)         a pure-plain or utf8 string
+     *    (pv, -(len+extra)) a plain string which will expand by 'extra'
+     *                         bytes when converted to utf8
+     *    (NULL,  0)         left-most targ \ linked together R-to-L
+     *    (next,  0)         other targ     / in targ_chain
+     *
+     * On exit, the targ contents will have been moved to the
+     * earliest place they are needed (e.g. $x = "abc$x" will shift them
+     * 3 bytes, while $x .= ... will leave them at the beginning);
+     * and dst_pv will point to the location within SvPVX(targ) where the
+     * next arg should be copied.
+     */
+
+    svpv_base = svpv_buf;
+
+    if (targ_len) {
+        struct multiconcat_svpv *tc_stop;
+        char *targ_buf = targ_pv; /* ptr to original targ string */
+
+        assert(is_append || targ_count);
+
+        if (is_append) {
+            targ_pv += targ_len;
+            tc_stop = NULL;
+        }
+        else {
+            /* The targ appears on RHS, e.g. '$t = $a . $t . $t'.
+             * Move the current contents of targ to the first
+             * position where it's needed, and use that as the src buffer
+             * for any further uses (such as the second RHS $t above).
+             * In calculating the first position, we need to sum the
+             * lengths of all consts and args before that.
+             */
+
+            UNOP_AUX_item *lens = const_lens;
+                                /* length of first const string segment */
+            STRLEN offset       = lens->ssize > 0 ? lens->ssize : 0;
+
+            assert(targ_chain);
+            svpv_p = svpv_base;
+
+            for (;;) {
+                SSize_t len;
+                if (!svpv_p->pv)
+                    break; /* the first targ argument */
+                /* add lengths of the next arg and const string segment */
+                len = svpv_p->len;
+                if (len < 0)  /* variant args have this */
+                    len = -len;
+                offset += (STRLEN)len;
+                len = (++lens)->ssize;
+                offset += (len >= 0) ? (STRLEN)len : 0;
+                if (!offset) {
+                    /* all args and consts so far are empty; update
+                     * the start position for the concat later */
+                    svpv_base++;
+                    const_lens++;
+                }
+                svpv_p++;
+                assert(svpv_p < svpv_end);
+            }
+
+            if (offset) {
+                targ_buf += offset;
+                Move(targ_pv, targ_buf, targ_len, char);
+                /* a negative length implies don't Copy(), but do increment */
+                svpv_p->len = -((SSize_t)targ_len);
+                slow_concat = TRUE;
+            }
+            else {
+                /* skip the first targ copy */
+                svpv_base++;
+                const_lens++;
+                targ_pv += targ_len;
+            }
+
+            /* Don't populate the first targ slot in the loop below; it's
+             * either not used because we advanced svpv_base beyond it, or
+             * we already stored the special -targ_len value in it
+             */
+            tc_stop = svpv_p;
+        }
+
+        /* populate slots in svpv_buf representing targ on RHS */
+        while (targ_chain != tc_stop) {
+            struct multiconcat_svpv *p = targ_chain;
+            targ_chain = (struct multiconcat_svpv *)(p->pv);
+            p->pv  = targ_buf;
+            p->len = (SSize_t)targ_len;
+        }
+    }
+
+
+    /* --------------------------------------------------------------
+     * Phase 5:
+     *
+     * Append all the args in svpv_buf, plus the const strings, to targ.
+     *
+     * On entry to this section the (pv,len) pairs in svpv_buf have the
+     * following meanings:
+     *    (pv,  len)         a pure-plain or utf8 string (which may be targ)
+     *    (pv, -(len+extra)) a plain string which will expand by 'extra'
+     *                         bytes when converted to utf8
+     *    (0,  -len)         left-most targ, whose content has already
+     *                         been copied. Just advance targ_pv by len.
+     */
+
+    /* If there are no constant strings and no special case args
+     * (svpv_p->len < 0), use a simpler, more efficient concat loop
+     */
+    if (!slow_concat) {
+        for (svpv_p = svpv_base; svpv_p < svpv_end; svpv_p++) {
+            SSize_t len = svpv_p->len;
+            if (!len)
+                continue;
+            Copy(svpv_p->pv, targ_pv, len, char);
+            targ_pv += len;
+        }
+        const_lens += (svpv_end - svpv_base + 1);
+    }
+    else {
+        /* Note that we iterate the loop nargs+1 times: to append nargs
+         * arguments and nargs+1 constant strings. For example, "-$a-$b-"
+         */
+        svpv_p = svpv_base - 1;
+
+        for (;;) {
+            SSize_t len = (const_lens++)->ssize;
+
+            /* append next const string segment */
+            if (len > 0) {
+                Copy(const_pv, targ_pv, len, char);
+                targ_pv   += len;
+                const_pv += len;
+            }
+
+            if (++svpv_p == svpv_end)
+                break;
+
+            /* append next arg */
+            len = svpv_p->len;
+
+            if (LIKELY(len > 0)) {
+                Copy(svpv_p->pv, targ_pv, len, char);
+                targ_pv += len;
+            }
+            else if (UNLIKELY(len < 0)) {
+                /* negative length indicates two special cases */
+                const char *p = svpv_p->pv;
+                len = -len;
+                if (UNLIKELY(p)) {
+                    /* copy plain-but-variant pv to a utf8 targ */
+                    char * end_pv = targ_pv + len;
+                    assert(dst_utf8);
+                    while (targ_pv < end_pv) {
+                        U8 c = (U8) *p++;
+                        append_utf8_from_native_byte(c, (U8**)&targ_pv);
+                    }
+                }
+                else
+                    /* arg is already-copied targ */
+                    targ_pv += len;
+            }
+
+        }
+    }
+
+    *targ_pv = '\0';
+    SvCUR_set(targ, targ_pv - SvPVX(targ));
+    assert(grow >= SvCUR(targ) + 1);
+    assert(SvLEN(targ) >= SvCUR(targ) + 1);
+
+    /* --------------------------------------------------------------
+     * Phase 6:
+     *
+     * return result
+     */
+
+    SP -= stack_adj;
+    SvTAINT(targ);
+    SETTARG;
+    RETURN;
+
+    /* --------------------------------------------------------------
+     * Phase 7:
+     *
+     * We only get here if any of the args (or targ too in the case of
+     * append) have something which might cause side effects, such
+     * as magic, overload, or an undef value in the presence of warnings.
+     * In that case, any earlier attempt to stringify the args will have
+     * been abandoned, and we come here instead.
+     *
+     * Here, we concat each arg in turn the old-fashioned way: essentially
+     * emulating pp_concat() in a loop. This means that all the weird edge
+     * cases will be handled correctly, if not necessarily speedily.
+     *
+     * Note that some args may already have been stringified - those are
+     * processed again, which is safe, since only args without side-effects
+     * were stringified earlier.
+     */
+
+  do_magical:
+    {
+        SSize_t i, n;
+        SV *left = NULL;
+        SV *right;
+        SV* nexttarg;
+        bool nextappend;
+        U32 utf8 = 0;
+        SV **svp;
+        const char    *cpv  = aux[PERL_MULTICONCAT_IX_PLAIN_PV].pv;
+        UNOP_AUX_item *lens = aux + PERL_MULTICONCAT_IX_LENGTHS;
+        Size_t arg_count = 0; /* how many args have been processed */
+
+        if (!cpv) {
+            cpv = aux[PERL_MULTICONCAT_IX_UTF8_PV].pv;
+            utf8 = SVf_UTF8;
+        }
+
+        svp = toparg - nargs + 1;
+
+        /* iterate for:
+         *   nargs arguments,
+         *   plus possible nargs+1 consts,
+         *   plus, if appending, a final targ in an extra last iteration
+         */
+
+        n = nargs *2 + 1;
+        for (i = 0; i <= n; i++) {
+            SSize_t len;
+
+            /* if necessary, stringify the final RHS result in
+             * something like $targ .= "$a$b$c" - simulating
+             * pp_stringify
+             */
+            if (    i == n
+                && (PL_op->op_private &OPpMULTICONCAT_STRINGIFY)
+                && !(SvPOK(left))
+                /* extra conditions for backwards compatibility:
+                 * probably incorrect, but keep the existing behaviour
+                 * for now. The rules are:
+                 *     $x   = "$ov"     single arg: stringify;
+                 *     $x   = "$ov$y"   multiple args: don't stringify,
+                 *     $lex = "$ov$y$z" except TARGMY with at least 2 concats
+                 */
+                && (   arg_count == 1
+                    || (     arg_count >= 3
+                        && !is_append
+                        &&  (PL_op->op_private & OPpTARGET_MY)
+                        && !(PL_op->op_private & OPpLVAL_INTRO)
+                       )
+                   )
+            )
+            {
+                SV *tmp = sv_newmortal();
+                sv_copypv(tmp, left);
+                SvSETMAGIC(tmp);
+                left = tmp;
+            }
+
+            /* do one extra iteration to handle $targ in $targ .= ... */
+            if (i == n && !is_append)
+                break;
+
+            /* get the next arg SV or regen the next const SV */
+            len = lens[i >> 1].ssize;
+            if (i == n) {
+                /* handle the final targ .= (....) */
+                right = left;
+                left = targ;
+            }
+            else if (i & 1)
+                right = svp[(i >> 1)];
+            else if (len < 0)
+                continue; /* no const in this position */
+            else {
+                right = newSVpvn_flags(cpv, len, (utf8 | SVs_TEMP));
+                cpv += len;
+            }
+
+            arg_count++;
+
+            if (arg_count <= 1) {
+                left = right;
+                continue; /* need at least two SVs to concat together */
+            }
+
+            if (arg_count == 2 && i < n) {
+                /* for the first concat, create a mortal acting like the
+                 * padtmp from OP_CONST. In later iterations this will
+                 * be appended to */
+                nexttarg = sv_newmortal();
+                nextappend = FALSE;
+            }
+            else {
+                nexttarg = left;
+                nextappend = TRUE;
+            }
+
+            /* Handle possible overloading.
+             * This is basically an unrolled
+             *     tryAMAGICbin_MG(concat_amg, AMGf_assign);
+             * and
+             *     Perl_try_amagic_bin()
+             * call, but using left and right rather than SP[-1], SP[0],
+             * and not relying on OPf_STACKED implying .=
+             */
+
+            if ((SvFLAGS(left)|SvFLAGS(right)) & (SVf_ROK|SVs_GMG)) {
+                SvGETMAGIC(left);
+                if (left != right)
+                    SvGETMAGIC(right);
+
+                if ((SvAMAGIC(left) || SvAMAGIC(right))
+                    /* sprintf doesn't do concat overloading,
+                     * but allow for $x .= sprintf(...)
+                     */
+                    && (   !(PL_op->op_private & OPpMULTICONCAT_FAKE)
+                        || i == n)
+                    )
+                {
+                    SV * const tmpsv = amagic_call(left, right, concat_amg,
+                                                (nextappend ? AMGf_assign: 0));
+                    if (tmpsv) {
+                        /* NB: tryAMAGICbin_MG() includes an OPpTARGET_MY test
+                         * here, which isn't needed as any implicit
+                         * assign done under OPpTARGET_MY is done after
+                         * this loop */
+                        if (nextappend) {
+                            sv_setsv(left, tmpsv);
+                            SvSETMAGIC(left);
+                        }
+                        else
+                            left = tmpsv;
+                        continue;
+                    }
+                }
+
+                /* if both args are the same magical value, make one a copy */
+                if (left == right && SvGMAGICAL(left)) {
+                    left = sv_newmortal();
+                    /* Print the uninitialized warning now, so it includes the
+                     * variable name. */
+                    if (!SvOK(right)) {
+                        if (ckWARN(WARN_UNINITIALIZED))
+                            report_uninit(right);
+                        sv_setsv_flags(left, &PL_sv_no, 0);
+                    }
+                    else
+                        sv_setsv_flags(left, right, 0);
+                    SvGETMAGIC(right);
+                }
+            }
+
+            /* nexttarg = left . right */
+            S_do_concat(aTHX_ left, right, nexttarg, 0);
+            left = nexttarg;
+        }
+
+        SP = toparg - stack_adj + 1;
+
+        /* Return the result of all RHS concats, unless this op includes
+         * an assign ($lex = x.y.z or expr = x.y.z), in which case copy
+         * to target (which will be $lex or expr).
+         * If we are appending, targ will already have been appended to in
+         * the loop */
+        if (  !is_append
+            && (   (PL_op->op_flags   & OPf_STACKED)
+                || (PL_op->op_private & OPpTARGET_MY))
+        ) {
+            sv_setsv(targ, left);
+            SvSETMAGIC(targ);
+        }
+        else
+            targ = left;
+        SETs(targ);
+        RETURN;
+    }
+}
+
 
 /* push the elements of av onto the stack.
  * Returns PL_op->op_next to allow tail-call optimisation of its callers */
@@ -333,14 +1131,22 @@ S_pushav(pTHX_ AV* const av)
         PADOFFSET i;
         for (i=0; i < (PADOFFSET)maxarg; i++) {
             SV ** const svp = av_fetch(av, i, FALSE);
-            SP[i+1] = svp ? *svp : &PL_sv_undef;
+            SP[i+1] = LIKELY(svp)
+                       ? *svp
+                       : UNLIKELY(PL_op->op_flags & OPf_MOD)
+                          ? av_nonelem(av,i)
+                          : &PL_sv_undef;
         }
     }
     else {
         PADOFFSET i;
         for (i=0; i < (PADOFFSET)maxarg; i++) {
-            SV * const sv = AvARRAY(av)[i];
-            SP[i+1] = LIKELY(sv) ? sv : &PL_sv_undef;
+            SV *sv = AvARRAY(av)[i];
+	    SP[i+1] = LIKELY(sv)
+                       ? sv
+                       : UNLIKELY(PL_op->op_flags & OPf_MOD)
+                          ? av_nonelem(av,i)
+                          : &PL_sv_undef;
         }
     }
     SP += maxarg;
@@ -446,10 +1252,7 @@ PP(pp_readline)
 	    PUTBACK;
 	    Perl_pp_rv2gv(aTHX);
 	    PL_last_in_gv = MUTABLE_GV(*PL_stack_sp--);
-	    if (PL_last_in_gv == (GV *)&PL_sv_undef)
-		PL_last_in_gv = NULL;
-	    else
-		assert(isGV_with_GP(PL_last_in_gv));
+            assert((SV*)PL_last_in_gv == &PL_sv_undef || isGV_with_GP(PL_last_in_gv));
 	}
     }
     return do_readline();
@@ -460,7 +1263,7 @@ PP(pp_eq)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(eq_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(eq_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -633,16 +1436,10 @@ PP(pp_add)
             NV nl = SvNVX(svl);
             NV nr = SvNVX(svr);
 
-            if (
-#if defined(NAN_COMPARE_BROKEN) && defined(Perl_isnan)
-                !Perl_isnan(nl) && nl == (NV)(il = (IV)nl)
-                && !Perl_isnan(nr) && nr == (NV)(ir = (IV)nr)
-#else
-                nl == (NV)(il = (IV)nl) && nr == (NV)(ir = (IV)nr)
-#endif
-                )
+            if (lossless_NV_to_IV(nl, &il) && lossless_NV_to_IV(nr, &ir)) {
                 /* nothing was lost by converting to IVs */
                 goto do_iv;
+            }
             SP--;
             TARGn(nl + nr, 0); /* args not GMG, so can't be tainted */
             SETs(TARG);
@@ -724,7 +1521,9 @@ PP(pp_add)
 			auv = aiv;
 			auvok = 1;	/* Now acting as a sign flag.  */
 		    } else {
-			auv = (aiv == IV_MIN) ? (UV)aiv : (UV)(-aiv);
+                        /* Using 0- here and later to silence bogus warning
+                         * from MS VC */
+                        auv = (UV) (0 - (UV) aiv);
 		    }
 		}
 		a_valid = 1;
@@ -744,7 +1543,7 @@ PP(pp_add)
 		    buv = biv;
 		    buvok = 1;
 		} else
-                    buv = (biv == IV_MIN) ? (UV)biv : (UV)(-biv);
+                    buv = (UV) (0 - (UV) biv);
 	    }
 	    /* ?uvok if value is >= 0. basically, flagged as UV if it's +ve,
 	       else "IV" now, independent of how it came in.
@@ -1025,7 +1824,6 @@ S_padhv_rv2hv_common(pTHX_ HV *hv, U8 gimme, bool is_keys, bool has_targ)
                 PUSHi(i);
             }
             else
-#ifdef PERL_OP_PARENT
             if (is_keys) {
                 /* parent op should be an unused OP_KEYS whose targ we can
                  * use */
@@ -1039,7 +1837,6 @@ S_padhv_rv2hv_common(pTHX_ HV *hv, U8 gimme, bool is_keys, bool has_targ)
                 PUSHi(i);
             }
             else
-#endif
                 mPUSHi(i);
         }
     }
@@ -1963,12 +2760,11 @@ PP(pp_aassign)
                setresuid((PL_delaymagic & DM_RUID) ? PL_delaymagic_uid  : (Uid_t)-1,
                          (PL_delaymagic & DM_EUID) ? PL_delaymagic_euid : (Uid_t)-1,
                          (Uid_t)-1));
-#else
-#  ifdef HAS_SETREUID
+#elif defined(HAS_SETREUID)
             PERL_UNUSED_RESULT(
                 setreuid((PL_delaymagic & DM_RUID) ? PL_delaymagic_uid  : (Uid_t)-1,
                          (PL_delaymagic & DM_EUID) ? PL_delaymagic_euid : (Uid_t)-1));
-#  else
+#else
 #    ifdef HAS_SETRUID
 	    if ((PL_delaymagic & DM_UID) == DM_RUID) {
 		PERL_UNUSED_RESULT(setruid(PL_delaymagic_uid));
@@ -1986,7 +2782,6 @@ PP(pp_aassign)
 		    DIE(aTHX_ "No setreuid available");
 		PERL_UNUSED_RESULT(PerlProc_setuid(PL_delaymagic_uid));
 	    }
-#  endif /* HAS_SETREUID */
 #endif /* HAS_SETRESUID */
 
 	    tmp_uid  = PerlProc_getuid();
@@ -1999,12 +2794,11 @@ PP(pp_aassign)
                 setresgid((PL_delaymagic & DM_RGID) ? PL_delaymagic_gid  : (Gid_t)-1,
                           (PL_delaymagic & DM_EGID) ? PL_delaymagic_egid : (Gid_t)-1,
                           (Gid_t)-1));
-#else
-#  ifdef HAS_SETREGID
+#elif defined(HAS_SETREGID)
 	    PERL_UNUSED_RESULT(
                 setregid((PL_delaymagic & DM_RGID) ? PL_delaymagic_gid  : (Gid_t)-1,
                          (PL_delaymagic & DM_EGID) ? PL_delaymagic_egid : (Gid_t)-1));
-#  else
+#else
 #    ifdef HAS_SETRGID
 	    if ((PL_delaymagic & DM_GID) == DM_RGID) {
 		PERL_UNUSED_RESULT(setrgid(PL_delaymagic_gid));
@@ -2022,7 +2816,6 @@ PP(pp_aassign)
 		    DIE(aTHX_ "No setregid available");
 		PERL_UNUSED_RESULT(PerlProc_setgid(PL_delaymagic_gid));
 	    }
-#  endif /* HAS_SETREGID */
 #endif /* HAS_SETRESGID */
 
 	    tmp_gid  = PerlProc_getgid();
@@ -2097,6 +2890,47 @@ PP(pp_qr)
     RETURN;
 }
 
+STATIC bool
+S_are_we_in_Debug_EXECUTE_r(pTHX)
+{
+    /* Given a 'use re' is in effect, does it ask for outputting execution
+     * debug info?
+     *
+     * This is separated from the sole place it's called, an inline function,
+     * because it is the large-ish slow portion of the function */
+
+    DECLARE_AND_GET_RE_DEBUG_FLAGS_NON_REGEX;
+
+    return cBOOL(RE_DEBUG_FLAG(RE_DEBUG_EXECUTE_MASK));
+}
+
+PERL_STATIC_INLINE bool
+S_should_we_output_Debug_r(pTHX_ regexp *prog)
+{
+    PERL_ARGS_ASSERT_SHOULD_WE_OUTPUT_DEBUG_R;
+
+    /* pp_match can output regex debugging info.  This function returns a
+     * boolean as to whether or not it should.
+     *
+     * Under -Dr, it should.  Any reasonable compiler will optimize this bit of
+     * code away on non-debugging builds. */
+    if (UNLIKELY(DEBUG_r_TEST)) {
+        return TRUE;
+    }
+
+    /* If the regex engine is using the non-debugging execution routine, then
+     * no debugging should be output.  Same if the field is NULL that pluggable
+     * engines are not supposed to fill. */
+    if (     LIKELY(prog->engine->exec == &Perl_regexec_flags)
+        || UNLIKELY(prog->engine->op_comp == NULL))
+    {
+        return FALSE;
+    }
+
+    /* Otherwise have to check */
+    return S_are_we_in_Debug_EXECUTE_r(aTHX);
+}
+
 PP(pp_match)
 {
     dSP; dTARG;
@@ -2152,7 +2986,9 @@ PP(pp_match)
         pm->op_pmflags & PMf_USED
 #endif
     ) {
-        DEBUG_r(PerlIO_printf(Perl_debug_log, "?? already matched once"));
+        if (UNLIKELY(should_we_output_Debug_r(prog))) {
+            PerlIO_printf(Perl_debug_log, "?? already matched once");
+        }
 	goto nope;
     }
 
@@ -2174,9 +3010,11 @@ PP(pp_match)
     }
 
     if (RXp_MINLEN(prog) >= 0 && (STRLEN)RXp_MINLEN(prog) > len) {
-        DEBUG_r(PerlIO_printf(Perl_debug_log, "String shorter than min possible regex match (%"
-                                              UVuf " < %" IVdf ")\n",
-                                              (UV)len, (IV)RXp_MINLEN(prog)));
+        if (UNLIKELY(should_we_output_Debug_r(prog))) {
+            PerlIO_printf(Perl_debug_log,
+                "String shorter than min possible regex match (%zd < %zd)\n",
+                                                        len, RXp_MINLEN(prog));
+        }
 	goto nope;
     }
 
@@ -2477,9 +3315,9 @@ Perl_do_readline(pTHX)
 	    }
 	    for (t1 = SvPVX_const(sv); *t1; t1++)
 #ifdef __VMS
-		if (strchr("*%?", *t1))
+		if (memCHRs("*%?", *t1))
 #else
-		if (strchr("$&*(){}[]'\";\\|?<>~`", *t1))
+		if (memCHRs("$&*(){}[]'\";\\|?<>~`", *t1))
 #endif
 			break;
 	    if (*t1 && PerlLIO_lstat(SvPVX_const(sv), &statbuf) < 0) {
@@ -2564,7 +3402,7 @@ PP(pp_helem)
 	    RETURN;
 	}
 	if (localizing) {
-	    if (HvNAME_get(hv) && isGV(*svp))
+	    if (HvNAME_get(hv) && isGV_or_RVCV(*svp))
 		save_gp(MUTABLE_GV(*svp), !(PL_op->op_flags & OPf_SPECIAL));
 	    else if (preeminent)
 		save_helem_flags(hv, keysv, svp,
@@ -2798,13 +3636,19 @@ PP(pp_multideref)
                             if (!defer)
                                 DIE(aTHX_ PL_no_aelem, elem);
                             len = av_tindex(av);
-                            sv = sv_2mortal(newSVavdefelem(av,
-                            /* Resolve a negative index now, unless it points
-                             * before the beginning of the array, in which
-                             * case record it for error reporting in
-                             * magic_setdefelem. */
-                                elem < 0 && len + elem >= 0
-                                    ? len + elem : elem, 1));
+                            /* Resolve a negative index that falls within
+                             * the array.  Leave it negative it if falls
+                             * outside the array.  */
+                             if (elem < 0 && len + elem >= 0)
+                                 elem = len + elem;
+                             if (elem >= 0 && elem <= len)
+                                 /* Falls within the array.  */
+                                 sv = av_nonelem(av,elem);
+                             else
+                                 /* Falls outside the array.  If it is neg-
+                                    ative, magic_setdefelem will use the
+                                    index for error reporting.  */
+                                sv = sv_2mortal(newSVavdefelem(av,elem,1));
                         }
                         else {
                             if (UNLIKELY(localizing)) {
@@ -3000,7 +3844,7 @@ PP(pp_multideref)
                         }
                         else {
                             if (localizing) {
-                                if (HvNAME_get(hv) && isGV(sv))
+                                if (HvNAME_get(hv) && isGV_or_RVCV(sv))
                                     save_gp(MUTABLE_GV(sv),
                                         !(PL_op->op_flags & OPf_SPECIAL));
                                 else if (preeminent) {
@@ -3133,7 +3977,7 @@ PP(pp_iter)
     case CXt_LOOP_LIST: /* for (1,2,3) */
 
         assert(OPpITER_REVERSED == 2); /* so inc becomes -1 or 1 */
-        inc = 1 - (PL_op->op_private & OPpITER_REVERSED);
+        inc = (IV)1 - (IV)(PL_op->op_private & OPpITER_REVERSED);
         ix = (cx->blk_loop.state_u.stack.ix += inc);
         if (UNLIKELY(inc > 0
                         ? ix > cx->blk_oldsp
@@ -3148,7 +3992,7 @@ PP(pp_iter)
     case CXt_LOOP_ARY: /* for (@ary) */
 
         av = cx->blk_loop.state_u.ary.ary;
-        inc = 1 - (PL_op->op_private & OPpITER_REVERSED);
+        inc = (IV)1 - (IV)(PL_op->op_private & OPpITER_REVERSED);
         ix = (cx->blk_loop.state_u.ary.ix += inc);
         if (UNLIKELY(inc > 0
                         ? ix > AvFILL(av)
@@ -3199,25 +4043,41 @@ PP(pp_iter)
 	DIE(aTHX_ "panic: pp_iter, type=%u", CxTYPE(cx));
     }
 
-    /* Bypass pushing &PL_sv_yes and calling pp_and(); instead
+    /* Try to bypass pushing &PL_sv_yes and calling pp_and(); instead
      * jump straight to the AND op's op_other */
     assert(PL_op->op_next->op_type == OP_AND);
-    assert(PL_op->op_next->op_ppaddr == Perl_pp_and);
-    return cLOGOPx(PL_op->op_next)->op_other;
+    if (PL_op->op_next->op_ppaddr == Perl_pp_and) {
+        return cLOGOPx(PL_op->op_next)->op_other;
+    }
+    else {
+        /* An XS module has replaced the op_ppaddr, so fall back to the slow,
+         * obvious way. */
+        /* pp_enteriter should have pre-extended the stack */
+        EXTEND_SKIP(PL_stack_sp, 1);
+        *++PL_stack_sp = &PL_sv_yes;
+        return PL_op->op_next;
+    }
 
   retno:
-    /* Bypass pushing &PL_sv_no and calling pp_and(); instead
+    /* Try to bypass pushing &PL_sv_no and calling pp_and(); instead
      * jump straight to the AND op's op_next */
     assert(PL_op->op_next->op_type == OP_AND);
-    assert(PL_op->op_next->op_ppaddr == Perl_pp_and);
     /* pp_enteriter should have pre-extended the stack */
     EXTEND_SKIP(PL_stack_sp, 1);
     /* we only need this for the rare case where the OP_AND isn't
      * in void context, e.g. $x = do { for (..) {...} };
-     * but its cheaper to just push it rather than testing first
+     * (or for when an XS module has replaced the op_ppaddr)
+     * but it's cheaper to just push it rather than testing first
      */
     *++PL_stack_sp = &PL_sv_no;
-    return PL_op->op_next->op_next;
+    if (PL_op->op_next->op_ppaddr == Perl_pp_and) {
+        return PL_op->op_next->op_next;
+    }
+    else {
+        /* An XS module has replaced the op_ppaddr, so fall back to the slow,
+         * obvious way. */
+        return PL_op->op_next;
+    }
 }
 
 
@@ -3366,8 +4226,8 @@ PP(pp_subst)
 	    (SvTAINTED(TARG) ? SUBST_TAINT_STR : 0)
 	  | (RXp_ISTAINTED(prog) ? SUBST_TAINT_PAT : 0)
 	  | ((pm->op_pmflags & PMf_RETAINT) ? SUBST_TAINT_RETAINT : 0)
-	  | ((once && !(rpm->op_pmflags & PMf_NONDESTRUCT))
-		? SUBST_TAINT_BOOLRET : 0));
+	  | ((  (once && !(rpm->op_pmflags & PMf_NONDESTRUCT))
+             || (PL_op->op_private & OPpTRUEBOOL)) ? SUBST_TAINT_BOOLRET : 0));
 	TAINT_NOT;
     }
 
@@ -3434,7 +4294,7 @@ PP(pp_subst)
 	    doutf8 = DO_UTF8(dstr);
 	}
 
-	if (SvTAINTED(dstr))
+	if (UNLIKELY(TAINT_get))
 	    rxtainted |= SUBST_TAINT_REPL;
     }
     else {
@@ -3537,8 +4397,9 @@ PP(pp_subst)
 		Move(s, d, i+1, char);		/* include the NUL */
 	    }
 	    SPAGAIN;
+            assert(iters);
             if (PL_op->op_private & OPpTRUEBOOL)
-                PUSHs(iters ? &PL_sv_yes : &PL_sv_zero);
+                PUSHs(&PL_sv_yes);
             else
                 mPUSHi(iters);
 	}
@@ -3609,8 +4470,6 @@ PP(pp_subst)
 	    }
 	    else {
 		sv_catsv(dstr, repl);
-		if (UNLIKELY(SvTAINTED(repl)))
-		    rxtainted |= SUBST_TAINT_REPL;
 	    }
 	    if (once)
 		break;
@@ -3648,7 +4507,10 @@ PP(pp_subst)
 	    SvPV_set(dstr, NULL);
 
 	    SPAGAIN;
-	    mPUSHi(iters);
+            if (PL_op->op_private & OPpTRUEBOOL)
+                PUSHs(&PL_sv_yes);
+            else
+                mPUSHi(iters);
 	}
     }
 
@@ -4181,16 +5043,6 @@ PP(pp_entersub)
                 if (UNLIKELY(!SvOK(sv)))
                     DIE(aTHX_ PL_no_usym, "a subroutine");
 
-                if (UNLIKELY(sv == &PL_sv_yes)) { /* unfound import, ignore */
-                    if (PL_op->op_flags & OPf_STACKED) /* hasargs */
-                        SP = PL_stack_base + POPMARK;
-                    else
-                        (void)POPMARK;
-                    if (GIMME_V == G_SCALAR)
-                        PUSHs(&PL_sv_undef);
-                    RETURN;
-                }
-
                 sym = SvPV_nomg_const(sv, len);
                 if (PL_op->op_private & HINT_STRICT_REFS)
                     DIE(aTHX_ "Can't use string (\"%" SVf32 "\"%s) as a subroutine ref while \"strict refs\" in use", sv, len>32 ? "..." : "");
@@ -4333,7 +5185,8 @@ PP(pp_entersub)
                 AvARRAY(av) = ary;
             }
 
-	    Copy(MARK+1,AvARRAY(av),items,SV*);
+            if (items)
+                Copy(MARK+1,AvARRAY(av),items,SV*);
 	    AvFILLp(av) = items - 1;
 	}
 	if (UNLIKELY((cx->blk_u16 & OPpENTERSUB_LVAL_MASK) == OPpLVAL_INTRO &&
@@ -4390,7 +5243,7 @@ PP(pp_entersub)
 		    else sv = AvARRAY(av)[i];
 		    if (sv) SP[i+1] = sv;
 		    else {
-			SP[i+1] = newSVavdefelem(av, i, 1);
+			SP[i+1] = av_nonelem(av, i);
 		    }
 		}
 		SP += items;
@@ -4423,6 +5276,21 @@ PP(pp_entersub)
 	assert(CvXSUB(cv));
 	CvXSUB(cv)(aTHX_ cv);
 
+#if defined DEBUGGING && !defined DEBUGGING_RE_ONLY
+        /* This duplicates the check done in runops_debug(), but provides more
+         * information in the common case of the fault being with an XSUB.
+         *
+         * It should also catch an XSUB pushing more than it extends
+         * in scalar context.
+        */
+        if (PL_curstackinfo->si_stack_hwm < PL_stack_sp - PL_stack_base)
+            Perl_croak_nocontext(
+                "panic: XSUB %s::%s (%s) failed to extend arg stack: "
+                "base=%p, sp=%p, hwm=%p\n",
+                    HvNAME(GvSTASH(CvGV(cv))), GvNAME(CvGV(cv)), CvFILE(cv),
+                    PL_stack_base, PL_stack_sp,
+                    PL_stack_base + PL_curstackinfo->si_stack_hwm);
+#endif
 	/* Enforce some sanity in scalar context. */
 	if (is_scalar) {
             SV **svp = PL_stack_base + markix + 1;
@@ -4513,9 +5381,7 @@ PP(pp_aelem)
 	 else if (SvNOK(elemsv))
 	      elem = (IV)SvNV(elemsv);
 	 if (elem > 0) {
-	      static const char oom_array_extend[] =
-		"Out of memory during array extend"; /* Duplicated in av.c */
-	      MEM_WRAP_CHECK_1(elem,SV*,oom_array_extend);
+	      MEM_WRAP_CHECK_s(elem,SV*,"Out of memory during array extend");
 	 }
 #endif
 	if (!svp || !*svp) {
@@ -4523,12 +5389,18 @@ PP(pp_aelem)
 	    if (!defer)
 		DIE(aTHX_ PL_no_aelem, elem);
 	    len = av_tindex(av);
-	    mPUSHs(newSVavdefelem(av,
-	    /* Resolve a negative index now, unless it points before the
-	       beginning of the array, in which case record it for error
-	       reporting in magic_setdefelem. */
-		elem < 0 && len + elem >= 0 ? len + elem : elem,
-		1));
+	    /* Resolve a negative index that falls within the array.  Leave
+	       it negative it if falls outside the array.  */
+	    if (elem < 0 && len + elem >= 0)
+		elem = len + elem;
+	    if (elem >= 0 && elem <= len)
+		/* Falls within the array.  */
+		PUSHs(av_nonelem(av,elem));
+	    else
+		/* Falls outside the array.  If it is negative,
+		   magic_setdefelem will use the index for error reporting.
+		 */
+		mPUSHs(newSVavdefelem(av, elem, 1));
 	    RETURN;
 	}
 	if (UNLIKELY(localizing)) {

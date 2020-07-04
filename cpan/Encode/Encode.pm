@@ -1,5 +1,5 @@
 #
-# $Id: Encode.pm,v 2.92 2017/07/18 07:15:29 dankogai Exp dankogai $
+# $Id: Encode.pm,v 3.06 2020/05/02 02:31:14 dankogai Exp $
 #
 package Encode;
 use strict;
@@ -7,13 +7,14 @@ use warnings;
 use constant DEBUG => !!$ENV{PERL_ENCODE_DEBUG};
 our $VERSION;
 BEGIN {
-    $VERSION = sprintf "%d.%02d", q$Revision: 2.92 $ =~ /(\d+)/g;
+    $VERSION = sprintf "%d.%02d", q$Revision: 3.06 $ =~ /(\d+)/g;
     require XSLoader;
     XSLoader::load( __PACKAGE__, $VERSION );
 }
 
 use Exporter 5.57 'import';
 
+use Carp ();
 our @CARP_NOT = qw(Encode::Encoder);
 
 # Public, encouraged API is exported by default
@@ -64,7 +65,7 @@ require Encode::Config;
 eval {
     local $SIG{__DIE__};
     local $SIG{__WARN__};
-    local @INC = @INC;
+    local @INC = @INC || ();
     pop @INC if $INC[-1] eq '.';
     require Encode::ConfigLocal;
 };
@@ -168,134 +169,6 @@ sub clone_encoding($) {
     my $obj = find_encoding(shift);
     ref $obj or return;
     return Storable::dclone($obj);
-}
-
-sub encode($$;$) {
-    my ( $name, $string, $check ) = @_;
-    return undef unless defined $string;
-    $string .= '';    # stringify;
-    $check ||= 0;
-    unless ( defined $name ) {
-        require Carp;
-        Carp::croak("Encoding name should not be undef");
-    }
-    my $enc = find_encoding($name);
-    unless ( defined $enc ) {
-        require Carp;
-        Carp::croak("Unknown encoding '$name'");
-    }
-    # For Unicode, warnings need to be caught and re-issued at this level
-    # so that callers can disable utf8 warnings lexically.
-    my $octets;
-    if ( ref($enc) eq 'Encode::Unicode' ) {
-        my $warn = '';
-        {
-            local $SIG{__WARN__} = sub { $warn = shift };
-            $octets = $enc->encode( $string, $check );
-        }
-        warnings::warnif('utf8', $warn) if length $warn;
-    }
-    else {
-        $octets = $enc->encode( $string, $check );
-    }
-    $_[1] = $string if $check and !ref $check and !( $check & LEAVE_SRC );
-    return $octets;
-}
-*str2bytes = \&encode;
-
-sub decode($$;$) {
-    my ( $name, $octets, $check ) = @_;
-    return undef unless defined $octets;
-    $octets .= '';
-    $check ||= 0;
-    my $enc = find_encoding($name);
-    unless ( defined $enc ) {
-        require Carp;
-        Carp::croak("Unknown encoding '$name'");
-    }
-    # For Unicode, warnings need to be caught and re-issued at this level
-    # so that callers can disable utf8 warnings lexically.
-    my $string;
-    if ( ref($enc) eq 'Encode::Unicode' ) {
-        my $warn = '';
-        {
-            local $SIG{__WARN__} = sub { $warn = shift };
-            $string = $enc->decode( $octets, $check );
-        }
-        warnings::warnif('utf8', $warn) if length $warn;
-    }
-    else {
-        $string = $enc->decode( $octets, $check );
-    }
-    $_[1] = $octets if $check and !ref $check and !( $check & LEAVE_SRC );
-    return $string;
-}
-*bytes2str = \&decode;
-
-sub from_to($$$;$) {
-    my ( $string, $from, $to, $check ) = @_;
-    return undef unless defined $string;
-    $check ||= 0;
-    my $f = find_encoding($from);
-    unless ( defined $f ) {
-        require Carp;
-        Carp::croak("Unknown encoding '$from'");
-    }
-    my $t = find_encoding($to);
-    unless ( defined $t ) {
-        require Carp;
-        Carp::croak("Unknown encoding '$to'");
-    }
-
-    # For Unicode, warnings need to be caught and re-issued at this level
-    # so that callers can disable utf8 warnings lexically.
-    my $uni;
-    if ( ref($f) eq 'Encode::Unicode' ) {
-        my $warn = '';
-        {
-            local $SIG{__WARN__} = sub { $warn = shift };
-            $uni = $f->decode($string);
-        }
-        warnings::warnif('utf8', $warn) if length $warn;
-    }
-    else {
-        $uni = $f->decode($string);
-    }
-
-    if ( ref($t) eq 'Encode::Unicode' ) {
-        my $warn = '';
-        {
-            local $SIG{__WARN__} = sub { $warn = shift };
-            $_[0] = $string = $t->encode( $uni, $check );
-        }
-        warnings::warnif('utf8', $warn) if length $warn;
-    }
-    else {
-        $_[0] = $string = $t->encode( $uni, $check );
-    }
-
-    return undef if ( $check && length($uni) );
-    return defined( $_[0] ) ? length($string) : undef;
-}
-
-sub encode_utf8($) {
-    my ($str) = @_;
-    return undef unless defined $str;
-    utf8::encode($str);
-    return $str;
-}
-
-my $utf8enc;
-
-sub decode_utf8($;$) {
-    my ( $octets, $check ) = @_;
-    return undef unless defined $octets;
-    $octets .= '';
-    $check   ||= 0;
-    $utf8enc ||= find_encoding('utf8');
-    my $string = $utf8enc->decode( $octets, $check );
-    $_[0] = $octets if $check and !ref $check and !( $check & LEAVE_SRC );
-    return $string;
 }
 
 onBOOT;
@@ -824,6 +697,12 @@ code to do exactly that:
 This is the same as C<FB_QUIET> above, except that instead of being silent
 on errors, it issues a warning.  This is handy for when you are debugging.
 
+B<CAVEAT>: All warnings from Encode module are reported, independently of
+L<pragma warnings|warnings> settings. If you want to follow settings of
+lexical warnings configured by L<pragma warnings|warnings> then append
+also check value C<ENCODE::ONLY_PRAGMA_WARNINGS>. This value is available
+since Encode version 2.99.
+
 =head3 FB_PERLQQ FB_HTMLCREF FB_XMLCREF
 
 =over 2
@@ -949,37 +828,10 @@ different kinds of strings and string-operations in Perl: one a
 byte-oriented mode  for when the internal UTF8 flag is off, and the other a
 character-oriented mode for when the internal UTF8 flag is on.
 
-Here is how C<Encode> handles the UTF8 flag.
-
-=over 2
-
-=item *
-
-When you I<encode>, the resulting UTF8 flag is always B<off>.
-
-=item *
-
-When you I<decode>, the resulting UTF8 flag is B<on>--I<unless> you can
-unambiguously represent data.  Here is what we mean by "unambiguously".
-After C<$str = decode("foo", $octet)>,
-
-  When $octet is...    The UTF8 flag in $str is
-  ---------------------------------------------
-  In ASCII only (or EBCDIC only)            OFF
-  In ISO-8859-1                              ON
-  In any other Encoding                      ON
-  ---------------------------------------------
-
-As you see, there is one exception: in ASCII.  That way you can assume
-Goal #1.  And with C<Encode>, Goal #2 is assumed but you still have to be
-careful in the cases mentioned in the B<CAVEAT> paragraphs above.
-
 This UTF8 flag is not visible in Perl scripts, exactly for the same reason
 you cannot (or rather, you I<don't have to>) see whether a scalar contains
 a string, an integer, or a floating-point number.   But you can still peek
 and poke these if you will.  See the next section.
-
-=back
 
 =head2 Messing with Perl's Internals
 
@@ -994,6 +846,13 @@ release.
 [INTERNAL] Tests whether the UTF8 flag is turned on in the I<STRING>.
 If I<CHECK> is true, also checks whether I<STRING> contains well-formed
 UTF-8.  Returns true if successful, false otherwise.
+
+Typically only necessary for debugging and testing.  Don't use this flag as
+a marker to distinguish character and binary data, that should be decided
+for each variable when you write your code.
+
+B<CAVEAT>: If I<STRING> has UTF8 flag set, it does B<NOT> mean that
+I<STRING> is UTF-8 encoded and vice-versa.
 
 As of Perl 5.8.1, L<utf8> also has the C<utf8::is_utf8> function.
 

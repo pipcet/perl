@@ -1,6 +1,8 @@
 use strict;
 use warnings;
 
+BEGIN { no warnings 'once'; $main::cleanup1 = bless {}, 'My::Cleanup' }
+
 use Test2::API qw/context/;
 
 my ($LOADED, $INIT);
@@ -26,6 +28,7 @@ ok(Test2::API->can($_), "$_ method is present") for qw{
     test2_tid
     test2_stack
     test2_no_wait
+    test2_is_testing_done
 
     test2_add_callback_context_init
     test2_add_callback_context_release
@@ -37,6 +40,8 @@ ok(Test2::API->can($_), "$_ method is present") for qw{
     test2_list_post_load_callbacks
 
     test2_ipc
+    test2_ipc_disable
+    test2_ipc_disabled
     test2_ipc_drivers
     test2_ipc_add_driver
     test2_ipc_polling
@@ -102,11 +107,18 @@ is_deeply([$CLASS->can('test2_ipc_drivers')->()], [qw/Test2::IPC::Driver::Files/
 my $file = __FILE__;
 my $line = __LINE__ + 1;
 my $warnings = warnings { $CLASS->can('test2_ipc_add_driver')->('fake') };
+my $sub1 = sub {
 like(
     $warnings->[0],
     qr{^IPC driver fake loaded too late to be used as the global ipc driver at \Q$file\E line $line},
     "got warning about adding driver too late"
 );
+};
+if ($] le "5.006002") {
+    todo("TODO known to fail on $]", $sub1);
+} else {
+    $sub1->();
+}
 
 is_deeply([$CLASS->can('test2_ipc_drivers')->()], [qw/fake Test2::IPC::Driver::Files/], "Got updated list");
 
@@ -140,6 +152,12 @@ $CLASS->can('test2_no_wait')->(1);
 ok($CLASS->can('test2_no_wait')->(), "no_wait is set");
 $CLASS->can('test2_no_wait')->(undef);
 ok(!$CLASS->can('test2_no_wait')->(), "no_wait is not set");
+
+ok($CLASS->can('test2_ipc_wait_enabled')->(), "IPC waiting enabled");
+$CLASS->can('test2_ipc_wait_disable')->();
+ok(!$CLASS->can('test2_ipc_wait_enabled')->(), "IPC waiting disabled");
+$CLASS->can('test2_ipc_wait_enable')->();
+ok($CLASS->can('test2_ipc_wait_enabled')->(), "IPC waiting enabled");
 
 my $pctx;
 sub tool_a($;$) {
@@ -270,5 +288,23 @@ is((grep { $_ == $sub } Test2::API::test2_list_context_release_callbacks()), 2, 
 is((grep { $_ == $sub } Test2::API::test2_list_exit_callbacks()),            2, "got the two instances of the hook");
 is((grep { $_ == $sub } Test2::API::test2_list_post_load_callbacks()),       2, "got the two instances of the hook");
 
+ok(!Test2::API::test2_is_testing_done(), "Testing is not done");
+
 done_testing;
 
+die "Testing should be done, but it is not!" unless Test2::API::test2_is_testing_done();
+
+{
+    package My::Cleanup;
+
+    sub DESTROY {
+        return if Test2::API::test2_is_testing_done();
+        print "not ok - Testing should be done, but it is not!\n";
+        warn "Testing should be done, but it is not!";
+        eval "END { $? = 255 }; 1" or die $@;
+        exit 255;
+    }
+}
+
+# This should destroy the thing
+END { no warnings 'once'; $main::cleanup2 = bless {}, 'My::Cleanup' }

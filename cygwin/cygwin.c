@@ -90,15 +90,17 @@ int
 do_spawn (char *cmd)
 {
     dTHX;
-    char const **a;
+    char const **argv, **a;
     char *s;
     char const *metachars = "$&*(){}[]'\";\\?>|<~`\n";
     const char *command[4];
+    int result;
 
+    ENTER;
     while (*cmd && isSPACE(*cmd))
 	cmd++;
 
-    if (strnEQ (cmd,"/bin/sh",7) && isSPACE (cmd[7]))
+    if (strBEGINs (cmd,"/bin/sh") && isSPACE (cmd[7]))
         cmd+=5;
 
     /* save an extra exec if possible */
@@ -107,11 +109,11 @@ do_spawn (char *cmd)
 	goto doshell;
     if (*cmd=='.' && isSPACE (cmd[1]))
 	goto doshell;
-    if (strnEQ (cmd,"exec",4) && isSPACE (cmd[4]))
+    if (strBEGINs (cmd,"exec") && isSPACE (cmd[4]))
 	goto doshell;
     for (s=cmd; *s && isALPHA (*s); s++) ;	/* catch VAR=val gizmo */
-	if (*s=='=')
-	    goto doshell;
+    if (*s=='=')
+        goto doshell;
 
     for (s=cmd; *s; s++)
 	if (strchr (metachars,*s))
@@ -127,13 +129,16 @@ do_spawn (char *cmd)
 	    command[2] = cmd;
 	    command[3] = NULL;
 
-	    return do_spawnvp("sh",command);
+	    result = do_spawnvp("sh",command);
+	    goto leave;
 	}
 
-    Newx (PL_Argv, (s-cmd)/2+2, const char*);
-    PL_Cmd=savepvn (cmd,s-cmd);
-    a=PL_Argv;
-    for (s=PL_Cmd; *s;) {
+    Newx (argv, (s-cmd)/2+2, const char*);
+    SAVEFREEPV(argv);
+    cmd=savepvn (cmd,s-cmd);
+    SAVEFREEPV(cmd);
+    a=argv;
+    for (s=cmd; *s;) {
 	while (*s && isSPACE (*s)) s++;
 	if (*s)
 	    *(a++)=s;
@@ -142,10 +147,13 @@ do_spawn (char *cmd)
 	    *s++='\0';
     }
     *a = (char*)NULL;
-    if (!PL_Argv[0])
-        return -1;
-
-    return do_spawnvp(PL_Argv[0],(const char * const *)PL_Argv);
+    if (!argv[0])
+        result = -1;
+    else
+	result = do_spawnvp(argv[0],(const char * const *)argv);
+leave:
+    LEAVE;
+    return result;
 }
 
 #if (CYGWIN_VERSION_API_MINOR >= 181)
@@ -211,7 +219,7 @@ XS(Cygwin_cwd)
     dXSARGS;
     char *cwd;
 
-    /* See http://rt.perl.org/rt3/Ticket/Display.html?id=38628 
+    /* See https://github.com/Perl/perl5/issues/8345
        There is Cwd->cwd() usage in the wild, and previous versions didn't die.
      */
     if(items > 1)
@@ -294,7 +302,7 @@ XS(XS_Cygwin_win_to_posix_path)
      */
     if (isutf8) {
 	int what = absolute_flag ? CCP_WIN_W_TO_POSIX : CCP_WIN_W_TO_POSIX | CCP_RELATIVE;
-	int wlen = sizeof(wchar_t)*(len + 260 + 1001);
+	STRLEN wlen = sizeof(wchar_t)*(len + 260 + 1001);
 	wchar_t *wpath = (wchar_t *) safemalloc(sizeof(wchar_t)*len);
 	wchar_t *wbuf = (wchar_t *) safemalloc(wlen);
 	if (!IN_BYTES) {
@@ -325,7 +333,7 @@ XS(XS_Cygwin_win_to_posix_path)
 	}
 	/* utf16_to_utf8(*p, *d, bytlen, *newlen) */
 	posix_path = (char *) safemalloc(wlen*3);
-	Perl_utf16_to_utf8(aTHX_ (U8*)&wpath, (U8*)posix_path, (I32)wlen*2, (I32*)&len);
+	Perl_utf16_to_utf8(aTHX_ (U8*)&wpath, (U8*)posix_path, wlen*2, &len);
 	/*
 	wlen = wcsrtombs(NULL, (const wchar_t **)&wbuf, wlen, NULL);
 	posix_path = (char *) safemalloc(wlen+1);
@@ -488,7 +496,7 @@ XS(XS_Cygwin_mount_flags)
 
     pathname = SvPV_nolen(ST(0));
 
-    if (!strcmp(pathname, "/cygdrive")) {
+    if (strEQ(pathname, "/cygdrive")) {
 	char user[PATH_MAX];
 	char system[PATH_MAX];
 	char user_flags[PATH_MAX];
@@ -511,7 +519,7 @@ XS(XS_Cygwin_mount_flags)
 	int found = 0;
 	setmntent (0, 0);
 	while ((mnt = getmntent (0))) {
-	    if (!strcmp(pathname, mnt->mnt_dir)) {
+	    if (strEQ(pathname, mnt->mnt_dir)) {
 		strcpy(flags, mnt->mnt_type);
 		if (strlen(mnt->mnt_opts) > 0) {
 		    strcat(flags, ",");
@@ -536,12 +544,12 @@ XS(XS_Cygwin_mount_flags)
 			     user_flags, system_flags);
 
 	    if (strlen(user) > 0) {
-		if (strcmp(user,pathname)) {
+		if (strNE(user,pathname)) {
 		    sprintf(flags, "%s,cygdrive,%s", user_flags, user);
 		    found++;
 		}
 	    } else {
-		if (strcmp(user,pathname)) {
+		if (strNE(user,pathname)) {
 		    sprintf(flags, "%s,cygdrive,%s", system_flags, system);
 		    found++;
 		}
