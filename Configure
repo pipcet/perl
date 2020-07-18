@@ -17991,42 +17991,10 @@ int main() {
 }
 EOCP
 set try
-if eval $compile; then
-    echo "Your system has setlocale()..." >&4
-    $run ./try
-    case $? in
-        0) echo "and it seems sane" >&4
-           d_setlocale="$define"
-           d_setlocale_accepts_any_locale_name="$undef"
-           d_has_C_UTF8="false"
-           ;;
-        1) echo "and it seems sane, but accepts any locale name as valid" >&4
-           d_setlocale="$define"
-           d_setlocale_accepts_any_locale_name="$define"
-           d_has_C_UTF8="false"
-           ;;
-        2) echo "and it seems sane" >&4
-           d_setlocale="$define"
-           d_setlocale_accepts_any_locale_name="$undef"
-           d_has_C_UTF8="true"
-           ;;
-        3) echo "and it seems sane, but accepts any locale name as valid" >&4
-           d_setlocale="$define"
-           d_setlocale_accepts_any_locale_name="$define"
-           d_has_C_UTF8="true"
-           ;;
-        *) echo "but it doesn't seem to work, so we won't use it." >&4
-           d_setlocale="$undef"
-           d_setlocale_accepts_any_locale_name="$undef"
-           d_has_C_UTF8="false"
-           ;;
-    esac
-else
     echo "your system does not have setlocale()" >&4
     d_setlocale="$undef"
     d_setlocale_accepts_any_locale_name="$undef"
     d_has_C_UTF8="false"
-fi
 $rm_try
 
 : see if setlocale_r exists
@@ -21977,6 +21945,7 @@ $selecttype b;
 #define NBYTES (S * 8 > MINBITS ? S : MINBITS/8)
 #define NBITS  (NBYTES * 8)
 int main() {
+    return 0;
     char *s = (char *)malloc(NBYTES);
     struct timeval t;
     int i;
