@@ -2714,7 +2714,7 @@ S_get_and_check_backslash_N_name_wrapper(pTHX_ const char* s, const char* const 
 
 SV*
 Perl_get_and_check_backslash_N_name(pTHX_ const char* s,
-                                          const char* const e,
+                                          const char* e,
                                           const bool is_utf8,
                                           const char ** error_msg)
 {
@@ -2743,6 +2743,14 @@ Perl_get_and_check_backslash_N_name(pTHX_ const char* s,
 
     assert(e >= s);
     assert(s > (char *) 3);
+
+    while (s < e && isBLANK(*s)) {
+        s++;
+    }
+
+    while (s < e && isBLANK(*(e - 1))) {
+        e--;
+    }
 
     char_name = newSVpvn_flags(s, e - s, (is_utf8) ? SVf_UTF8 : 0);
 
@@ -3587,8 +3595,10 @@ S_scan_const(pTHX_ char *start)
 
 	/* backslashes */
 	if (*s == '\\' && s+1 < send) {
-	    char* e;	/* Can be used for ending '}', etc. */
-
+	    char* bslash = s;   /* point to beginning \ */
+	    char* rbrace;	/* point to ending '}' */
+            char* e;	        /* 1 past the meat (non-blanks) before the
+                                   brace */
 	    s++;
 
 	    /* warn on \1 - \9 in substitution replacements, but note that \11
@@ -3601,13 +3611,14 @@ S_scan_const(pTHX_ char *start)
 	    {
 		/* diag_listed_as: \%d better written as $%d */
 		Perl_ck_warner(aTHX_ packWARN(WARN_SYNTAX), "\\%c better written as $%c", *s, *s);
-		*--s = '$';
+                s = bslash;
+		*s = '$';
 		break;
 	    }
 
 	    /* string-change backslash escapes */
 	    if (PL_lex_inwhat != OP_TRANS && *s && memCHRs("lLuUEQF", *s)) {
-		--s;
+		s = bslash;
 		break;
 	    }
 	    /* In a pattern, process \N, but skip any other backslash escapes.
@@ -3627,7 +3638,7 @@ S_scan_const(pTHX_ char *start)
 	    else if (PL_lex_inpat
 		    && (*s != 'N'
 			|| s[1] != '{'
-			|| regcurly(s + 1)))
+			|| regcurly(s + 1, send, NULL)))
 	    {
 		*d++ = '\\';
 		goto default_action;
@@ -3818,7 +3829,7 @@ S_scan_const(pTHX_ char *start)
 		s++;
 
 		/* If there is no matching '}', it is an error. */
-		if (! (e = (char *) memchr(s, '}', send - s))) {
+		if (! (rbrace = (char *) memchr(s, '}', send - s))) {
 		    if (! PL_lex_inpat) {
 			yyerror("Missing right brace on \\N{}");
 		    } else {
@@ -3828,6 +3839,14 @@ S_scan_const(pTHX_ char *start)
 		}
 
 		/* Here it looks like a named character */
+                while (s < rbrace && isBLANK(*s)) {
+                    s++;
+                }
+
+                e = rbrace;
+                while (s < e && isBLANK(*(e - 1))) {
+                    e--;
+                }
 
 		if (*s == 'U' && s[1] == '+') { /* \N{U+...} */
 		    s += 2;	    /* Skip to next char after the 'U+' */
@@ -3835,14 +3854,12 @@ S_scan_const(pTHX_ char *start)
 
                         /* In patterns, we can have \N{U+xxxx.yyyy.zzzz...} */
                         /* Check the syntax.  */
-                        const char *orig_s;
-                        orig_s = s - 5;
                         if (!isXDIGIT(*s)) {
                           bad_NU:
                             yyerror(
                                 "Invalid hexadecimal number in \\N{U+...}"
                             );
-                            s = e + 1;
+                            s = rbrace + 1;
                             *d++ = '\0';
                             continue;
                         }
@@ -3856,9 +3873,9 @@ S_scan_const(pTHX_ char *start)
                         }
 
                         /* Pass everything through unchanged.
-                         * +1 is for the '}' */
-                        Copy(orig_s, d, e - orig_s + 1, char);
-                        d += e - orig_s + 1;
+                         * +1 is to include the '}' */
+                        Copy(bslash, d, rbrace - bslash + 1, char);
+                        d += rbrace - bslash + 1;
 		    }
 		    else {  /* Not a pattern: convert the hex to string */
                         I32 flags = PERL_SCAN_ALLOW_UNDERSCORES
@@ -3890,7 +3907,7 @@ S_scan_const(pTHX_ char *start)
                                            || PL_lex_inwhat != OP_TRANS))
                         {
 			    /* See Note on sizing above.  */
-                            const STRLEN extra = OFFUNISKIP(uv) + (send - e) + 1;
+                            const STRLEN extra = OFFUNISKIP(uv) + (send - rbrace) + 1;
 
 			    SvCUR_set(sv, d - SvPVX_const(sv));
 			    SvPOK_on(sv);
@@ -3924,7 +3941,7 @@ S_scan_const(pTHX_ char *start)
                         }
 		    }
 		}
-		else /* Here is \N{NAME} but not \N{U+...}. */
+		else     /* Here is \N{NAME} but not \N{U+...}. */
                      if (! (res = get_and_check_backslash_N_name_wrapper(s, e)))
                 {   /* Failed.  We should die eventually, but for now use a NUL
                        to keep parsing */
@@ -3965,7 +3982,7 @@ S_scan_const(pTHX_ char *start)
                                                     /* +1 for trailing NUL */
                                                     + initial_len + 1
 
-                                                    + (STRLEN)(send - e));
+                                                    + (STRLEN)(send - rbrace));
                                 Copy(initial_text, d, initial_len, char);
                                 d += initial_len;
                                 while (str < str_end) {
@@ -4014,7 +4031,7 @@ S_scan_const(pTHX_ char *start)
                                 /* Make sure there is enough space to hold it */
                                 d = off + SvGROW(sv, off
                                                     + output_length
-                                                    + (STRLEN)(send - e)
+                                                    + (STRLEN)(send - rbrace)
                                                     + 2);	/* '}' + NUL */
                                 /* And output it */
                                 Copy(hex_string, d, output_length, char);
@@ -4036,7 +4053,7 @@ S_scan_const(pTHX_ char *start)
 
                                     d = off + SvGROW(sv, off
                                                         + output_length
-                                                        + (STRLEN)(send - e)
+                                                        + (STRLEN)(send - rbrace)
                                                         + 2);	/* '}' +  NUL */
                                     Copy(hex_string, d, output_length, char);
                                     d += output_length;
@@ -4059,7 +4076,7 @@ S_scan_const(pTHX_ char *start)
                                     "%.*s must not be a named sequence"
                                     " in transliteration operator",
                                         /*  +1 to include the "}" */
-                                    (int) (e + 1 - start), start));
+                                    (int) (rbrace + 1 - start), start));
                                 *d++ = '\0';
                                 goto end_backslash_N;
                             }
@@ -4099,11 +4116,11 @@ S_scan_const(pTHX_ char *start)
                                 d = SvPVX(sv) + SvCUR(sv);
                             }
 			    d_is_utf8 = TRUE;
-			} else if (len > (STRLEN)(e - s + 4)) { /* I _guess_ 4 is \N{} --jhi */
+			} else if (len > (STRLEN)(e - s + 4)) { /* +4 is for \N{} */
 
 			    /* See Note on sizing above.  (NOTE: SvCUR() is not
 			     * set correctly here). */
-                            const STRLEN extra = len + (send - e) + 1;
+                            const STRLEN extra = len + (send - rbrace) + 1;
 			    const STRLEN off = d - SvPVX_const(sv);
 			    d = off + SvGROW(sv, off + extra);
 			}
@@ -4119,7 +4136,7 @@ S_scan_const(pTHX_ char *start)
 #ifdef EBCDIC
                 backslash_N++; /* \N{} is defined to be Unicode */
 #endif
-		s = e + 1;  /* Point to just after the '}' */
+		s = rbrace + 1;  /* Point to just after the '}' */
 		continue;
 
 	    /* \c is a control character */
@@ -4353,7 +4370,7 @@ S_intuit_more(pTHX_ char *s, char *e)
 
     /* In a pattern, so maybe we have {n,m}. */
     if (*s == '{') {
-	if (regcurly(s)) {
+	if (regcurly(s, e, NULL)) {
 	    return FALSE;
 	}
 	return TRUE;

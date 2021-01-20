@@ -1991,7 +1991,6 @@ EiRT	|bool	|invlist_is_iterating|NN SV* const invlist
 EiR	|SV*	|invlist_contents|NN SV* const invlist		    \
 				 |const bool traditional_style
 EixRT	|UV	|invlist_lowest|NN SV* const invlist
-ESRT	|bool	|new_regcurly	|NN const char *s|NN const char *e
 ERS	|SV*	|make_exactf_invlist	|NN RExC_state_t *pRExC_state \
 					|NN regnode *node
 ES	|regnode_offset|reg	|NN RExC_state_t *pRExC_state \
@@ -2082,6 +2081,8 @@ ES	|void	|dump_regex_sets_structures				    \
 #  endif
 ES	|void|parse_lparen_question_flags|NN RExC_state_t *pRExC_state
 ES	|regnode_offset|reg_node|NN RExC_state_t *pRExC_state|U8 op
+ES	|U32	|get_quantifier_value|NN RExC_state_t *pRExC_state	    \
+				|NN const char * start|NN const char * end
 ES	|regnode_offset|regpiece|NN RExC_state_t *pRExC_state \
 				|NN I32 *flagp|U32 depth
 ES	|bool	|grok_bslash_N	|NN RExC_state_t *pRExC_state		    \
@@ -2343,7 +2344,7 @@ EXTp	|UV	|_to_fold_latin1|const U8 c|NN U8 *p|NN STRLEN *lenp|const unsigned int
 EpX	|SV*	|invlist_clone	|NN SV* const invlist|NULLOK SV* newlist
 #endif
 #if defined(PERL_IN_REGCOMP_C) || defined(PERL_IN_TOKE_C)
-EXpRT	|bool	|regcurly	|NN const char *s
+EXpRT	|bool	|regcurly	|NN const char *s|NN const char *e|NULLOK const char * result[5]
 #endif
 #if defined(PERL_IN_REGEXEC_C)
 ERS	|bool	|isFOO_utf8_lc	|const U8 classnum|NN const U8* character|NN const U8* e
@@ -3117,7 +3118,7 @@ S	|void	|anonymise_cv_maybe	|NN GV *gv|NN CV *cv
 po	|void *	|more_bodies	|const svtype sv_type|const size_t body_size \
 				|const size_t arena_size
 EXpR	|SV*	|get_and_check_backslash_N_name|NN const char* s	\
-				|NN const char* const e			\
+				|NN const char* e			\
 				|const bool is_utf8			\
 				|NN const char** error_msg
 EXpR	|HV*	|load_charnames	|NN SV * char_name			\
