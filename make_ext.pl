@@ -168,7 +168,7 @@ if (IS_WIN32) {
     $ENV{PATH} = "$topdir;$topdir\\win32\\bin;$ENV{PATH}";
     my $pl2bat = "$topdir\\win32\\bin\\pl2bat";
     unless (-f "$pl2bat.bat") {
-	my @args = ($perl, "-I$topdir\\lib", ("$pl2bat.pl") x 2);
+	my @args = ($perl, "-I$topdir\\lib", "-I$topdir\\cpan\\ExtUtils-PL2Bat\\lib", ("$pl2bat.pl") x 2);
 	print "@args\n" if $verbose;
 	system(@args) unless IS_CROSS;
     }
@@ -659,6 +659,7 @@ sub just_pm_to_blib {
                             |README
                             |README\.patching
                             |README\.release
+                            |\.gitignore
                             )\z/xi; # /i to deal with case munging systems.
         if ($leaf eq "$last.pm") {
             ++$has_top;

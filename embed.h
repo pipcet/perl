@@ -20,7 +20,9 @@
 
 /* By defining PERL_NO_SHORT_NAMES (not done by default) the short forms
  * (like warn instead of Perl_warn) for the API are not defined.
- * Not defining the short forms is a good thing for cleaner embedding. */
+ * Not defining the short forms is a good thing for cleaner embedding.
+ * BEWARE that a bunch of macros don't have long names, so either must be
+ * added or don't use them if you define this symbol */
 
 #ifndef PERL_NO_SHORT_NAMES
 
@@ -29,6 +31,10 @@
 #define Gv_AMupdate(a,b)	Perl_Gv_AMupdate(aTHX_ a,b)
 #define SvAMAGIC_off		Perl_SvAMAGIC_off
 #define SvAMAGIC_on		Perl_SvAMAGIC_on
+#define SvTRUE(a)		Perl_SvTRUE(aTHX_ a)
+#define SvTRUE_NN(a)		Perl_SvTRUE_NN(aTHX_ a)
+#define SvTRUE_common(a,b)	Perl_SvTRUE_common(aTHX_ a,b)
+#define SvTRUE_nomg(a)		Perl_SvTRUE_nomg(aTHX_ a)
 #define _force_out_malformed_utf8_message(a,b,c,d)	Perl__force_out_malformed_utf8_message(aTHX_ a,b,c,d)
 #define _is_uni_FOO(a,b)	Perl__is_uni_FOO(aTHX_ a,b)
 #define _is_uni_perl_idcont(a)	Perl__is_uni_perl_idcont(aTHX_ a)
@@ -48,6 +54,7 @@
 #define atfork_lock		Perl_atfork_lock
 #define atfork_unlock		Perl_atfork_unlock
 #define av_clear(a)		Perl_av_clear(aTHX_ a)
+#define av_count(a)		Perl_av_count(aTHX_ a)
 #define av_delete(a,b,c)	Perl_av_delete(aTHX_ a,b,c)
 #define av_exists(a,b)		Perl_av_exists(aTHX_ a,b)
 #define av_extend(a,b)		Perl_av_extend(aTHX_ a,b)
@@ -59,7 +66,6 @@
 #define av_push(a,b)		Perl_av_push(aTHX_ a,b)
 #define av_shift(a)		Perl_av_shift(aTHX_ a)
 #define av_store(a,b,c)		Perl_av_store(aTHX_ a,b,c)
-#define av_top_index(a)		Perl_av_top_index(aTHX_ a)
 #define av_undef(a)		Perl_av_undef(aTHX_ a)
 #define av_unshift(a,b)		Perl_av_unshift(aTHX_ a,b)
 #define block_end(a,b)		Perl_block_end(aTHX_ a,b)
@@ -410,12 +416,18 @@
 #define op_refcnt_unlock()	Perl_op_refcnt_unlock(aTHX)
 #define op_scope(a)		Perl_op_scope(aTHX_ a)
 #define op_sibling_splice	Perl_op_sibling_splice
+#ifndef NO_MATHOMS
+#define pack_cat(a,b,c,d,e,f,g)	Perl_pack_cat(aTHX_ a,b,c,d,e,f,g)
+#endif
 #define packlist(a,b,c,d,e)	Perl_packlist(aTHX_ a,b,c,d,e)
 #define pad_add_anon(a,b)	Perl_pad_add_anon(aTHX_ a,b)
 #define pad_add_name_pv(a,b,c,d)	Perl_pad_add_name_pv(aTHX_ a,b,c,d)
 #define pad_add_name_pvn(a,b,c,d,e)	Perl_pad_add_name_pvn(aTHX_ a,b,c,d,e)
 #define pad_add_name_sv(a,b,c,d)	Perl_pad_add_name_sv(aTHX_ a,b,c,d)
 #define pad_alloc(a,b)		Perl_pad_alloc(aTHX_ a,b)
+#ifndef NO_MATHOMS
+#define pad_compname_type(a)	Perl_pad_compname_type(aTHX_ a)
+#endif
 #define pad_findmy_pv(a,b)	Perl_pad_findmy_pv(aTHX_ a,b)
 #define pad_findmy_pvn(a,b,c)	Perl_pad_findmy_pvn(aTHX_ a,b,c)
 #define pad_findmy_sv(a,b)	Perl_pad_findmy_sv(aTHX_ a,b)
@@ -828,11 +840,6 @@
 #define dump_mstats(a)		Perl_dump_mstats(aTHX_ a)
 #define get_mstats(a,b,c)	Perl_get_mstats(aTHX_ a,b,c)
 #endif
-#if defined(PERL_GLOBAL_STRUCT)
-#define GetVars()		Perl_GetVars(aTHX)
-#define free_global_struct(a)	Perl_free_global_struct(aTHX_ a)
-#define init_global_struct()	Perl_init_global_struct(aTHX)
-#endif
 #if defined(PERL_IMPLICIT_CONTEXT)
 #define croak_nocontext		Perl_croak_nocontext
 #define deb_nocontext		Perl_deb_nocontext
@@ -914,7 +921,7 @@
 #define PerlIO_unread(a,b,c)	Perl_PerlIO_unread(aTHX_ a,b,c)
 #define PerlIO_write(a,b,c)	Perl_PerlIO_write(aTHX_ a,b,c)
 #endif
-#if defined(WIN32) || defined(__SYMBIAN32__) || defined(VMS)
+#if defined(WIN32) || defined(VMS)
 #define do_aspawn(a,b,c)	Perl_do_aspawn(aTHX_ a,b,c)
 #define do_spawn(a)		Perl_do_spawn(aTHX_ a)
 #define do_spawn_nowait(a)	Perl_do_spawn_nowait(aTHX_ a)
@@ -927,6 +934,7 @@
 #define cntrl_to_mnemonic	Perl_cntrl_to_mnemonic
 #define current_re_engine()	Perl_current_re_engine(aTHX)
 #define cv_ckproto_len_flags(a,b,c,d,e)	Perl_cv_ckproto_len_flags(aTHX_ a,b,c,d,e)
+#define delimcpy_no_escape	Perl_delimcpy_no_escape
 #define do_uniprop_match	Perl_do_uniprop_match
 #define get_and_check_backslash_N_name(a,b,c,d)	Perl_get_and_check_backslash_N_name(aTHX_ a,b,c,d)
 #define get_deprecated_property_msg	Perl_get_deprecated_property_msg
@@ -1155,7 +1163,7 @@
 #define invlist_clone(a,b)	Perl_invlist_clone(aTHX_ a,b)
 #  endif
 #  if defined(PERL_IN_REGCOMP_C) || defined(PERL_IN_TOKE_C)
-#define regcurly		S_regcurly
+#define regcurly		Perl_regcurly
 #  endif
 #  if defined(PERL_IN_REGEXEC_C)
 #define advance_one_LB(a,b,c)	S_advance_one_LB(aTHX_ a,b,c)
@@ -1282,7 +1290,6 @@
 #define deb_stack_all()		Perl_deb_stack_all(aTHX)
 #define defelem_target(a,b)	Perl_defelem_target(aTHX_ a,b)
 #define delete_eval_scope()	Perl_delete_eval_scope(aTHX)
-#define delimcpy_no_escape	Perl_delimcpy_no_escape
 #define die_unwind(a)		Perl_die_unwind(aTHX_ a)
 #define do_aexec5(a,b,c,d,e)	Perl_do_aexec5(aTHX_ a,b,c,d,e)
 #define do_dump_pad(a,b,c,d)	Perl_do_dump_pad(aTHX_ a,b,c,d)
@@ -1341,7 +1348,9 @@
 #define magic_copycallchecker(a,b,c,d,e)	Perl_magic_copycallchecker(aTHX_ a,b,c,d,e)
 #define magic_existspack(a,b)	Perl_magic_existspack(aTHX_ a,b)
 #define magic_freearylen_p(a,b)	Perl_magic_freearylen_p(aTHX_ a,b)
+#define magic_freemglob(a,b)	Perl_magic_freemglob(aTHX_ a,b)
 #define magic_freeovrld(a,b)	Perl_magic_freeovrld(aTHX_ a,b)
+#define magic_freeutf8(a,b)	Perl_magic_freeutf8(aTHX_ a,b)
 #define magic_get(a,b)		Perl_magic_get(aTHX_ a,b)
 #define magic_getarylen(a,b)	Perl_magic_getarylen(aTHX_ a,b)
 #define magic_getdebugvar(a,b)	Perl_magic_getdebugvar(aTHX_ a,b)
@@ -1399,6 +1408,7 @@
 #define newXS_deffile(a,b)	Perl_newXS_deffile(aTHX_ a,b)
 #define newXS_len_flags(a,b,c,d,e,f,g)	Perl_newXS_len_flags(aTHX_ a,b,c,d,e,f,g)
 #define nextargv(a,b)		Perl_nextargv(aTHX_ a,b)
+#define no_bareword_filehandle(a)	Perl_no_bareword_filehandle(aTHX_ a)
 #define noperl_die		Perl_noperl_die
 #define notify_parser_that_changed_to_utf8()	Perl_notify_parser_that_changed_to_utf8(aTHX)
 #define oopsAV(a)		Perl_oopsAV(aTHX_ a)
@@ -2008,6 +2018,7 @@
 #define padnamelist_dup(a,b)	Perl_padnamelist_dup(aTHX_ a,b)
 #  endif
 #  if defined(USE_LOCALE_COLLATE)
+#define magic_freecollxfrm(a,b)	Perl_magic_freecollxfrm(aTHX_ a,b)
 #define magic_setcollxfrm(a,b)	Perl_magic_setcollxfrm(aTHX_ a,b)
 #ifndef NO_MATHOMS
 #define mem_collxfrm(a,b,c)	Perl_mem_collxfrm(aTHX_ a,b,c)

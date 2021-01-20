@@ -13,7 +13,7 @@
  * Any changes made here will be lost!
  */
 
-#ifndef PERL_GLOBAL_STRUCT_INIT
+#if defined(PERL_CORE) || defined(PERL_EXT)
 
 #define Perl_pp_scalar Perl_pp_null
 #define Perl_pp_padany Perl_unimplemented_op
@@ -140,6 +140,9 @@
 #define Perl_pp_sgrent Perl_pp_ehostent
 #define Perl_pp_egrent Perl_pp_ehostent
 #define Perl_pp_custom Perl_unimplemented_op
+
+#endif /* End of if defined(PERL_CORE) || defined(PERL_EXT) */
+
 START_EXTERN_C
 
 #ifndef DOINIT
@@ -546,7 +549,7 @@ EXTCONST char* const PL_op_name[] = {
 	"isa",
 	"cmpchain_and",
 	"cmpchain_dup",
-	"freed",
+        "freed",
 };
 #endif
 
@@ -954,25 +957,16 @@ EXTCONST char* const PL_op_desc[] = {
 	"derived class test",
 	"comparison chaining",
 	"comparand shuffling",
-	"freed op",
+        "freed op",
 };
 #endif
 
 END_EXTERN_C
 
-#endif /* !PERL_GLOBAL_STRUCT_INIT */
-
 START_EXTERN_C
 
-#ifdef PERL_GLOBAL_STRUCT_INIT
-#  define PERL_PPADDR_INITED
-static const Perl_ppaddr_t Gppaddr[]
-#elif !defined(PERL_GLOBAL_STRUCT)
-#  define PERL_PPADDR_INITED
 EXT Perl_ppaddr_t PL_ppaddr[] /* or perlvars.h */
-#endif /* PERL_GLOBAL_STRUCT */
-#if (defined(DOINIT) && !defined(PERL_GLOBAL_STRUCT)) || defined(PERL_GLOBAL_STRUCT_INIT)
-#  define PERL_PPADDR_INITED
+#if defined(DOINIT)
 = {
 	Perl_pp_null,
 	Perl_pp_stub,
@@ -1376,19 +1370,10 @@ EXT Perl_ppaddr_t PL_ppaddr[] /* or perlvars.h */
 	Perl_pp_cmpchain_dup,
 }
 #endif
-#ifdef PERL_PPADDR_INITED
 ;
-#endif
 
-#ifdef PERL_GLOBAL_STRUCT_INIT
-#  define PERL_CHECK_INITED
-static const Perl_check_t Gcheck[]
-#elif !defined(PERL_GLOBAL_STRUCT)
-#  define PERL_CHECK_INITED
 EXT Perl_check_t PL_check[] /* or perlvars.h */
-#endif
-#if (defined(DOINIT) && !defined(PERL_GLOBAL_STRUCT)) || defined(PERL_GLOBAL_STRUCT_INIT)
-#  define PERL_CHECK_INITED
+#if defined(DOINIT)
 = {
 	Perl_ck_null,		/* null */
 	Perl_ck_null,		/* stub */
@@ -1792,11 +1777,7 @@ EXT Perl_check_t PL_check[] /* or perlvars.h */
 	Perl_ck_null,		/* cmpchain_dup */
 }
 #endif
-#ifdef PERL_CHECK_INITED
 ;
-#endif /* #ifdef PERL_CHECK_INITED */
-
-#ifndef PERL_GLOBAL_STRUCT_INIT
 
 #ifndef DOINIT
 EXTCONST U32 PL_opargs[];
@@ -2205,8 +2186,6 @@ EXTCONST U32 PL_opargs[] = {
 };
 #endif
 
-#endif /* !PERL_GLOBAL_STRUCT_INIT */
-
 END_EXTERN_C
 
 
@@ -2322,9 +2301,7 @@ END_EXTERN_C
 #define OPpTRANS_DELETE         0x80
 START_EXTERN_C
 
-#ifndef PERL_GLOBAL_STRUCT_INIT
-
-#  ifndef DOINIT
+#ifndef DOINIT
 
 /* data about the flags in op_private */
 
@@ -2334,7 +2311,7 @@ EXTCONST char PL_op_private_labels[];
 EXTCONST I16  PL_op_private_bitfields[];
 EXTCONST U8   PL_op_private_valid[];
 
-#  else
+#else
 
 
 /* PL_op_private_labels[]: the short descriptions of private flags.
@@ -3372,8 +3349,7 @@ EXTCONST U8 PL_op_private_valid[] = {
 
 };
 
-#  endif /* !DOINIT */
-#endif /* !PERL_GLOBAL_STRUCT_INIT */
+#endif /* !DOINIT */
 
 END_EXTERN_C
 

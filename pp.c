@@ -2062,14 +2062,20 @@ PP(pp_lt)
 {
     dSP;
     SV *left, *right;
+    U32 flags_and, flags_or;
 
     tryAMAGICbin_MG(lt_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
+    flags_and = SvFLAGS(left) & SvFLAGS(right);
+    flags_or  = SvFLAGS(left) | SvFLAGS(right);
+
     SETs(boolSV(
-	(SvIOK_notUV(left) && SvIOK_notUV(right))
-	? (SvIVX(left) < SvIVX(right))
-	: (do_ncmp(left, right) == -1)
+        ( (flags_and & SVf_IOK) && ((flags_or & SVf_IVisUV) ==0 ) )
+        ?    (SvIVX(left) < SvIVX(right))
+        : (flags_and & SVf_NOK)
+        ?    (SvNVX(left) < SvNVX(right))
+        : (do_ncmp(left, right) == -1)
     ));
     RETURN;
 }
@@ -2078,14 +2084,20 @@ PP(pp_gt)
 {
     dSP;
     SV *left, *right;
+    U32 flags_and, flags_or;
 
     tryAMAGICbin_MG(gt_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
+    flags_and = SvFLAGS(left) & SvFLAGS(right);
+    flags_or  = SvFLAGS(left) | SvFLAGS(right);
+
     SETs(boolSV(
-	(SvIOK_notUV(left) && SvIOK_notUV(right))
-	? (SvIVX(left) > SvIVX(right))
-	: (do_ncmp(left, right) == 1)
+        ( (flags_and & SVf_IOK) && ((flags_or & SVf_IVisUV) ==0 ) )
+        ?    (SvIVX(left) > SvIVX(right))
+        : (flags_and & SVf_NOK)
+        ?    (SvNVX(left) > SvNVX(right))
+        : (do_ncmp(left, right) == 1)
     ));
     RETURN;
 }
@@ -2094,14 +2106,20 @@ PP(pp_le)
 {
     dSP;
     SV *left, *right;
+    U32 flags_and, flags_or;
 
     tryAMAGICbin_MG(le_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
+    flags_and = SvFLAGS(left) & SvFLAGS(right);
+    flags_or  = SvFLAGS(left) | SvFLAGS(right);
+
     SETs(boolSV(
-	(SvIOK_notUV(left) && SvIOK_notUV(right))
-	? (SvIVX(left) <= SvIVX(right))
-	: (do_ncmp(left, right) <= 0)
+        ( (flags_and & SVf_IOK) && ((flags_or & SVf_IVisUV) ==0 ) )
+        ?    (SvIVX(left) <= SvIVX(right))
+        : (flags_and & SVf_NOK)
+        ?    (SvNVX(left) <= SvNVX(right))
+        : (do_ncmp(left, right) <= 0)
     ));
     RETURN;
 }
@@ -2110,14 +2128,20 @@ PP(pp_ge)
 {
     dSP;
     SV *left, *right;
+    U32 flags_and, flags_or;
 
     tryAMAGICbin_MG(ge_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
+    flags_and = SvFLAGS(left) & SvFLAGS(right);
+    flags_or  = SvFLAGS(left) | SvFLAGS(right);
+
     SETs(boolSV(
-	(SvIOK_notUV(left) && SvIOK_notUV(right))
-	? (SvIVX(left) >= SvIVX(right))
-	: ( (do_ncmp(left, right) & 2) == 0)
+        ( (flags_and & SVf_IOK) && ((flags_or & SVf_IVisUV) ==0 ) )
+        ?    (SvIVX(left) >= SvIVX(right))
+        : (flags_and & SVf_NOK)
+        ?    (SvNVX(left) >= SvNVX(right))
+        : ( (do_ncmp(left, right) & 2) == 0)
     ));
     RETURN;
 }
@@ -2126,14 +2150,20 @@ PP(pp_ne)
 {
     dSP;
     SV *left, *right;
+    U32 flags_and, flags_or;
 
     tryAMAGICbin_MG(ne_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
+    flags_and = SvFLAGS(left) & SvFLAGS(right);
+    flags_or  = SvFLAGS(left) | SvFLAGS(right);
+
     SETs(boolSV(
-	(SvIOK_notUV(left) && SvIOK_notUV(right))
-	? (SvIVX(left) != SvIVX(right))
-	: (do_ncmp(left, right) != 0)
+        ( (flags_and & SVf_IOK) && ((flags_or & SVf_IVisUV) ==0 ) )
+        ?    (SvIVX(left) != SvIVX(right))
+        : (flags_and & SVf_NOK)
+        ?    (SvNVX(left) != SvNVX(right))
+        : (do_ncmp(left, right) != 0)
     ));
     RETURN;
 }
@@ -3069,8 +3099,12 @@ PP(pp_oct)
         flags |= PERL_SCAN_DISALLOW_PREFIX;
         result_uv = grok_bin (tmps, &len, &flags, &result_nv);
     }
-    else
+    else {
+        if (isALPHA_FOLD_EQ(*tmps, 'o')) {
+            tmps++, len--;
+        }
         result_uv = grok_oct (tmps, &len, &flags, &result_nv);
+    }
 
     if (flags & PERL_SCAN_GREATER_THAN_UV_MAX) {
         SETn(result_nv);
@@ -3654,11 +3688,8 @@ PP(pp_crypt)
 #    endif /* HAS_CRYPT_R */
 #  endif /* USE_ITHREADS */
 
-#  ifdef FCRYPT
-    sv_setpv(TARG, fcrypt(tmps, SvPV_nolen_const(right)));
-#  else
     sv_setpv(TARG, PerlProc_crypt(tmps, SvPV_nolen_const(right)));
-#  endif
+
     SvUTF8_off(TARG);
     SETTARG;
     RETURN;
@@ -4024,7 +4055,6 @@ PP(pp_ucfirst)
 
 PP(pp_uc)
 {
-    dVAR;
     dSP;
     SV *source = TOPs;
     STRLEN len;
@@ -4783,7 +4813,7 @@ PP(pp_fc)
                         do {
                             extra++;
 
-                            s_peek = (U8 *) memchr(s_peek + 1, 'i',
+                            s_peek = (U8 *) memchr(s_peek + 1, 'I',
                                                    send - (s_peek + 1));
                         } while (s_peek != NULL);
                     }
@@ -4798,8 +4828,14 @@ PP(pp_fc)
                                               + 1 /* Trailing NUL */ );
                     d = (U8*)SvPVX(dest) + len;
 
-                    *d++ = UTF8_TWO_BYTE_HI(GREEK_SMALL_LETTER_MU);
-                    *d++ = UTF8_TWO_BYTE_LO(GREEK_SMALL_LETTER_MU);
+                    if (*s == 'I') {
+                        *d++ = UTF8_TWO_BYTE_HI(LATIN_SMALL_LETTER_DOTLESS_I);
+                        *d++ = UTF8_TWO_BYTE_LO(LATIN_SMALL_LETTER_DOTLESS_I);
+                    }
+                    else {
+                        *d++ = UTF8_TWO_BYTE_HI(GREEK_SMALL_LETTER_MU);
+                        *d++ = UTF8_TWO_BYTE_LO(GREEK_SMALL_LETTER_MU);
+                    }
                     s++;
 
                     for (; s < send; s++) {
@@ -4962,7 +4998,7 @@ PP(pp_aeach)
     IV *iterp = Perl_av_iter_p(aTHX_ array);
     const IV current = (*iterp)++;
 
-    if (current > av_tindex(array)) {
+    if (current > av_top_index(array)) {
 	*iterp = 0;
 	if (gimme == G_SCALAR)
 	    RETPUSHUNDEF;
@@ -4990,7 +5026,7 @@ PP(pp_akeys)
 
     if (gimme == G_SCALAR) {
 	dTARGET;
-	PUSHi(av_tindex(array) + 1);
+	PUSHi(av_count(array));
     }
     else if (gimme == G_ARRAY) {
       if (UNLIKELY(PL_op->op_private & OPpMAYBE_LVSUB)) {
@@ -5001,7 +5037,7 @@ PP(pp_akeys)
                       "Can't modify keys on array in list assignment");
       }
       {
-        IV n = Perl_av_len(aTHX_ array);
+        IV n = av_top_index(array);
         IV i;
 
         EXTEND(SP, n + 1);
@@ -5833,7 +5869,7 @@ PP(pp_reverse)
 		const MAGIC *mg;
 		bool can_preserve = SvCANEXISTDELETE(av);
 
-		for (i = 0, j = av_tindex(av); i < j; ++i, --j) {
+		for (i = 0, j = av_top_index(av); i < j; ++i, --j) {
 		    SV *begin, *end;
 
 		    if (can_preserve) {
@@ -5985,6 +6021,7 @@ PP(pp_split)
 
     /* handle @ary = split(...) optimisation */
     if (PL_op->op_private & OPpSPLIT_ASSIGN) {
+	realarray = 1;
         if (!(PL_op->op_flags & OPf_STACKED)) {
             if (PL_op->op_private & OPpSPLIT_LEX) {
                 if (PL_op->op_private & OPpLVAL_INTRO)
@@ -6007,26 +6044,13 @@ PP(pp_split)
             oldsave = PL_savestack_ix;
         }
 
-	realarray = 1;
-	PUTBACK;
-	av_extend(ary,0);
-	(void)sv_2mortal(SvREFCNT_inc_simple_NN(sv));
-	av_clear(ary);
-	SPAGAIN;
+	/* Some defence against stack-not-refcounted bugs */
+	(void)sv_2mortal(SvREFCNT_inc_simple_NN(ary));
+
 	if ((mg = SvTIED_mg((const SV *)ary, PERL_MAGIC_tied))) {
 	    PUSHMARK(SP);
 	    XPUSHs(SvTIED_obj(MUTABLE_SV(ary), mg));
-	}
-	else {
-	    if (!AvREAL(ary)) {
-		I32 i;
-		AvREAL_on(ary);
-		AvREIFY_off(ary);
-		for (i = AvFILLp(ary); i >= 0; i--)
-		    AvARRAY(ary)[i] = &PL_sv_undef; /* don't free mere refs */
-	    }
-	    /* temporarily switch stacks */
-	    SAVESWITCHSTACK(PL_curstack, ary);
+	} else {
 	    make_mortal = 0;
 	}
     }
@@ -6148,62 +6172,52 @@ PP(pp_split)
 	}
     }
     else if (RX_EXTFLAGS(rx) & RXf_NULL && !(s >= strend)) {
-        /*
-          Pre-extend the stack, either the number of bytes or
-          characters in the string or a limited amount, triggered by:
+        /* This case boils down to deciding which is the smaller of:
+         * limit - effectively a number of characters
+         * slen - which already contains the number of characters in s
+         *
+         * The resulting number is the number of iters (for gimme_scalar)
+         * or the number of SVs to create (!gimme_scalar). */
 
-          my ($x, $y) = split //, $str;
-            or
-          split //, $str, $i;
-        */
-	if (!gimme_scalar) {
-	    const IV items = limit - 1;
-            /* setting it to -1 will trigger a panic in EXTEND() */
-            const SSize_t sslen = slen > SSize_t_MAX ?  -1 : (SSize_t)slen;
-	    if (items >=0 && items < sslen)
-		EXTEND(SP, items);
-	    else
-		EXTEND(SP, sslen);
-	}
-
-        if (do_utf8) {
-            while (--limit) {
-                /* keep track of how many bytes we skip over */
-                m = s;
-                s += UTF8SKIP(s);
-		if (gimme_scalar) {
-		    iters++;
-		    if (s-m == 0)
-			trailing_empty++;
-		    else
-			trailing_empty = 0;
-		} else {
-		    dstr = newSVpvn_flags(m, s-m, SVf_UTF8 | make_mortal);
-
-		    PUSHs(dstr);
-		}
-
-                if (s >= strend)
-                    break;
+        /* setting it to -1 will trigger a panic in EXTEND() */
+        const SSize_t sslen = slen > SSize_t_MAX ?  -1 : (SSize_t)slen;
+        const IV items = limit - 1;
+        if (sslen < items || items < 0) {
+            iters = slen -1;
+            limit = slen + 1;
+            /* Note: The same result is returned if the following block
+             * is removed, because of the "keep field after final delim?"
+             * adjustment, but having the following makes the "correct"
+             * behaviour more apparent. */
+            if (gimme_scalar) {
+                s = strend;
+                iters++;
             }
         } else {
-            while (--limit) {
-	        if (gimme_scalar) {
-		    iters++;
-		} else {
-		    dstr = newSVpvn(s, 1);
-
-
-		    if (make_mortal)
-			sv_2mortal(dstr);
-
-		    PUSHs(dstr);
-		}
-
-                s++;
-
-                if (s >= strend)
-                    break;
+            iters = items;
+        }
+        if (!gimme_scalar) {
+            /*
+              Pre-extend the stack, either the number of bytes or
+              characters in the string or a limited amount, triggered by:
+              my ($x, $y) = split //, $str;
+                or
+              split //, $str, $i;
+            */
+            EXTEND(SP, limit);
+            if (do_utf8) {
+                while (--limit) {
+                    m = s;
+                    s += UTF8SKIP(s);
+                    dstr = newSVpvn_flags(m, s-m, SVf_UTF8 | make_mortal);
+                    PUSHs(dstr);
+                }
+            } else {
+                while (--limit) {
+                    dstr = newSVpvn_flags(s, 1, make_mortal);
+                    PUSHs(dstr);
+                    s++;
+                }
             }
         }
     }
@@ -6355,32 +6369,59 @@ PP(pp_split)
     }
 
     PUTBACK;
-    LEAVE_SCOPE(oldsave); /* may undo an earlier SWITCHSTACK */
+    LEAVE_SCOPE(oldsave);
     SPAGAIN;
     if (realarray) {
-	if (!mg) {
-	    if (SvSMAGICAL(ary)) {
-		PUTBACK;
+        if (!mg) {
+            PUTBACK;
+            if(AvREAL(ary)) {
+                if (av_count(ary) > 0)
+                    av_clear(ary);
+            } else {
+                AvREAL_on(ary);
+                AvREIFY_off(ary);
+
+                if (AvMAX(ary) > -1) {
+                    /* don't free mere refs */
+                    Zero(AvARRAY(ary), AvMAX(ary), SV*);
+                }
+            }
+            if(AvMAX(ary) < iters)
+                av_extend(ary,iters);
+            SPAGAIN;
+
+            /* Need to copy the SV*s from the stack into ary */
+            Copy(SP + 1 - iters, AvARRAY(ary), iters, SV*);
+            AvFILLp(ary) = iters - 1;
+
+            if (SvSMAGICAL(ary)) {
+                PUTBACK;
 		mg_set(MUTABLE_SV(ary));
 		SPAGAIN;
-	    }
-	    if (gimme == G_ARRAY) {
-		EXTEND(SP, iters);
-		Copy(AvARRAY(ary), SP + 1, iters, SV*);
-		SP += iters;
-		RETURN;
-	    }
+            }
+
+            if (gimme != G_ARRAY) {
+                /* SP points to the final SV* pushed to the stack. But the SV*  */
+                /* are not going to be used from the stack. Point SP to below   */
+                /* the first of these SV*.                                      */
+                SP -= iters;
+                PUTBACK;
+            }
 	}
 	else {
-	    PUTBACK;
-	    ENTER_with_name("call_PUSH");
-	    call_sv(SV_CONST(PUSH),G_SCALAR|G_DISCARD|G_METHOD_NAMED);
-	    LEAVE_with_name("call_PUSH");
-	    SPAGAIN;
+            PUTBACK;
+            av_extend(ary,iters);
+            av_clear(ary);
+
+            ENTER_with_name("call_PUSH");
+            call_sv(SV_CONST(PUSH),G_SCALAR|G_DISCARD|G_METHOD_NAMED);
+            LEAVE_with_name("call_PUSH");
+            SPAGAIN;
+
 	    if (gimme == G_ARRAY) {
 		SSize_t i;
 		/* EXTEND should not be needed - we just popped them */
-		EXTEND(SP, iters);
+		EXTEND_SKIP(SP, iters);
 		for (i=0; i < iters; i++) {
 		    SV **svp = av_fetch(ary, i, FALSE);
 		    PUSHs((svp) ? *svp : &PL_sv_undef);
@@ -6389,13 +6430,12 @@ PP(pp_split)
 	    }
 	}
     }
-    else {
-	if (gimme == G_ARRAY)
-	    RETURN;
-    }
 
-    GETTARGET;
-    XPUSHi(iters);
+    if (gimme != G_ARRAY) {
+        GETTARGET;
+        XPUSHi(iters);
+     }
+
     RETURN;
 }
 
@@ -6638,7 +6678,7 @@ PP(pp_coreargs)
 
 PP(pp_avhvswitch)
 {
-    dVAR; dSP;
+    dSP;
     return PL_ppaddr[
 		(SvTYPE(TOPs) == SVt_PVAV ? OP_AEACH : OP_EACH)
 		    + (PL_op->op_private & OPpAVHVSWITCH_MASK)
@@ -7111,10 +7151,17 @@ PP(pp_argcheck)
     too_few = (argc < (params - opt_params));
 
     if (UNLIKELY(too_few || (!slurpy && argc > params)))
-        /* diag_listed_as: Too few arguments for subroutine '%s' */
-        /* diag_listed_as: Too many arguments for subroutine '%s' */
-        Perl_croak_caller("Too %s arguments for subroutine '%" SVf "'",
-                          too_few ? "few" : "many", S_find_runcv_name());
+
+        /* diag_listed_as: Too few arguments for subroutine '%s' (got %d; expected %d) */
+        /* diag_listed_as: Too few arguments for subroutine '%s' (got %d; expected at least %d) */
+        /* diag_listed_as: Too many arguments for subroutine '%s' (got %d; expected %d) */
+        /* diag_listed_as: Too many arguments for subroutine '%s' (got %d; expected at most %d)*/
+        Perl_croak_caller("Too %s arguments for subroutine '%" SVf "' (got %" UVuf "; expected %s%" UVuf ")",
+                          too_few ? "few" : "many",
+                          S_find_runcv_name(),
+                          argc,
+                          too_few ? (slurpy || opt_params ? "at least " : "") : (opt_params ? "at most " : ""),
+                          too_few ? (params - opt_params) : params);
 
     if (UNLIKELY(slurpy == '%' && argc > params && (argc - params) % 2))
         /* diag_listed_as: Odd name/value argument for subroutine '%s' */

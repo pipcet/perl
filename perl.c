@@ -3,7 +3,8 @@
  *
  *    Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001
  *    2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
- *    2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020 by Larry Wall and others
+ *    2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021 by Larry Wall
+ *    and others
  *
  *    You may distribute under the terms of either the GNU General Public
  *    License or the Artistic License, as specified in the README file.
@@ -83,7 +84,6 @@ static I32 read_e_script(pTHX_ int idx, SV *buf_sv, int maxlen);
 static void
 S_init_tls_and_interp(PerlInterpreter *my_perl)
 {
-    dVAR;
     if (!PL_curinterp) {			
 	PERL_SET_INTERP(my_perl);
 #if defined(USE_ITHREADS)
@@ -117,7 +117,6 @@ S_init_tls_and_interp(PerlInterpreter *my_perl)
 void
 Perl_sys_init(int* argc, char*** argv)
 {
-    dVAR;
 
     PERL_ARGS_ASSERT_SYS_INIT;
 
@@ -129,7 +128,6 @@ Perl_sys_init(int* argc, char*** argv)
 void
 Perl_sys_init3(int* argc, char*** argv, char*** env)
 {
-    dVAR;
 
     PERL_ARGS_ASSERT_SYS_INIT3;
 
@@ -142,7 +140,6 @@ Perl_sys_init3(int* argc, char*** argv, char*** env)
 void
 Perl_sys_term(void)
 {
-    dVAR;
     if (!PL_veto_cleanup) {
 	PERL_SYS_TERM_BODY();
     }
@@ -181,7 +178,7 @@ perl_alloc_using(struct IPerlMem* ipM, struct IPerlMem* ipMS,
 #else
 
 /*
-=head1 Embedding Functions
+=for apidoc_section $embedding
 
 =for apidoc perl_alloc
 
@@ -220,7 +217,6 @@ Initializes a new Perl interpreter.  See L<perlembed>.
 void
 perl_construct(pTHXx)
 {
-    dVAR;
 
     PERL_ARGS_ASSERT_PERL_CONSTRUCT;
 
@@ -421,13 +417,6 @@ perl_construct(pTHXx)
     }
 #endif /* HAS_MMAP */
 
-#if defined(HAS_TIMES) && defined(PERL_NEED_TIMESBASE)
-    PL_timesbase.tms_utime  = 0;
-    PL_timesbase.tms_stime  = 0;
-    PL_timesbase.tms_cutime = 0;
-    PL_timesbase.tms_cstime = 0;
-#endif
-
     PL_osname = Perl_savepvn(aTHX_ STR_WITH_LEN(OSNAME));
 
     PL_registered_mros = newHV();
@@ -593,7 +582,6 @@ interpret specific numeric values as having specific meanings.
 int
 perl_destruct(pTHXx)
 {
-    dVAR;
     volatile signed char destruct_level;  /* see possible values in intrpvar.h */
     HV *hv;
 #ifdef DEBUG_LEAKING_SCALARS_FORK_DUMP
@@ -1541,7 +1529,6 @@ Releases a Perl interpreter.  See L<perlembed>.
 void
 perl_free(pTHXx)
 {
-    dVAR;
 
     PERL_ARGS_ASSERT_PERL_FREE;
 
@@ -1610,11 +1597,7 @@ __attribute__((destructor))
 #endif
 perl_fini(void)
 {
-    dVAR;
     if (
-#ifdef PERL_GLOBAL_STRUCT_PRIVATE
-        my_vars &&
-#endif
         PL_curinterp && !PL_veto_cleanup)
 	FREE_THREAD_KEY;
 }
@@ -1700,7 +1683,6 @@ bug is due to be fixed in Perl 5.30.
 int
 perl_parse(pTHXx_ XSINIT_t xsinit, int argc, char **argv, char **env)
 {
-    dVAR;
     I32 oldscope;
     int ret;
     dJMPENV;
@@ -2096,7 +2078,6 @@ S_Internals_V(pTHX_ CV *cv)
 STATIC void *
 S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 {
-    dVAR;
     PerlIO *rsfp;
     int argc = PL_origargc;
     char **argv = PL_origargv;
@@ -2105,6 +2086,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
     char c;
     bool doextract = FALSE;
     const char *cddir = NULL;
+    bool minus_e = FALSE; /* both -e and -E */
 #ifdef USE_SITECUSTOMIZE
     bool minus_f = FALSE;
 #endif
@@ -2187,6 +2169,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 	    /* FALLTHROUGH */
 	case 'e':
 	    forbid_setid('e', FALSE);
+        minus_e = TRUE;
 	    if (!PL_e_script) {
 		PL_e_script = newSVpvs("");
 		add_read_e_script = TRUE;
@@ -2480,7 +2463,7 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
     if (xsinit)
 	(*xsinit)(aTHX);	/* in case linked C routines want magical variables */
 #ifndef PERL_MICRO
-#if defined(VMS) || defined(WIN32) || defined(DJGPP) || defined(__CYGWIN__) || defined(SYMBIAN)
+#if defined(VMS) || defined(WIN32) || defined(DJGPP) || defined(__CYGWIN__)
     init_os_extras();
 #endif
 #endif
@@ -2505,9 +2488,6 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
      * PL_utf8locale is conditionally turned on by
      * locale.c:Perl_init_i18nl10n() if the environment
      * look like the user wants to use UTF-8. */
-#if defined(__SYMBIAN32__)
-    PL_unicode = PERL_UNICODE_STD_FLAG; /* See PERL_SYMBIAN_CONSOLE_UTF8. */
-#endif
 #  ifndef PERL_IS_MINIPERL
     if (PL_unicode) {
 	 /* Requires init_predump_symbols(). */
@@ -2571,6 +2551,8 @@ S_parse_body(pTHX_ char **env, XSINIT_t xsinit)
 	filter_add(read_e_script, NULL);
 
     /* now parse the script */
+    if (minus_e == FALSE)
+        PL_hints |= HINTS_DEFAULT; /* after init_main_stash ; need to be after init_predump_symbols */
 
     SETERRNO(0,SS_NORMAL);
     if (yyparse(GRAMPROG) || PL_parser->error_count) {
@@ -2765,7 +2747,7 @@ S_run_body(pTHX_ I32 oldscope)
 }
 
 /*
-=head1 SV Manipulation Functions
+=for apidoc_section $SV
 
 =for apidoc get_sv
 
@@ -2791,7 +2773,7 @@ Perl_get_sv(pTHX_ const char *name, I32 flags)
 }
 
 /*
-=head1 Array Manipulation Functions
+=for apidoc_section $AV
 
 =for apidoc get_av
 
@@ -2821,7 +2803,7 @@ Perl_get_av(pTHX_ const char *name, I32 flags)
 }
 
 /*
-=head1 Hash Manipulation Functions
+=for apidoc_section $HV
 
 =for apidoc get_hv
 
@@ -2848,19 +2830,26 @@ Perl_get_hv(pTHX_ const char *name, I32 flags)
 }
 
 /*
-=head1 CV Manipulation Functions
-
-=for apidoc get_cvn_flags
-
-Returns the CV of the specified Perl subroutine.  C<flags> are passed to
-C<gv_fetchpvn_flags>.  If C<GV_ADD> is set and the Perl subroutine does not
-exist then it will be declared (which has the same effect as saying
-C<sub name;>).  If C<GV_ADD> is not set and the subroutine does not exist
-then NULL is returned.
+=for apidoc_section $CV
 
 =for apidoc get_cv
+=for apidoc_item |CV *|get_cvs|"string"|I32 flags
+=for apidoc_item get_cvn_flags
 
-Uses C<strlen> to get the length of C<name>, then calls C<get_cvn_flags>.
+These return the CV of the specified Perl subroutine.  C<flags> are passed to
+C<gv_fetchpvn_flags>.  If C<GV_ADD> is set and the Perl subroutine does not
+exist then it will be declared (which has the same effect as saying
+C<sub name;>).  If C<GV_ADD> is not set and the subroutine does not exist,
+then NULL is returned.
+
+The forms differ only in how the subroutine is specified..  With C<get_cvs>,
+the name is a literal C string, enclosed in double quotes.  With C<get_cv>, the
+name is given by the C<name> parameter, which must be a NUL-terminated C
+string.  With C<get_cvn_flags>, the name is also given by the C<name>
+parameter, but it is a Perl string (possibly containing embedded NUL bytes),
+and its length in bytes is contained in the C<len> parameter.
+
+=for apidoc Amnh||GV_ADD
 
 =cut
 */
@@ -2900,7 +2889,7 @@ Perl_get_cv(pTHX_ const char *name, I32 flags)
 
 /*
 
-=head1 Callback Functions
+=for apidoc_section $callback
 
 =for apidoc call_argv
 
@@ -3007,7 +2996,6 @@ I32
 Perl_call_sv(pTHX_ SV *sv, volatile I32 flags)
           		/* See G_* flags in cop.h */
 {
-    dVAR;
     LOGOP myop;		/* fake syntax tree node */
     METHOP method_op;
     I32 oldmark;
@@ -3161,7 +3149,6 @@ Perl_eval_sv(pTHX_ SV *sv, I32 flags)
 
           		/* See G_* flags in cop.h */
 {
-    dVAR;
     UNOP myop;		/* fake syntax tree node */
     volatile I32 oldmark;
     volatile I32 retval = 0;
@@ -3296,7 +3283,7 @@ Perl_eval_pv(pTHX_ const char *p, I32 croak_on_error)
 /* Require a module. */
 
 /*
-=head1 Embedding Functions
+=for apidoc_section $embedding
 
 =for apidoc require_pv
 
@@ -3329,34 +3316,34 @@ S_usage(pTHX)		/* XXX move this out into a module ? */
     /* Grouped as 6 lines per C string literal, to keep under the ANSI C 89
        minimum of 509 character string literals.  */
     static const char * const usage_msg[] = {
-"  -0[octal]         specify record separator (\\0, if no argument)\n"
-"  -a                autosplit mode with -n or -p (splits $_ into @F)\n"
-"  -C[number/list]   enables the listed Unicode features\n"
-"  -c                check syntax only (runs BEGIN and CHECK blocks)\n"
-"  -d[:debugger]     run program under debugger\n"
-"  -D[number/list]   set debugging flags (argument is a bit mask or alphabets)\n",
-"  -e program        one line of program (several -e's allowed, omit programfile)\n"
-"  -E program        like -e, but enables all optional features\n"
-"  -f                don't do $sitelib/sitecustomize.pl at startup\n"
-"  -F/pattern/       split() pattern for -a switch (//'s are optional)\n"
-"  -i[extension]     edit <> files in place (makes backup if extension supplied)\n"
-"  -Idirectory       specify @INC/#include directory (several -I's allowed)\n",
-"  -l[octal]         enable line ending processing, specifies line terminator\n"
-"  -[mM][-]module    execute \"use/no module...\" before executing program\n"
-"  -n                assume \"while (<>) { ... }\" loop around program\n"
-"  -p                assume loop like -n but print line also, like sed\n"
-"  -s                enable rudimentary parsing for switches after programfile\n"
-"  -S                look for programfile using PATH environment variable\n",
-"  -t                enable tainting warnings\n"
-"  -T                enable tainting checks\n"
-"  -u                dump core after parsing program\n"
-"  -U                allow unsafe operations\n"
-"  -v                print version, patchlevel and license\n"
-"  -V[:variable]     print configuration summary (or a single Config.pm variable)\n",
-"  -w                enable many useful warnings\n"
-"  -W                enable all warnings\n"
-"  -x[directory]     ignore text before #!perl line (optionally cd to directory)\n"
-"  -X                disable all warnings\n"
+"  -0[octal/hexadecimal] specify record separator (\\0, if no argument)\n"
+"  -a                    autosplit mode with -n or -p (splits $_ into @F)\n"
+"  -C[number/list]       enables the listed Unicode features\n"
+"  -c                    check syntax only (runs BEGIN and CHECK blocks)\n"
+"  -d[t][:MOD]           run program under debugger or module Devel::MOD\n"
+"  -D[number/letters]    set debugging flags (argument is a bit mask or alphabets)\n",
+"  -e commandline        one line of program (several -e's allowed, omit programfile)\n"
+"  -E commandline        like -e, but enables all optional features\n"
+"  -f                    don't do $sitelib/sitecustomize.pl at startup\n"
+"  -F/pattern/           split() pattern for -a switch (//'s are optional)\n"
+"  -i[extension]         edit <> files in place (makes backup if extension supplied)\n"
+"  -Idirectory           specify @INC/#include directory (several -I's allowed)\n",
+"  -l[octnum]            enable line ending processing, specifies line terminator\n"
+"  -[mM][-]module        execute \"use/no module...\" before executing program\n"
+"  -n                    assume \"while (<>) { ... }\" loop around program\n"
+"  -p                    assume loop like -n but print line also, like sed\n"
+"  -s                    enable rudimentary parsing for switches after programfile\n"
+"  -S                    look for programfile using PATH environment variable\n",
+"  -t                    enable tainting warnings\n"
+"  -T                    enable tainting checks\n"
+"  -u                    dump core after parsing program\n"
+"  -U                    allow unsafe operations\n"
+"  -v                    print version, patchlevel and license\n"
+"  -V[:configvar]        print configuration summary (or a single Config.pm variable)\n",
+"  -w                    enable many useful warnings\n"
+"  -W                    enable all warnings\n"
+"  -x[directory]         ignore text before #!perl line (optionally cd to directory)\n"
+"  -X                    disable all warnings\n"
 "  \n"
 "Run 'perldoc perl' for more help with Perl.\n\n",
 NULL
@@ -3447,7 +3434,6 @@ Perl_get_debug_opts(pTHX_ const char **s, bool givehelp)
 const char *
 Perl_moreswitches(pTHX_ const char *s)
 {
-    dVAR;
     UV rschar;
     const char option = *s; /* used to remember option in -m/-M code */
 
@@ -3834,7 +3820,7 @@ S_minus_v(pTHX)
 #endif
 
 	PerlIO_printf(PIO_stdout,
-		      "\n\nCopyright 1987-2020, Larry Wall\n");
+		      "\n\nCopyright 1987-2021, Larry Wall\n");
 #ifdef MSDOS
 	PerlIO_printf(PIO_stdout,
 		      "\nMS-DOS port Copyright (c) 1989, 1990, Diomidis Spinellis\n");
@@ -3860,10 +3846,6 @@ S_minus_v(pTHX)
 #ifdef POSIX_BC
 	PerlIO_printf(PIO_stdout,
 		      "BS2000 (POSIX) port by Start Amadeus GmbH, 1998-1999\n");
-#endif
-#ifdef __SYMBIAN32__
-	PerlIO_printf(PIO_stdout,
-		      "Symbian port by Nokia, 2004-2005\n");
 #endif
 #ifdef BINARY_BUILD_NOTICE
 	BINARY_BUILD_NOTICE;
@@ -4146,7 +4128,6 @@ S_validate_suid(pTHX_ PerlIO *rsfp)
     PERL_ARGS_ASSERT_VALIDATE_SUID;
 
     if (my_euid != my_uid || my_egid != my_gid) {	/* (suidperl doesn't exist, in fact) */
-	dVAR;
         int fd = PerlIO_fileno(rsfp);
         Stat_t statbuf;
         if (fd < 0 || PerlLIO_fstat(fd, &statbuf) < 0) { /* may be either wrapped or real suid */
@@ -4563,9 +4544,6 @@ Perl_init_argv_symbols(pTHX_ int argc, char **argv)
 STATIC void
 S_init_postdump_symbols(pTHX_ int argc, char **argv, char **env)
 {
-#ifdef USE_ITHREADS
-    dVAR;
-#endif
     GV* tmpgv;
 
     PERL_ARGS_ASSERT_INIT_POSTDUMP_SYMBOLS;
@@ -4767,7 +4745,7 @@ S_init_perllib(pTHX)
     }
 }
 
-#if defined(DOSISH) || defined(__SYMBIAN32__)
+#if defined(DOSISH)
 #    define PERLLIB_SEP ';'
 #elif defined(__VMS)
 #    define PERLLIB_SEP PL_perllib_sep
@@ -5020,7 +4998,7 @@ S_incpush(pTHX_ const char *const dir, STRLEN len, U32 flags)
 #ifdef PERL_IS_MINIPERL
 	    const Size_t extra = 0;
 #else
-	    Size_t extra = av_tindex(av) + 1;
+	    Size_t extra = av_count(av);
 #endif
 	    av_unshift(inc, extra + push_basedir);
 	    if (push_basedir)
@@ -5106,7 +5084,7 @@ Perl_call_list(pTHX_ I32 oldscope, AV *paramList)
 
     PERL_ARGS_ASSERT_CALL_LIST;
 
-    while (av_tindex(paramList) >= 0) {
+    while (av_count(paramList) > 0) {
 	cv = MUTABLE_CV(av_shift(paramList));
 	if (PL_savebegin) {
 	    if (paramList == PL_beginav) {

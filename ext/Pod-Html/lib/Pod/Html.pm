@@ -2,7 +2,7 @@ package Pod::Html;
 use strict;
 require Exporter;
 
-our $VERSION = 1.25;
+our $VERSION = 1.26;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(pod2html htmlify);
 our @EXPORT_OK = qw(anchorify relativize_url);
@@ -16,6 +16,7 @@ use File::Spec::Unix;
 use Getopt::Long;
 use Pod::Simple::Search;
 use Pod::Simple::SimpleTree ();
+use Text::Tabs;
 use locale; # make \w work right in non-ASCII lands
 
 =head1 NAME
@@ -367,6 +368,9 @@ sub pod2html {
 
     # set options for input parser
     my $parser = Pod::Simple::SimpleTree->new;
+    # Normalize whitespace indenting
+    $parser->strip_verbatim_indent(\&trim_leading_whitespace);
+
     $parser->codes_in_verbatim(0);
     $parser->accept_targets(qw(html HTML));
     $parser->no_errata_section(!$Poderrors); # note the inverse
@@ -840,6 +844,26 @@ sub relativize_url {
     }
 
     return $rel_path;
+}
+
+# Remove any level of indentation (spaces or tabs) from each code block consistently
+# Adapted from: https://metacpan.org/source/HAARG/MetaCPAN-Pod-XHTML-0.002001/lib/Pod/Simple/Role/StripVerbatimIndent.pm
+sub trim_leading_whitespace {
+    my ($para) = @_;
+
+    # Start by converting tabs to spaces
+    @$para = Text::Tabs::expand(@$para);
+
+    # Find the line with the least amount of indent, as that's our "base"
+    my @indent_levels = (sort(map { $_ =~ /^( *)./mg } @$para));
+    my $indent        = $indent_levels[0] || "";
+
+    # Remove the "base" amount of indent from each line
+    foreach (@$para) {
+        $_ =~ s/^\Q$indent//mg;
+    }
+
+    return;
 }
 
 1;

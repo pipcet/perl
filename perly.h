@@ -4,14 +4,14 @@
    Any changes made here will be lost!
  */
 
-#define PERL_BISON_VERSION  30003
+#define PERL_BISON_VERSION  30005
 
 #ifdef PERL_CORE
-/* A Bison parser, made by GNU Bison 3.3.2.  */
+/* A Bison parser, made by GNU Bison 3.5.1.  */
 
 /* Bison interface for Yacc-like parsers in C
 
-   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2019 Free Software Foundation,
+   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2020 Free Software Foundation,
    Inc.
 
    This program is free software: you can redistribute it and/or modify
@@ -63,86 +63,107 @@ extern int yydebug;
     GRAMFULLSTMT = 262,
     GRAMSTMTSEQ = 263,
     GRAMSUBSIGNATURE = 264,
-    BAREWORD = 265,
-    METHOD = 266,
-    FUNCMETH = 267,
-    THING = 268,
-    PMFUNC = 269,
-    PRIVATEREF = 270,
-    QWLIST = 271,
-    FUNC0OP = 272,
-    FUNC0SUB = 273,
-    UNIOPSUB = 274,
-    LSTOPSUB = 275,
-    PLUGEXPR = 276,
-    PLUGSTMT = 277,
-    LABEL = 278,
-    FORMAT = 279,
-    SUB = 280,
-    SIGSUB = 281,
-    ANONSUB = 282,
-    ANON_SIGSUB = 283,
-    PACKAGE = 284,
-    USE = 285,
-    WHILE = 286,
-    UNTIL = 287,
-    IF = 288,
-    UNLESS = 289,
-    ELSE = 290,
-    ELSIF = 291,
-    CONTINUE = 292,
-    FOR = 293,
-    GIVEN = 294,
-    WHEN = 295,
-    DEFAULT = 296,
-    LOOPEX = 297,
-    DOTDOT = 298,
-    YADAYADA = 299,
-    FUNC0 = 300,
-    FUNC1 = 301,
-    FUNC = 302,
-    UNIOP = 303,
-    LSTOP = 304,
-    MULOP = 305,
-    ADDOP = 306,
-    DOLSHARP = 307,
-    DO = 308,
-    HASHBRACK = 309,
-    NOAMP = 310,
-    LOCAL = 311,
-    MY = 312,
-    REQUIRE = 313,
-    COLONATTR = 314,
-    FORMLBRACK = 315,
-    FORMRBRACK = 316,
-    SUBLEXSTART = 317,
-    SUBLEXEND = 318,
-    PREC_LOW = 319,
-    OROP = 320,
-    DOROP = 321,
-    ANDOP = 322,
-    NOTOP = 323,
-    ASSIGNOP = 324,
-    OROR = 325,
-    DORDOR = 326,
-    ANDAND = 327,
-    BITOROP = 328,
-    BITANDOP = 329,
-    CHEQOP = 330,
-    NCEQOP = 331,
-    CHRELOP = 332,
-    NCRELOP = 333,
-    SHIFTOP = 334,
-    MATCHOP = 335,
-    UMINUS = 336,
-    REFGEN = 337,
-    POWOP = 338,
-    PREINC = 339,
-    PREDEC = 340,
-    POSTINC = 341,
-    POSTDEC = 342,
-    POSTJOIN = 343,
-    ARROW = 344
+    PERLY_AMPERSAND = 265,
+    PERLY_BRACE_OPEN = 266,
+    PERLY_BRACE_CLOSE = 267,
+    PERLY_BRACKET_OPEN = 268,
+    PERLY_BRACKET_CLOSE = 269,
+    PERLY_COMMA = 270,
+    PERLY_DOLLAR = 271,
+    PERLY_DOT = 272,
+    PERLY_EQUAL_SIGN = 273,
+    PERLY_MINUS = 274,
+    PERLY_PERCENT_SIGN = 275,
+    PERLY_PLUS = 276,
+    PERLY_SEMICOLON = 277,
+    PERLY_SLASH = 278,
+    PERLY_SNAIL = 279,
+    PERLY_STAR = 280,
+    BAREWORD = 281,
+    METHOD = 282,
+    FUNCMETH = 283,
+    THING = 284,
+    PMFUNC = 285,
+    PRIVATEREF = 286,
+    QWLIST = 287,
+    FUNC0OP = 288,
+    FUNC0SUB = 289,
+    UNIOPSUB = 290,
+    LSTOPSUB = 291,
+    PLUGEXPR = 292,
+    PLUGSTMT = 293,
+    LABEL = 294,
+    FORMAT = 295,
+    SUB = 296,
+    SIGSUB = 297,
+    ANONSUB = 298,
+    ANON_SIGSUB = 299,
+    PACKAGE = 300,
+    USE = 301,
+    WHILE = 302,
+    UNTIL = 303,
+    IF = 304,
+    UNLESS = 305,
+    ELSE = 306,
+    ELSIF = 307,
+    CONTINUE = 308,
+    FOR = 309,
+    GIVEN = 310,
+    WHEN = 311,
+    DEFAULT = 312,
+    LOOPEX = 313,
+    DOTDOT = 314,
+    YADAYADA = 315,
+    FUNC0 = 316,
+    FUNC1 = 317,
+    FUNC = 318,
+    UNIOP = 319,
+    LSTOP = 320,
+    MULOP = 321,
+    ADDOP = 322,
+    DOLSHARP = 323,
+    DO = 324,
+    HASHBRACK = 325,
+    NOAMP = 326,
+    LOCAL = 327,
+    MY = 328,
+    REQUIRE = 329,
+    COLONATTR = 330,
+    FORMLBRACK = 331,
+    FORMRBRACK = 332,
+    SUBLEXSTART = 333,
+    SUBLEXEND = 334,
+    PREC_LOW = 335,
+    OROP = 336,
+    ANDOP = 337,
+    NOTOP = 338,
+    ASSIGNOP = 339,
+    PERLY_QUESTION_MARK = 340,
+    PERLY_COLON = 341,
+    OROR = 342,
+    DORDOR = 343,
+    ANDAND = 344,
+    BITOROP = 345,
+    BITANDOP = 346,
+    CHEQOP = 347,
+    NCEQOP = 348,
+    CHRELOP = 349,
+    NCRELOP = 350,
+    SHIFTOP = 351,
+    MATCHOP = 352,
+    PERLY_EXCLAMATION_MARK = 353,
+    PERLY_TILDE = 354,
+    UMINUS = 355,
+    REFGEN = 356,
+    POWOP = 357,
+    PREINC = 358,
+    PREDEC = 359,
+    POSTINC = 360,
+    POSTDEC = 361,
+    POSTJOIN = 362,
+    ARROW = 363,
+    PERLY_PAREN_CLOSE = 364,
+    PERLY_PAREN_OPEN = 365
   };
 #endif
 
@@ -172,7 +193,6 @@ S_is_opval_token(int type) {
 #endif /* PERL_IN_TOKE_C */
 #endif /* PERL_CORE */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
-
 union YYSTYPE
 {
 
@@ -182,8 +202,8 @@ union YYSTYPE
     OP *opval;
     GV *gvval;
 
-};
 
+};
 typedef union YYSTYPE YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define YYSTYPE_IS_DECLARED 1
@@ -195,6 +215,6 @@ int yyparse (void);
 
 
 /* Generated from:
- * e5b801fdebce5c77dd8e644fc5a489cbea6af33db180e771dd9d669b12bbe0cf perly.y
- * 0947213b55d0ed11693554bea04987e886cf285f5c14cf9075fa1e7acc3f4061 regen_perly.pl
+ * 9a5909b0af5f61f96907e330008f3cdc9dadcab1417c5bcb188cb3b9f6593c01 perly.y
+ * acf1cbfd2545faeaaa58b1cf0cf9d7f98b5be0752eb7a54528ef904a9e2e1ca7 regen_perly.pl
  * ex: set ro: */

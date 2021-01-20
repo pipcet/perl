@@ -96,6 +96,7 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
       perlpacktut	Perl pack() and unpack() tutorial
     perlpod		Perl plain old documentation
     perlpodspec 	Perl plain old documentation format specification
+    perldocstyle	Perl style guide for core docs
     perlpodstyle	Perl POD style guide
     perldiag		Perl diagnostic messages
     perldeprecation     Perl deprecations
@@ -129,6 +130,7 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
     perlebcdic		Considerations for running Perl on EBCDIC platforms
 
     perlsec		Perl security
+    perlsecpolicy	Perl security report handling policy
 
     perlmod		Perl modules: how they work
     perlmodlib		Perl modules: how to write and use
@@ -170,6 +172,7 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
     perlhacktut 	Walk through the creation of a simple C code patch
     perlhacktips	Tips for Perl core C code hacking
     perlpolicy		Perl development policies
+    perlgov		Perl Rules of Governance
     perlgit		Using git with the Perl repository
 
 =head2 Miscellaneous
@@ -181,6 +184,12 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
 
     perlhist		Perl history records
     perldelta		Perl changes since previous version
+    perl5335delta	Perl changes in version 5.33.5
+    perl5334delta	Perl changes in version 5.33.4
+    perl5333delta	Perl changes in version 5.33.3
+    perl5332delta	Perl changes in version 5.33.2
+    perl5331delta	Perl changes in version 5.33.1
+    perl5330delta	Perl changes in version 5.33.0
     perl5320delta	Perl changes in version 5.32.0
     perl5303delta	Perl changes in version 5.30.3
     perl5302delta	Perl changes in version 5.30.2
@@ -253,7 +262,7 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
 
 =for buildtoc flag +r
 
-    perlcn		Perl for Simplified Chinese (in EUC-CN)
+    perlcn		Perl for Simplified Chinese (in UTF-8)
     perljp		Perl for Japanese (in EUC-JP)
     perlko		Perl for Korean (in EUC-KR)
     perltw		Perl for Traditional Chinese (in Big5)
@@ -283,7 +292,6 @@ aux h2ph h2xs perlbug pl2pm pod2html pod2man splain xsubpp
     perlqnx		Perl notes for QNX
     perlriscos		Perl notes for RISC OS
     perlsolaris 	Perl notes for Solaris
-    perlsymbian 	Perl notes for Symbian
     perlsynology 	Perl notes for Synology
     perltru64		Perl notes for Tru64
     perlvms		Perl notes for VMS
