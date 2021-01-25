@@ -4,7 +4,7 @@ use strict;
 our ( %released, %version, %families, %upstream, %bug_tracker, %deprecated, %delta );
 
 use version;
-our $VERSION = '5.20210120';
+our $VERSION = '5.20210220';
 
 sub PKG_PATTERN () { q#\A[a-zA-Z_][0-9a-zA-Z_]*(?:(::|')[0-9a-zA-Z_]+)*\z# }
 sub _looks_like_invocant ($) { local $@; !!eval { $_[0]->isa(__PACKAGE__) } }
@@ -373,6 +373,8 @@ sub changes_between {
     5.033004 => '2020-11-20',
     5.033005 => '2020-12-20',
     5.033006 => '2021-01-20',
+    5.032001 => '2021-01-23',
+    5.033007 => '2021-02-20',
   );
 
 for my $version ( sort { $a <=> $b } keys %released ) {
@@ -18199,13 +18201,135 @@ for my $version ( sort { $a <=> $b } keys %released ) {
         delta_from => 5.033005,
         changed => {
             'B::Op_private'         => '5.033006',
+            'Carp'                  => '1.52',
+            'Carp::Heavy'           => '1.52',
+            'Compress::Raw::Bzip2'  => '2.100',
+            'Compress::Raw::Zlib'   => '2.100',
+            'Compress::Zlib'        => '2.100',
             'Config'                => '5.033006',
+            'DynaLoader'            => '1.50',
+            'ExtUtils::Command'     => '7.58',
+            'ExtUtils::Command::MM' => '7.58',
+            'ExtUtils::Liblist'     => '7.58',
+            'ExtUtils::Liblist::Kid'=> '7.58',
+            'ExtUtils::MM'          => '7.58',
+            'ExtUtils::MM_AIX'      => '7.58',
+            'ExtUtils::MM_Any'      => '7.58',
+            'ExtUtils::MM_BeOS'     => '7.58',
+            'ExtUtils::MM_Cygwin'   => '7.58',
+            'ExtUtils::MM_DOS'      => '7.58',
+            'ExtUtils::MM_Darwin'   => '7.58',
+            'ExtUtils::MM_MacOS'    => '7.58',
+            'ExtUtils::MM_NW5'      => '7.58',
+            'ExtUtils::MM_OS2'      => '7.58',
+            'ExtUtils::MM_OS390'    => '7.58',
+            'ExtUtils::MM_QNX'      => '7.58',
+            'ExtUtils::MM_UWIN'     => '7.58',
+            'ExtUtils::MM_Unix'     => '7.58',
+            'ExtUtils::MM_VMS'      => '7.58',
+            'ExtUtils::MM_VOS'      => '7.58',
+            'ExtUtils::MM_Win32'    => '7.58',
+            'ExtUtils::MM_Win95'    => '7.58',
+            'ExtUtils::MY'          => '7.58',
+            'ExtUtils::MakeMaker'   => '7.58',
+            'ExtUtils::MakeMaker::Config'=> '7.58',
+            'ExtUtils::MakeMaker::Locale'=> '7.58',
+            'ExtUtils::MakeMaker::version'=> '7.58',
+            'ExtUtils::MakeMaker::version::regex'=> '7.58',
+            'ExtUtils::Manifest'    => '1.73',
+            'ExtUtils::Mkbootstrap' => '7.58',
+            'ExtUtils::Mksymlists'  => '7.58',
+            'ExtUtils::testlib'     => '7.58',
+            'GDBM_File'             => '1.19',
+            'IO'                    => '1.45',
+            'IO::Compress::Adapter::Bzip2'=> '2.100',
+            'IO::Compress::Adapter::Deflate'=> '2.100',
+            'IO::Compress::Adapter::Identity'=> '2.100',
+            'IO::Compress::Base'    => '2.100',
+            'IO::Compress::Base::Common'=> '2.100',
+            'IO::Compress::Bzip2'   => '2.100',
+            'IO::Compress::Deflate' => '2.100',
+            'IO::Compress::Gzip'    => '2.100',
+            'IO::Compress::Gzip::Constants'=> '2.100',
+            'IO::Compress::RawDeflate'=> '2.100',
+            'IO::Compress::Zip'     => '2.100',
+            'IO::Compress::Zip::Constants'=> '2.100',
+            'IO::Compress::Zlib::Constants'=> '2.100',
+            'IO::Compress::Zlib::Extra'=> '2.100',
+            'IO::Dir'               => '1.45',
+            'IO::File'              => '1.45',
+            'IO::Handle'            => '1.45',
+            'IO::Pipe'              => '1.45',
+            'IO::Poll'              => '1.45',
+            'IO::Seekable'          => '1.45',
+            'IO::Select'            => '1.45',
+            'IO::Socket'            => '1.45',
+            'IO::Socket::INET'      => '1.45',
+            'IO::Socket::UNIX'      => '1.45',
+            'IO::Uncompress::Adapter::Bunzip2'=> '2.100',
+            'IO::Uncompress::Adapter::Identity'=> '2.100',
+            'IO::Uncompress::Adapter::Inflate'=> '2.100',
+            'IO::Uncompress::AnyInflate'=> '2.100',
+            'IO::Uncompress::AnyUncompress'=> '2.100',
+            'IO::Uncompress::Base'  => '2.100',
+            'IO::Uncompress::Bunzip2'=> '2.100',
+            'IO::Uncompress::Gunzip'=> '2.100',
+            'IO::Uncompress::Inflate'=> '2.100',
+            'IO::Uncompress::RawInflate'=> '2.100',
+            'IO::Uncompress::Unzip' => '2.100',
             'Module::CoreList'      => '5.20210120',
             'Module::CoreList::Utils'=> '5.20210120',
+            'Net::Cmd'              => '3.13',
+            'Net::Config'           => '3.13',
+            'Net::Domain'           => '3.13',
+            'Net::FTP'              => '3.13',
+            'Net::FTP::A'           => '3.13',
+            'Net::FTP::E'           => '3.13',
+            'Net::FTP::I'           => '3.13',
+            'Net::FTP::L'           => '3.13',
+            'Net::FTP::dataconn'    => '3.13',
+            'Net::NNTP'             => '3.13',
+            'Net::Netrc'            => '3.13',
+            'Net::POP3'             => '3.13',
+            'Net::SMTP'             => '3.13',
+            'Net::Time'             => '3.13',
+            'POSIX'                 => '1.97',
+            'Socket'                => '2.031',
+            'XS::APItest'           => '1.15',
+            'feature'               => '1.62',
+            'warnings'              => '1.50',
         },
         removed => {
         }
-    }
+    },
+    5.032001 => {
+        delta_from => 5.032000,
+        changed => {
+            'B::Op_private'         => '5.032001',
+            'Config'                => '5.032001',
+            'Data::Dumper'          => '2.174_01',
+            'DynaLoader'            => '1.47_01',
+            'ExtUtils::Liblist::Kid'=> '7.44_01',
+            'Module::CoreList'      => '5.20210123',
+            'Module::CoreList::Utils'=> '5.20210123',
+            'Opcode'                => '1.48',
+            'Safe'                  => '2.41_01',
+            'Win32API::File::inc::ExtUtils::Myconst2perl'=> '1',
+        },
+        removed => {
+        }
+    },
+    5.033007 => {
+        delta_from => 5.033006,
+        changed => {
+            'B::Op_private'         => '5.033007',
+            'Config'                => '5.033007',
+            'Module::CoreList'      => '5.20210220',
+            'Module::CoreList::Utils'=> '5.20210220',
+        },
+        removed => {
+        }
+    },
 );
 
 sub is_core
@@ -19371,6 +19495,20 @@ sub is_core
     },
     5.033006 => {
         delta_from => 5.033005,
+        changed => {
+        },
+        removed => {
+        }
+    },
+    5.032001 => {
+        delta_from => 5.032,
+        changed => {
+        },
+        removed => {
+        }
+    },
+    5.033007 => {
+        delta_from => 5.033006,
         changed => {
         },
         removed => {
