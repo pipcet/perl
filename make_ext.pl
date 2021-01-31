@@ -616,6 +616,7 @@ sub _unlink {
 # savings are impressive.
 
 sub just_pm_to_blib {
+    return 1;
     my ($target, $ext_dir, $mname, $return_dir) = @_;
     my ($has_lib, $has_top, $has_topdir);
     my ($last) = $mname =~ /([^:]+)$/;
