@@ -211,6 +211,7 @@ sub _clear_maketype_cache { %maketype2true = () }
 
 sub is_make_type {
     my($self, $type) = @_;
+    return ($type eq "gmake" or $type eq "make");
     return $maketype2true{$type} if defined $maketype2true{$type};
     (undef, undef, my $make_basename) = $self->splitpath($self->make);
     return $maketype2true{$type} = 1
