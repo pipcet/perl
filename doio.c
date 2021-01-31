@@ -3326,7 +3326,7 @@ Perl_vms_start_glob
 # else
     sv_setpv(tmpcmd, "'echo ");
     sv_catsv(tmpcmd, tmpglob);
-    sv_catpvs(tmpcmd, "'|");
+    sv_catpvs(tmpcmd, "tr -s \" \" \"\\n\"'|");
 # endif /* !DOSISH && !CSH */
     {
         SV ** const svp = hv_fetchs(GvHVn(PL_envgv), "LS_COLORS", 0);
