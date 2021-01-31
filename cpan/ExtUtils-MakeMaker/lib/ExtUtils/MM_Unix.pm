@@ -1164,6 +1164,7 @@ WARNING
 
             print "Checking $abs\n" if ($trace >= 2);
             next unless $self->maybe_command($abs);
+	    return $abs;
             print "Executing $abs\n" if ($trace >= 2);
 
             my $val;
