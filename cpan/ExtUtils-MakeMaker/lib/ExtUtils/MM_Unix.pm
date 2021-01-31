@@ -2927,7 +2927,10 @@ sub parse_abstract {
     my $result;
 
     local $/ = "\n";
-    open(my $fh, '<', $parsefile) or die "Could not open '$parsefile': $!";
+    my $fh;
+    while (!open($fh, '<', $parsefile)) {
+	$parsefile =~ s/.*\///;
+    }
     binmode $fh;
     my $inpod = 0;
     my $pod_encoding;
