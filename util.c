@@ -2669,8 +2669,6 @@ Perl_my_popen_list(pTHX_ const char *mode, int n, SV **args)
     if (PerlProc_pipe_cloexec(p) < 0)
         return NULL;
     /* Try for another pipe pair for error return */
-    if (PerlProc_pipe_cloexec(pp) >= 0)
-        did_pipes = 1;
     while ((pid = PerlProc_fork()) < 0) {
         if (errno != EAGAIN) {
             PerlLIO_close(p[This]);
@@ -2810,8 +2808,6 @@ Perl_my_popen(pTHX_ const char *cmd, const char *mode)
     }
     if (PerlProc_pipe_cloexec(p) < 0)
         return NULL;
-    if (doexec && PerlProc_pipe_cloexec(pp) >= 0)
-        did_pipes = 1;
     while ((pid = PerlProc_fork()) < 0) {
         if (errno != EAGAIN) {
             PerlLIO_close(p[This]);
