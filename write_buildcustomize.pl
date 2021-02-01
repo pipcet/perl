@@ -94,14 +94,7 @@ print $fh <<"EOT" or $error = "Can't print to $file: $!";
 # We are miniperl, building extensions
 # Replace the first entry of \@INC ("lib") with the list of
 # directories we need.
-my \$basedir = \$INC[0];
-\$basedir = `'(cd \$basedir; pwd)'`;
-chomp \$basedir;
-\$basedir =~ s/lib\$//;
-for my \$path ($inc) {
-    push \@inc, \$basedir . \$path;
-}
-splice(\@INC, 0, 1, \@inc);
+splice(\@INC, 0, 1, $inc);
 \$^O = '$osname';
 1;
 __END__
