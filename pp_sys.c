@@ -4364,8 +4364,6 @@ PP(pp_system)
         sigset_t newset, oldset;
 #endif
 
-        if (PerlProc_pipe_cloexec(pp) >= 0)
-            did_pipes = 1;
 #ifdef __amigaos4__
         amigaos_fork_set_userdata(aTHX_
                                   &userdata,
