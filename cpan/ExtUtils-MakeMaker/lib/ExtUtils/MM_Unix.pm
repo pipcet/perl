@@ -2523,10 +2523,8 @@ all entries in the directory that match the regular expression.
 sub lsdir {
     #  $self
     my(undef, $dir, $regex) = @_;
-    opendir(my $dh, defined($dir) ? $dir : ".")
-        or return;
-    my @ls = readdir $dh;
-    closedir $dh;
+    my @ls = `perl -e 'print join(chr(10), glob "\*")'`;
+    map { chomp } @ls;
     @ls = grep(/$regex/, @ls) if defined $regex;
     @ls;
 }
