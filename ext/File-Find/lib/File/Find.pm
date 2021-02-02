@@ -382,7 +382,7 @@ sub _find_dir($$$) {
 	$dir= $dir_name; # $File::Find::dir
 
 	# Get the list of files in the current directory.
-        @filenames = `perl -e 'join("\n", glob("*"))'`
+        @filenames = `perl -e "print join(\\"\\n\\", glob(\\"*\\"))"`;
         map { chomp } @filenames;
 	@filenames = $pre_process->(@filenames) if $pre_process;
 	push @Stack,[$CdLvl,$dir_name,"",-2]   if $post_process;
@@ -611,7 +611,7 @@ sub _find_dir_symlnk($$$) {
 	$dir = $dir_name; # $File::Find::dir
 
 	# Get the list of files in the current directory.
-        @filenames = `perl -e 'join("\n", glob("*"))'`
+        @filenames = `perl -e "print join(\\"\\n\\", glob(\\"*\\"))"`;
         map { chomp } @filenames;
 
 	for my $FN (@filenames) {
