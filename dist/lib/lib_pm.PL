@@ -3,9 +3,7 @@ use File::Basename qw(&basename &dirname);
 use File::Spec;
 use Cwd;
 
-my $origdir = cwd;
-chdir dirname($0);
-my $file = basename($0, '.PL');
+my $file = basename("lib_pm.PL", '.PL');
 $file =~ s/_(pm)$/.$1/i;
 
 my $useConfig;
@@ -287,4 +285,3 @@ This package has the same copyright and license as the perl core.
 !NO!SUBS!
 
 close OUT or die "Can't close $file: $!";
-chdir $origdir;
