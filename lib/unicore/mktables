@@ -19800,15 +19800,12 @@ END
 
 # Put into %potential_files a list of all the files in the directory structure
 # that could be inputs to this program
-File::Find::find({
-    wanted=>sub {
-        return unless / \. ( txt | htm l? ) $ /xi;  # Some platforms change the
-                                                    # name's case
-        my $full = lc(File::Spec->rel2abs($_));
-        $potential_files{$full} = 1;
-        return;
-    }
-}, File::Spec->curdir());
+my @files = `find -type f`;
+map { chomp } @files;
+for (@files) {
+    next unless / \. ( txt | htm l? ) $ /xi;  # Some platforms change the
+    $potential_files{$_} = 1;
+}
 
 my @mktables_list_output_files;
 my $old_start_time = 0;
