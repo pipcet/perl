@@ -3047,13 +3047,10 @@ sub _perl_header_files {
     my $self = shift;
 
     my $header_dir = $self->{PERL_SRC} || $ENV{PERL_SRC} || $self->catdir($Config{archlibexp}, 'CORE');
-    opendir my $dh, $header_dir
-        or die "Failed to opendir '$header_dir' to find header files: $!";
-
+    my @perl_headers = `bash -c '(cd $header_dir; ls *.h)'`;
+    map { chomp } @perl_headers;
     # we need to use a temporary here as the sort in scalar context would have undefined results.
-    my @perl_headers= sort grep { /\.h\z/ } readdir($dh);
-
-    closedir $dh;
+    @perl_headers = sort @perl_headers;
 
     return @perl_headers;
 }
