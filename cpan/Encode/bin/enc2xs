@@ -995,27 +995,23 @@ use vars qw(
 );
 
 sub find_e2x{
-    eval { require File::Find; };
     my (@inc, %e2x_dir);
     for my $inc (@INC){
     push @inc, $inc unless $inc eq '.'; #skip current dir
     }
-    File::Find::find(
-         sub {
-         my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
-             $atime,$mtime,$ctime,$blksize,$blocks)
-             = lstat($_) or return;
-         -f _ or return;
-         if (/^.*\.e2x$/o){
-             no warnings 'once';
-             $e2x_dir{$File::Find::dir} ||= $mtime;
-         }
-         return;
-         }, @inc);
+    for (@inc)  {
+	my @files = `find -type f $_`;
+	map { chomp } @files;
+	for my $file (@files) {
+	    my $dir = $file;
+	    $dir =~ s/\/[^\/]*$//;
+	    $e2x_dir{$dir} ||= time;
+	}
+    }
     warn join("\n", keys %e2x_dir), "\n";
     for my $d (sort {$e2x_dir{$a} <=> $e2x_dir{$b}} keys %e2x_dir){
     $_E2X = $d;
-    # warn "$_E2X => ", scalar localtime($e2x_dir{$d});
+    warn "$_E2X => ", scalar localtime($e2x_dir{$d});
     return $_E2X;
     }
 }
