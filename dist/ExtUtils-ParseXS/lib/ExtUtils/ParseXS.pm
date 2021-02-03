@@ -314,8 +314,10 @@ EOM
 
     if ($self->check_keyword("BOOT")) {
       check_conditional_preprocessor_statements($self);
-      push (@{ $BootCode_ref }, "#line $self->{line_no}->[@{ $self->{line_no} } - @{ $self->{line} }] \""
-                                . escape_file_for_line_directive($self->{filepathname}) . "\"")
+      push (@{ $BootCode_ref },
+            sprintf("#line %d \"%s\"",
+                    $self->{line_no}->[@{ $self->{line_no} } - @{ $self->{line} }],
+                    escape_file_for_line_directive($self->{filepathname})))
         if $self->{WantLineNumbers} && $self->{line}->[0] !~ /^\s*#\s*line\b/;
       push (@{ $BootCode_ref }, @{ $self->{line} }, "");
       next PARAGRAPH;
