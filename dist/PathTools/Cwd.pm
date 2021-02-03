@@ -383,6 +383,9 @@ sub chdir {
 sub _perl_abs_path
 {
     my $start = @_ ? shift : '.';
+    my $path = `bash -c '(cd $start; pwd)'`;
+    chomp $path;
+    return $path;
     my($dotdots, $cwd, @pst, @cst, $dir, @tst);
 
     unless (@cst = stat( $start ))
