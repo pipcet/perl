@@ -44,14 +44,14 @@ my %not_here =
  qw(cp932.ucm cp936.ucm cp949.ucm cp950.ucm),  # CJK
  );
 
-opendir(ENC,catdir(updir(),'ucm')) or die $!;
-while (defined(my $file = readdir(ENC)))
-{
+my $dir = catdir(updir(),'ucm');
+my @files = `cd $dir; ls *.ucm`;
+map { chomp } @files;
+for my $file (@files) {
     $file =~ /^(8859|cp).*\.ucm$/io or next;
     $not_here{$file} and next;
     push(@{$tables{byte_t}},$file);
 }
-closedir(ENC);
 
 WriteMakefile(
               INC		=> "-I../Encode",
