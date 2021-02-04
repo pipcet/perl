@@ -984,6 +984,7 @@ lib/buildcustomize.pl: $& $(miniperl_objs) write_buildcustomize.pl
 	    $(miniperl_objs) $(libs)
 #	$(LDLIBPTH) ./miniperl$(HOST_EXE_EXT) -w -Ilib -Idist/Exporter/lib -MExporter -e '<?>' || sh -c 'echo >&2 Failed to build miniperl.  Please run make minitest; exit 1'
         $$WASMDIR/tools/bin/elf-to-wasm $(MINIPERL_EXE) > $(MINIPERL_EXE).wasm
+        test -x $$WASMDIR/tools/bin/wasm-opt && $$WASMDIR/tools/bin/wasm-opt -O4 $(MINIPERL_EXE).wasm -o $(MINIPERL_EXE).wasm.opt && mv $(MINIPERL_EXE).wasm.opt $(MINIPERL_EXE).wasm
         chmod u+x $(MINIPERL_EXE).wasm
         mv $(MINIPERL_EXE).wasm $(MINIPERL_EXE)
 	$(MINIPERL) -f write_buildcustomize.pl
