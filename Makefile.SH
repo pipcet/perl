@@ -980,9 +980,12 @@ $(MINIPERL_EXE): lib/buildcustomize.pl
 		$spitshell >>$Makefile <<'!NO!SUBS!'
 lib/buildcustomize.pl: $& $(miniperl_objs) write_buildcustomize.pl
 	-@rm -f miniperl.xok
-	$(CC) $(CLDFLAGS) -o $(MINIPERL_EXE) \
+	$(CC) $(CLDFLAGS) -static -o $(MINIPERL_EXE) \
 	    $(miniperl_objs) $(libs)
 #	$(LDLIBPTH) ./miniperl$(HOST_EXE_EXT) -w -Ilib -Idist/Exporter/lib -MExporter -e '<?>' || sh -c 'echo >&2 Failed to build miniperl.  Please run make minitest; exit 1'
+        $$WASMDIR/tools/bin/elf-to-wasm $(MINIPERL_EXE) > $(MINIPERL_EXE).wasm
+        chmod u+x $(MINIPERL_EXE).wasm
+        mv $(MINIPERL_EXE).wasm $(MINIPERL_EXE)
 	$(MINIPERL) -f write_buildcustomize.pl
 !NO!SUBS!
 		;;
