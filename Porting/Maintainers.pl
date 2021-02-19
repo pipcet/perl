@@ -138,7 +138,7 @@ use File::Glob qw(:case);
     },
 
     'autodie' => {
-        'DISTRIBUTION' => 'TODDR/autodie-2.32.tar.gz',
+        'DISTRIBUTION' => 'TODDR/autodie-2.34.tar.gz',
         'FILES'        => q[cpan/autodie],
         'EXCLUDED'     => [
             qr{benchmarks},
@@ -427,7 +427,7 @@ use File::Glob qw(:case);
     },
 
     'ExtUtils::CBuilder' => {
-        'DISTRIBUTION' => 'AMBS/ExtUtils-CBuilder-0.280235.tar.gz',
+        'DISTRIBUTION' => 'AMBS/ExtUtils-CBuilder-0.280236.tar.gz',
         'FILES'        => q[dist/ExtUtils-CBuilder],
         'EXCLUDED'     => [
             qw(README.mkdn),
@@ -481,7 +481,7 @@ use File::Glob qw(:case);
     },
 
     'ExtUtils::PL2Bat' => {
-        'DISTRIBUTION' => 'LEONT/ExtUtils-PL2Bat-0.003.tar.gz',
+        'DISTRIBUTION' => 'LEONT/ExtUtils-PL2Bat-0.004.tar.gz',
         'FILES'        => q[cpan/ExtUtils-PL2Bat],
         'EXCLUDED'     => [
             't/00-compile.t',
@@ -582,7 +582,7 @@ use File::Glob qw(:case);
     },
 
     'FindBin' => {
-        'DISTRIBUTION' => 'XSAWYERX/FindBin-0.000.tar.gz',
+        'DISTRIBUTION' => 'TODDR/FindBin-1.52.tar.gz',
         'FILES'        => q[dist/FindBin],
     },
 
@@ -627,7 +627,7 @@ use File::Glob qw(:case);
     },
 
     'IO' => {
-        'DISTRIBUTION' => 'TODDR/IO-1.42.tar.gz',
+        'DISTRIBUTION' => 'TODDR/IO-1.45.tar.gz',
         'FILES'        => q[dist/IO/],
         'EXCLUDED'     => ['t/test.pl'],
     },
@@ -674,7 +674,7 @@ use File::Glob qw(:case);
     },
 
     'JSON::PP' => {
-        'DISTRIBUTION' => 'ISHIGAKI/JSON-PP-4.05.tar.gz',
+        'DISTRIBUTION' => 'ISHIGAKI/JSON-PP-4.06.tar.gz',
         'FILES'        => q[cpan/JSON-PP],
     },
 
@@ -808,7 +808,7 @@ use File::Glob qw(:case);
     },
 
     'Module::CoreList' => {
-        'DISTRIBUTION' => 'BINGOS/Module-CoreList-5.20210120.tar.gz',
+        'DISTRIBUTION' => 'BINGOS/Module-CoreList-5.20210123.tar.gz',
         'FILES'        => q[dist/Module-CoreList],
     },
 
