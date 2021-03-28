@@ -450,7 +450,10 @@
 :         embed.h: suppress "#define foo Perl_foo"
 :
 :      autodoc.pl adds a note that this function must be explicitly called as
-:      Perl_$name with an aTHX_ parameter.
+:      Perl_$name, and with an aTHX_ parameter unless the 'T' flag is also
+:      specified.
+
+:      mnemonic: 'omit' generated macro
 :
 :   P  Pure function:
 :
@@ -3268,13 +3271,13 @@ Cp	|bool	|_is_cur_LC_category_utf8|int category
 S	|SV*	|mess_alloc
 S	|SV *	|with_queued_errors|NN SV *ex
 S	|bool	|invoke_exception_hook|NULLOK SV *ex|bool warn
-#if defined(PERL_MEM_LOG) && !defined(PERL_MEM_LOG_NOIMPL)
+#  if defined(PERL_MEM_LOG) && !defined(PERL_MEM_LOG_NOIMPL)
 ST	|void	|mem_log_common	|enum mem_log_type mlt|const UV n|const UV typesize \
 				|NN const char *type_name|NULLOK const SV *sv \
 				|Malloc_t oldalloc|Malloc_t newalloc \
 				|NN const char *filename|const int linenumber \
 				|NN const char *funcname
-#endif
+#  endif
 #endif
 
 #if defined(PERL_MEM_LOG)

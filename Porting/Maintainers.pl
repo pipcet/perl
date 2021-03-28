@@ -199,7 +199,7 @@ use File::Glob qw(:case);
     },
 
     'Compress::Raw::Bzip2' => {
-        'DISTRIBUTION' => 'PMQS/Compress-Raw-Bzip2-2.100.tar.gz',
+        'DISTRIBUTION' => 'PMQS/Compress-Raw-Bzip2-2.101.tar.gz',
         'FILES'        => q[cpan/Compress-Raw-Bzip2],
         'EXCLUDED'     => [
             qr{^t/Test/},
@@ -211,7 +211,7 @@ use File::Glob qw(:case);
     },
 
     'Compress::Raw::Zlib' => {
-        'DISTRIBUTION' => 'PMQS/Compress-Raw-Zlib-2.100.tar.gz',
+        'DISTRIBUTION' => 'PMQS/Compress-Raw-Zlib-2.101.tar.gz',
         'FILES'    => q[cpan/Compress-Raw-Zlib],
         'EXCLUDED' => [
             qr{^examples/},
@@ -633,7 +633,7 @@ use File::Glob qw(:case);
     },
 
     'IO-Compress' => {
-        'DISTRIBUTION' => 'PMQS/IO-Compress-2.100.tar.gz',
+        'DISTRIBUTION' => 'PMQS/IO-Compress-2.102.tar.gz',
         'FILES'        => q[cpan/IO-Compress],
         'EXCLUDED'     => [
             qr{^examples/},
@@ -808,7 +808,7 @@ use File::Glob qw(:case);
     },
 
     'Module::CoreList' => {
-        'DISTRIBUTION' => 'BINGOS/Module-CoreList-5.20210123.tar.gz',
+        'DISTRIBUTION' => 'BINGOS/Module-CoreList-5.20210220.tar.gz',
         'FILES'        => q[dist/Module-CoreList],
     },
 
@@ -1292,7 +1292,7 @@ use File::Glob qw(:case);
     },
 
     'Win32' => {
-        'DISTRIBUTION' => "JDB/Win32-0.54.tar.gz",
+        'DISTRIBUTION' => "JDB/Win32-0.57.tar.gz",
         'FILES'        => q[cpan/Win32],
     },
 

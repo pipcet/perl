@@ -2600,11 +2600,10 @@ Perl_magic_freemglob(pTHX_ SV *sv, MAGIC *mg)
     PERL_ARGS_ASSERT_MAGIC_FREEMGLOB;
     PERL_UNUSED_ARG(sv);
 
-    /* glob magic uses mg_len as a string length rather than a buffer
-     * length, so we need to free even with mg_len == 0: hence we can't
-     * rely on standard magic free handling */
+    /* pos() magic uses mg_len as a string position rather than a buffer
+     * length, and mg_ptr is currently unused, so skip freeing.
+     */
     assert(mg->mg_type == PERL_MAGIC_regex_global && mg->mg_len >= -1);
-    Safefree(mg->mg_ptr);
     mg->mg_ptr = NULL;
     return 0;
 }
@@ -2852,7 +2851,7 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
         paren = mg->mg_len;
         if (PL_curpm && (rx = PM_GETRE(PL_curpm))) {
           setparen_got_rx:
-            CALLREG_NUMBUF_STORE((REGEXP * const)rx,paren,sv);
+            CALLREG_NUMBUF_STORE((REGEXP *)rx,paren,sv);
         } else {
             /* Croak with a READONLY error when a numbered match var is
              * set without a previous pattern match. Unless it's C<local $1>
